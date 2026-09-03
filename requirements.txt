@@ -1,0 +1,20 @@
+# Core Framework & Settings
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+python-dotenv>=1.0.0
+
+# Database & ORM
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.9
+
+# CLI
+typer>=0.9.0
+rich>=13.7.0
+
+# Web Dashboard
+fastapi>=0.110.0
+uvicorn>=0.28.0
+jinja2>=3.1.3
+
+# Notifications & HTTP
+requests>=2.31.0
