@@ -131,17 +131,21 @@ Ada 2 cara yang bisa dipilih:
 Gunakan `docker-compose.prod.yml` yang sudah disediakan di repository:
 
 ```bash
-# Build dan jalankan background container (Postgres + Web Dashboard)
+# Build dan jalankan background container (Postgres, Web Dashboard, & Telegram Bot Daemon)
 docker compose -f docker-compose.prod.yml up -d --build
 
-# Periksa status container
+# Periksa status semua container (harus 3 running: postgres, dashboard, telegram_bot)
 docker compose -f docker-compose.prod.yml ps
 
-# Periksa log aplikasi
-docker compose -f docker-compose.prod.yml logs -f
+# Uji coba koneksi notifikasi Telegram dari container
+docker compose -f docker-compose.prod.yml run --rm dashboard python -m app.paper test-telegram
+
+# Pantau log bot Telegram secara langsung
+docker compose -f docker-compose.prod.yml logs -f telegram_bot
 ```
 
 Dashboard sekarang aktif di: `http://<IP-EKSTERNAL-GCP-VM>:8000`
+Bot Telegram otomatis aktif dan merespon `/start`, `/status`, `/positions`, dll.
 
 ---
 
@@ -204,15 +208,39 @@ Jika menggunakan instance kecil (`e2-micro`), Anda bisa menjalankan database di 
    WantedBy=multi-user.target
    ```
 
-5. **Aktifkan & Jalankan Service**:
+5. **Buat Systemd Service untuk Telegram Bot Interaktif 24/7**:
+   ```bash
+   sudo nano /etc/systemd/system/paper-bot.service
+   ```
+   Isi file:
+   ```ini
+   [Unit]
+   Description=Paper Trading Telegram Bot Listener
+   After=network.target
+   
+   [Service]
+   User=ubuntu
+   WorkingDirectory=/home/ubuntu/paper-trading
+   EnvironmentFile=/home/ubuntu/paper-trading/.env
+   ExecStart=/home/ubuntu/paper-trading/.venv/bin/python -m app.paper bot
+   Restart=always
+   RestartSec=10
+   
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+6. **Aktifkan & Jalankan Service**:
    ```bash
    sudo systemctl daemon-reload
    sudo systemctl enable --now paper-dashboard
    sudo systemctl enable --now paper-engine
+   sudo systemctl enable --now paper-bot
 
-   # Memeriksa status:
+   # Memeriksa status service:
    sudo systemctl status paper-dashboard
    sudo systemctl status paper-engine
+   sudo systemctl status paper-bot
    ```
 
 ---

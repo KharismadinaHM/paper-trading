@@ -30,6 +30,17 @@ services:
       - "8000:8000"
     command: uvicorn app.dashboard:app --host 0.0.0.0 --port 8000
 
+  telegram_bot:
+    build: .
+    container_name: paper_trading_telegram_bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    command: python -m app.paper bot
+
 volumes:
   postgres_data:
     driver: local
