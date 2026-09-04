@@ -2,6 +2,7 @@
 Paper Service Interface and Stub Implementation.
 Ganti implementasi fungsi di bawah ini dengan database query aktual saat wiring ke PostgreSQL/SQLAlchemy.
 """
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -179,6 +180,16 @@ def start_paper_trading(strategy: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def get_polymarket_url(market_id: str, market_name: str) -> str:
+    """
+    Menghasilkan link referensi ke market asli di Polymarket.
+    Menggunakan query pencarian terfilter di Polymarket.
+    """
+    if not market_name:
+        return "https://polymarket.com/markets"
+    return f"https://polymarket.com/markets?_q={urllib.parse.quote(str(market_name))}"
+
+
 def get_open_positions(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
     """
     Mengambil daftar posisi yang sedang terbuka (open positions)
@@ -197,6 +208,7 @@ def get_open_positions(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
         side = str(pos.get("side", "YES")).upper()
         avg_entry = Decimal(str(pos.get("average_entry_price", "0.50")))
         size = Decimal(str(pos.get("position_size", "1.00")))
+        market_name = pos.get("market_name", market_id)
 
         # Fetch live price dari Market Collector jika ada di database
         live_price: Optional[Decimal] = None
@@ -226,7 +238,7 @@ def get_open_positions(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
 
         positions_list.append({
             "id": pos.get("id", pos_key),
-            "market": pos.get("market_name", market_id),
+            "market": market_name,
             "market_id": market_id,
             "side": side,
             "entry_price": avg_entry,
@@ -241,6 +253,7 @@ def get_open_positions(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
             "now_cents": now_cents,
             "avg_to_now": avg_to_now,
             "strategy_version": pos.get("strategy_version", "manual"),
+            "polymarket_url": get_polymarket_url(market_id, market_name),
         })
 
     return positions_list
@@ -568,6 +581,7 @@ def _format_market_snapshot(
         "current_price": current_price,
         "timestamp": snap_ts,
         "is_stale": is_stale,
+        "polymarket_url": get_polymarket_url(str(snapshot.market_id), str(snapshot.market_name)),
     }
 
 
@@ -901,6 +915,7 @@ def create_paper_order(
         "strategy_version": strategy_version,
         "timestamp": now_ts.isoformat(),
         "warning": warning_message,
+        "polymarket_url": get_polymarket_url(market_id, market.get("market_name", market_id)),
     }
     _paper_orders.append(order_data)
 

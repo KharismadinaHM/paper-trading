@@ -46,6 +46,8 @@ class TestPolymarketPositionsAndTrading:
             assert "roi_pct" in p
             assert "avg_to_now" in p
             assert "¢" in p["avg_to_now"]
+            assert "polymarket_url" in p
+            assert p["polymarket_url"].startswith("https://polymarket.com/markets?_q=")
 
     def test_sell_paper_position_full(self):
         """Memastikan sell position menjual seluruh shares dan mengkredit cash balance."""

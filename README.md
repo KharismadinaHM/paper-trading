@@ -216,30 +216,42 @@ Fitur dashboard bertema **Polymarket Dark Mode**:
 - **Portfolio & Available Card**: Saldo kas riil, nilai portofolio dinamis (*Mark-to-Market*), tombol sembunyikan saldo (eye toggle), tombol **Deposit** & **Withdraw / Reset**.
 - **Profit/Loss Card**: Nilai P/L dinamis (Realized + Unrealized), filter rentang waktu (`1D`, `1W`, `1M`, `1Y`, `YTD`, `ALL`), dan grafik sparkline area glowing.
 - **Tabel Posisi Dinamis (Polymarket Style)**:
-  - Kolom: `Market` (ikon cuaca, pertanyaan, badge outcome `No 70.3¢` / `Yes 60¢`, jumlah shares), `Avg → Now`, `Traded`, `To win` (potensi payout), `Value` (dengan persentase PnL & ROI berwarna), dan tombol **Sell**.
+  - **Tampilan Judul Penuh**: Judul pertanyaan pasar cuaca tampil lengkap dan tidak terpotong teksnya (*no premature truncation*).
+  - **Direct Polymarket Reference Link**: Mengklik judul pasar akan langsung membuka link rujukan pasar terkait di platform **Polymarket** pada tab baru (`target="_blank"`).
+  - Kolom: `Market` (ikon cuaca, tautan pertanyaan pasar ke Polymarket asli, badge outcome `No 70.3¢` / `Yes 60¢`, jumlah shares), `Avg → Now`, `Traded`, `To win` (potensi payout), `Value` (dengan persentase PnL & ROI berwarna), dan tombol **Sell**.
+- **Suggested & Search Markets dengan Polymarket Link**: Kartu rekomendasi dan pencarian pasar cuaca juga dilengkapi tautan langsung ke halaman pasar Polymarket asli.
 - **Paper Sell Feature**: Jual posisi terbuka secara parsial maupun penuh langsung pada harga pasar real-time live, mengkredit saldo kas, dan mencatat riwayat transaksi.
 - **Tabs Navigasi**: Tab `Positions`, `Open Orders`, dan `History` dengan *instant search* dan dropdown pengurutan.
 - **Suggested Markets**: Rekomendasi pasar probabilitas tinggi dengan tombol **Paper Buy**.
 - **Search Market Lengkap**:
-  - Filter Kategori: `Temperature`, `Precipitation`, `Wind / Storm`, `Snow`.
+  - Filter Kategori: `Temperature` (Highest/Lowest Temp), `Precipitation` (Rain), `Wind / Storm`, `Snow`.
   - Filter Waktu Selesai (*Ending Soon*): `< 6 Hours`, `< 24 Hours`, `< 3 Days`, `< 7 Days`, `< 30 Days` disertai badge urgensi berwarna.
   - Sorting: *Ending Soonest*, *Ending Latest*, *Highest Price*, *Lowest Price*, *Market Name*.
 
 ---
 
-### 4. REST API Endpoints
+### 4. Integrasi Telegram Bot & Notifikasi Real-time
+Bot Telegram (`app/paper_trading/telegram_bot.py`) dan notifikasi sinyal (`telegram.py`) telah diperbarui:
+- **`/positions`**: Menampilkan daftar posisi terbuka lengkap dengan metrik `Avg → Now`, `Traded`, `To Win`, `Value`, `Floating P/L`, dan tautan langsung `🌐 [Buka di Polymarket](https://polymarket.com/markets?_q=...)`.
+- **`/status`**: Menampilkan ringkasan akun komprehensif mencakup *Portfolio Value (Mark-to-Market)*, *Saldo Kas (Cash)*, *Terinvestasi*, *Floating P/L*, *Realized P/L*, dan *Total P/L*.
+- **`/trades`**: Menampilkan riwayat transaksi lengkap dengan tautan pasar Polymarket.
+- **Notifikasi Signal**: Notifikasi otomatis saat Paper BUY dan Settlement kini menyertakan link rujukan pasar Polymarket.
+
+---
+
+### 5. REST API Endpoints
 
 Sistem menyediakan API publik dan internal:
 
 | Method | Endpoint | Deskripsi |
 |---|---|---|
-| `GET` | `/api/markets/suggestions` | Mengambil saran pasar mendekati resolusi ($\le 6$ jam, harga 0.70-0.75) |
-| `GET` | `/api/markets/search` | Pencarian pasar cuaca dengan filter kata kunci, kategori, harga, sisa waktu, dan sorting |
+| `GET` | `/api/markets/suggestions` | Mengambil saran pasar mendekati resolusi ($\le 6$ jam, harga 0.70-0.75) dengan `polymarket_url` |
+| `GET` | `/api/markets/search` | Pencarian pasar cuaca dengan filter kata kunci, kategori, harga, sisa waktu, dan `polymarket_url` |
 | `POST` | `/api/orders` | Membuat paper order manual dengan proteksi Anti-Stale Price |
 | `POST` | `/api/positions/sell` | Menjual/menutup posisi terbuka pada harga pasar live (*Paper Sell*) |
 | `POST` | `/api/account/deposit` | Menambah saldo akun paper trading (*Paper Deposit*) |
 | `POST` | `/api/account/reset` | Mereset akun ke saldo awal $20.00 dan me-refresh posisi default |
-| `GET` | `/api/positions` | Mengambil daftar posisi terbuka dengan valuasi dynamic Mark-to-Market |
+| `GET` | `/api/positions` | Mengambil daftar posisi terbuka dengan valuasi dynamic Mark-to-Market & `polymarket_url` |
 | `GET` | `/api/trades` | Mengambil riwayat transaksi selesai |
 | `GET` | `/api/summary` | Ringkasan saldo, portofolio, dan performa akun |
 
@@ -250,18 +262,19 @@ Sistem menyediakan API publik dan internal:
 Proyek ini dilengkapi dengan rangkaian pengujian unit menyeluruh (`pytest`):
 
 ```bash
-# Menjalankan seluruh test suite (100 test)
+# Menjalankan seluruh test suite (105 test)
 pytest -v
 
 # Menjalankan unit test modul spesifik
 pytest tests/test_positions_and_sell.py -v
+pytest tests/test_telegram_bot.py -v
 pytest tests/test_market_collector.py -v
 pytest tests/test_paper_service_db.py -v
 pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **100/100 unit test** berada dalam status **PASS**.
+Saat ini seluruh **105/105 unit test** berada dalam status **PASS**.
 
 ---
 

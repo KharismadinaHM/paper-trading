@@ -3,6 +3,7 @@ Market Suggestions Filter Engine.
 Murni query & filter data snapshot pasar tanpa kalkulasi keuangan atau settlement.
 TIDAK mengimpor atau memanggil modul settlement_engine.
 """
+import urllib.parse
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Union
@@ -13,6 +14,15 @@ def _get_attr_or_key(obj: Any, key: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
+
+def _get_polymarket_url(market_id: str, market_name: str, existing_url: Optional[str] = None) -> str:
+    """Helper untuk menghasilkan URL referensi ke Polymarket."""
+    if existing_url:
+        return str(existing_url)
+    if not market_name:
+        return "https://polymarket.com/markets"
+    return f"https://polymarket.com/markets?_q={urllib.parse.quote(str(market_name))}"
 
 
 def _parse_datetime(val: Any) -> Optional[datetime]:
@@ -148,6 +158,7 @@ def filter_market_suggestions(
             "resolution_time": res_time.isoformat(),
             "time_remaining": format_time_remaining(seconds_remaining),
             "side": matched_side,
+            "polymarket_url": _get_polymarket_url(str(market_id), str(market_name), _get_attr_or_key(m, "polymarket_url")),
         })
 
     return suggestions
@@ -303,6 +314,7 @@ def search_markets(
             "_delta_sec": delta_sec if (delta_sec is not None and delta_sec > 0) else 999999999,
             "status": str(raw_status),
             "side": str(side),
+            "polymarket_url": _get_polymarket_url(str(market_id), str(market_name), _get_attr_or_key(m, "polymarket_url")),
         })
 
     # 5. Sorting

@@ -94,6 +94,8 @@ def format_paper_buy(data: Union[Dict[str, Any], PaperBuySignal]) -> str:
     side = str(d.get("side", ""))
     expected_peak = str(d.get("expected_peak", ""))
     reason = str(d.get("reason", ""))
+    poly_url = d.get("polymarket_url") or d.get("url")
+    url_line = f"\nPolymarket: {poly_url}" if poly_url else ""
 
     return (
         "🟢 PAPER BUY\n"
@@ -104,6 +106,7 @@ def format_paper_buy(data: Union[Dict[str, Any], PaperBuySignal]) -> str:
         f"Shares: {shares}\n"
         f"Expected Peak: {expected_peak}\n"
         f"Reason: {reason}"
+        f"{url_line}"
     )
 
 
@@ -140,15 +143,21 @@ def format_paper_settled(data: Union[Dict[str, Any], PaperTradeSettled]) -> str:
     net_pnl = _format_pnl(d.get("net_pnl", ""))
     old_bal = _format_money(d.get("old_balance", ""))
     new_bal = _format_money(d.get("new_balance", ""))
+    market = d.get("market")
+    poly_url = d.get("polymarket_url") or d.get("url")
+    market_line = f"Market: {market}\n" if market else ""
+    url_line = f"\nPolymarket: {poly_url}" if poly_url else ""
 
     return (
         "✅ PAPER TRADE SETTLED\n"
+        f"{market_line}"
         f"Entry: {entry}\n"
         f"Result: {result}\n"
         f"Gross P/L: {gross_pnl}\n"
         f"Fees: {fees}\n"
         f"Net P/L: {net_pnl}\n"
         f"Balance: {old_bal} → {new_bal}"
+        f"{url_line}"
     )
 
 

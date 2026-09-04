@@ -118,6 +118,36 @@ class TestTelegramNotification(unittest.TestCase):
             self.assertFalse(res["success"])
             self.assertIn("belum diatur", res["error"])
 
+    def test_format_paper_buy_with_polymarket_url(self):
+        data = {
+            "market": "Temperature in Tokyo",
+            "side": "YES",
+            "entry_price": "0.74",
+            "position_size": "1.00",
+            "shares": "1.3514",
+            "expected_peak": "14:00",
+            "reason": "Strategy signal",
+            "polymarket_url": "https://polymarket.com/markets?_q=Tokyo",
+        }
+        msg = format_paper_buy(data)
+        self.assertIn("Polymarket: https://polymarket.com/markets?_q=Tokyo", msg)
+
+    def test_format_paper_settled_with_polymarket_url(self):
+        data = {
+            "market": "Temperature in Tokyo",
+            "entry_price": "0.74",
+            "result": "WIN",
+            "gross_pnl": "+$0.3514",
+            "fees": "$0.00",
+            "net_pnl": "+$0.3514",
+            "old_balance": "20.00",
+            "new_balance": "20.35",
+            "polymarket_url": "https://polymarket.com/markets?_q=Tokyo",
+        }
+        msg = format_paper_settled(data)
+        self.assertIn("Market: Temperature in Tokyo", msg)
+        self.assertIn("Polymarket: https://polymarket.com/markets?_q=Tokyo", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

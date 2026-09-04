@@ -101,6 +101,31 @@
             font-size: 0.78rem;
             font-weight: 600;
         }
+        .market-title-link {
+            color: #f0f6fc !important;
+            text-decoration: none;
+            line-height: 1.35;
+            display: inline;
+            word-break: normal;
+            overflow-wrap: break-word;
+            transition: color 0.15s ease;
+        }
+        .market-title-link:hover {
+            color: #38bdf8 !important;
+            text-decoration: underline !important;
+        }
+        .market-external-icon {
+            font-size: 0.72rem;
+            color: #8b949e;
+            opacity: 0.8;
+            transition: transform 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+            vertical-align: middle;
+        }
+        .market-title-link:hover .market-external-icon {
+            color: #38bdf8 !important;
+            opacity: 1;
+            transform: translate(1px, -1px);
+        }
         .time-pill {
             background: transparent;
             color: #8b949e;
@@ -432,9 +457,16 @@
                                             {% else %}
                                                 <div class="market-icon market-icon-default"><i class="bi bi-cloud-sun"></i></div>
                                             {% endif %}
-                                            <div class="overflow-hidden">
-                                                <div class="fw-semibold text-white text-truncate" style="max-width: 320px;" title="{{ m_name }}">
-                                                    {{ m_name }}
+                                            <div class="flex-grow-1" style="min-width: 260px; max-width: 480px;">
+                                                <div class="fw-semibold">
+                                                    <a href="{{ pos.polymarket_url|default('https://polymarket.com/markets?_q=' ~ m_name|urlencode) }}"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer"
+                                                       class="market-title-link"
+                                                       title="Buka {{ m_name }} di Polymarket (Tab Baru)">
+                                                        {{ m_name }}
+                                                        <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
+                                                    </a>
                                                 </div>
                                                 <div class="d-flex align-items-center gap-2 mt-1">
                                                     {% if side == 'NO' or side == 'SELL' %}
@@ -552,8 +584,15 @@
                                 {% set res = t.status|default('WON')|upper %}
                                 <tr class="history-row" data-market="{{ t.market|lower }}">
                                     <td class="text-muted-poly small text-nowrap">{{ t.date }}</td>
-                                    <td class="fw-medium text-white text-truncate" style="max-width: 280px;" title="{{ t.market }}">
-                                        {{ t.market }}
+                                    <td class="fw-medium text-white" style="min-width: 220px; max-width: 440px;" title="{{ t.market }}">
+                                        <a href="{{ t.polymarket_url|default('https://polymarket.com/markets?_q=' ~ t.market|urlencode) }}"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           class="market-title-link"
+                                           title="Buka {{ t.market }} di Polymarket (Tab Baru)">
+                                            {{ t.market }}
+                                            <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
+                                        </a>
                                     </td>
                                     <td>
                                         {% if t.side == 'NO' or t.side == 'SELL' %}
@@ -703,8 +742,15 @@
                                             <i class="bi bi-clock me-1"></i>{{ sm.time_remaining }}
                                         </span>
                                     </div>
-                                    <h6 class="fw-bold text-white mb-3" style="min-height: 44px;" title="{{ sm.market_name }}">
-                                        {{ sm.market_name }}
+                                    <h6 class="fw-bold mb-3" style="min-height: 44px;" title="{{ sm.market_name }}">
+                                        <a href="{{ sm.polymarket_url|default('https://polymarket.com/markets?_q=' ~ sm.market_name|urlencode) }}"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           class="market-title-link text-white text-decoration-none"
+                                           title="Buka {{ sm.market_name }} di Polymarket (Tab Baru)">
+                                            {{ sm.market_name }}
+                                            <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
+                                        </a>
                                     </h6>
                                 </div>
                                 <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
@@ -1444,6 +1490,7 @@
                     const safeName = document.createElement('div');
                     safeName.textContent = m.market_name;
                     const safeNameStr = safeName.innerHTML;
+                    const polyUrl = m.polymarket_url || `https://polymarket.com/markets?_q=${encodeURIComponent(m.market_name || '')}`;
 
                     html += `
                         <div class="col-md-6 col-lg-4">
@@ -1460,8 +1507,11 @@
                                     </div>
                                     <div class="d-flex gap-2 align-items-start mb-3">
                                         ${iconHtml}
-                                        <h6 class="fw-bold text-white mb-0 mt-1 line-clamp-2" style="font-size: 0.95rem; line-height: 1.4;" title="${safeNameStr}">
-                                            ${safeNameStr}
+                                        <h6 class="fw-bold mb-0 mt-1 line-clamp-2" style="font-size: 0.95rem; line-height: 1.4;" title="${safeNameStr}">
+                                            <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="market-title-link text-white text-decoration-none" title="Buka di Polymarket (Tab Baru)">
+                                                ${safeNameStr}
+                                                <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
+                                            </a>
                                         </h6>
                                     </div>
                                 </div>
@@ -1512,6 +1562,7 @@
                     const safe = document.createElement('div');
                     safe.textContent = sm.market_name;
                     const name = safe.innerHTML;
+                    const polyUrl = sm.polymarket_url || `https://polymarket.com/markets?_q=${encodeURIComponent(sm.market_name || '')}`;
                     html += `
                         <div class="col-md-6 col-lg-4">
                             <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
@@ -1522,7 +1573,12 @@
                                             <i class="bi bi-clock me-1"></i>${sm.time_remaining}
                                         </span>
                                     </div>
-                                    <h6 class="fw-bold text-white mb-3" style="min-height: 44px;">${name}</h6>
+                                    <h6 class="fw-bold mb-3" style="min-height: 44px;">
+                                        <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="market-title-link text-white text-decoration-none" title="Buka di Polymarket (Tab Baru)">
+                                            ${name}
+                                            <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
+                                        </a>
+                                    </h6>
                                 </div>
                                 <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
                                     <div>

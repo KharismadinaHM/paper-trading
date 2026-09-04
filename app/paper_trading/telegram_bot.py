@@ -6,6 +6,7 @@ dan mengirimkan balasan real-time ke pengguna Telegram.
 import logging
 import os
 import time
+import urllib.parse
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -76,8 +77,11 @@ def build_status_message() -> str:
     """Format status akun trading."""
     status = get_account_status()
     balance = _fmt_money(status.get("balance", Decimal("0.00")))
+    portfolio_val = _fmt_money(status.get("portfolio_value", status.get("balance", Decimal("0.00"))))
     invested = _fmt_money(status.get("invested", Decimal("0.00")))
     realized_pnl = _fmt_pnl(status.get("realized_pnl", Decimal("0.00")))
+    unrealized_pnl = _fmt_pnl(status.get("unrealized_pnl", Decimal("0.00")))
+    total_pnl = _fmt_pnl(status.get("total_pnl", Decimal("0.00")))
     win_rate = status.get("win_rate", Decimal("0.00"))
     open_trades = status.get("open_trades", 0)
 
@@ -89,9 +93,12 @@ def build_status_message() -> str:
     return (
         "📊 *Ringkasan Akun Paper Trading*\n"
         "────────────────────\n"
-        f"💰 *Saldo*: `{balance}`\n"
+        f"💼 *Portfolio (MTM)*: `{portfolio_val}`\n"
+        f"💰 *Saldo Kas (Cash)*: `{balance}`\n"
         f"🔒 *Terinvestasi*: `{invested}`\n"
+        f"⏳ *Floating P/L*: `{unrealized_pnl}`\n"
         f"📈 *Realized P/L*: `{realized_pnl}`\n"
+        f"💎 *Total P/L*: `{total_pnl}`\n"
         f"🎯 *Win Rate*: `{wr_pct}`\n"
         f"📂 *Posisi Aktif*: `{open_trades}` trade\n"
         "────────────────────\n"
@@ -100,7 +107,7 @@ def build_status_message() -> str:
 
 
 def build_positions_message() -> str:
-    """Format posisi aktif."""
+    """Format posisi aktif dengan link Polymarket dan metrik dinamis MTM."""
     positions = get_open_positions()
     if not positions:
         return "📈 *Posisi Terbuka*\n\nTidak ada posisi terbuka saat ini."
@@ -114,19 +121,25 @@ def build_positions_message() -> str:
         shares = pos.get("shares", 0)
         curr = _fmt_money(pos.get("current_price", 0))
         u_pnl = _fmt_pnl(pos.get("unrealized_pnl", 0))
+        current_val = _fmt_money(pos.get("current_value", pos.get("size", 0)))
+        to_win = _fmt_money(pos.get("to_win", pos.get("shares", 0)))
+        avg_to_now = pos.get("avg_to_now") or f"{entry} → {curr}"
+        roi_pct = pos.get("roi_pct", Decimal("0.00"))
+        poly_url = pos.get("polymarket_url") or f"https://polymarket.com/markets?_q={urllib.parse.quote(str(market))}"
 
         lines.append(
             f"*{i}. {market}*\n"
-            f"   • Sisi: `{side}` | Entry: `{entry}`\n"
-            f"   • Ukuran: `{size}` ({shares} shares)\n"
-            f"   • Harga Saat Ini: `{curr}`\n"
-            f"   • Floating P/L: *{u_pnl}*\n"
+            f"   • Sisi: `{side}` | Shares: `{shares}`\n"
+            f"   • Avg → Now: `{avg_to_now}`\n"
+            f"   • Traded: `{size}` | To Win: `{to_win}`\n"
+            f"   • Value: `{current_val}` | P/L: *{u_pnl}* ({float(roi_pct):+.1f}%)\n"
+            f"   🌐 [Buka di Polymarket]({poly_url})\n"
         )
     return "\n".join(lines)
 
 
 def build_trades_message(limit: int = 5) -> str:
-    """Format riwayat transaksi terakhir."""
+    """Format riwayat transaksi terakhir dengan link Polymarket."""
     trades = get_trade_history(limit=limit)
     if not trades:
         return "📜 *Riwayat Transaksi*\n\nBelum ada transaksi yang selesai."
@@ -139,11 +152,13 @@ def build_trades_message(limit: int = 5) -> str:
         exit_p = _fmt_money(t.get("exit_price", 0))
         net_pnl = _fmt_pnl(t.get("net_pnl", 0))
         date = t.get("date", "")
+        poly_url = t.get("polymarket_url") or f"https://polymarket.com/markets?_q={urllib.parse.quote(str(market))}"
 
         lines.append(
             f"{status_icon} *{market}*\n"
             f"   • Entry: `{entry}` → Exit: `{exit_p}`\n"
             f"   • Net P/L: *{net_pnl}* | Waktu: `{date}`\n"
+            f"   🌐 [Buka di Polymarket]({poly_url})\n"
         )
     return "\n".join(lines)
 

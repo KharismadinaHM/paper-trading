@@ -61,6 +61,25 @@ class TestTelegramBotCommands(unittest.TestCase):
         reply = handle_incoming_message("/foobar", sender_chat_id="123", allowed_chat_id="123")
         self.assertIn("tidak dikenal", reply)
 
+    def test_positions_contains_polymarket_links_and_mtm(self):
+        reply = handle_incoming_message("/positions", sender_chat_id="123", allowed_chat_id="123")
+        self.assertIn("Posisi Terbuka", reply)
+        self.assertIn("[Buka di Polymarket](https://polymarket.com/markets?_q=", reply)
+        self.assertIn("Avg → Now", reply)
+        self.assertIn("Value:", reply)
+        self.assertIn("To Win:", reply)
+
+    def test_status_contains_portfolio_mtm(self):
+        reply = handle_incoming_message("/status", sender_chat_id="123", allowed_chat_id="123")
+        self.assertIn("Portfolio (MTM)", reply)
+        self.assertIn("Saldo Kas (Cash)", reply)
+        self.assertIn("Floating P/L", reply)
+
+    def test_trades_contains_polymarket_links(self):
+        reply = handle_incoming_message("/trades", sender_chat_id="123", allowed_chat_id="123")
+        self.assertIn("Riwayat Transaksi", reply)
+        self.assertIn("[Buka di Polymarket](https://polymarket.com/markets?_q=", reply)
+
 
 if __name__ == "__main__":
     unittest.main()
