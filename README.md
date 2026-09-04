@@ -75,6 +75,7 @@ Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cua
 │   ├── test_metrics.py           # Unit test kalkulasi metrik & drawdown
 │   ├── test_orders_endpoint.py   # Unit test POST /api/orders & anti-stale protection
 │   ├── test_paper_service_db.py  # Unit test query DB real get_market_snapshots & by_id
+│   ├── test_positions_and_sell.py# Unit test Polymarket positions, Paper Sell, deposit & filter
 │   ├── test_settlement_engine.py # Unit test kalkulasi settlement & proteksi risiko
 │   ├── test_telegram.py          # Unit test format pesan Telegram
 │   └── test_telegram_bot.py      # Unit test command bot interaktif Telegram
@@ -211,14 +212,18 @@ uvicorn app.dashboard:app --reload --port 8000
 ```
 Buka peramban di: **`http://localhost:8000`**
 
-Fitur dashboard:
-- **Account Summary Card**: Saldo berjalan, Realized P/L, dan ROI.
-- **Performance Overview**: Total trade, Win Rate, dan Maximum Drawdown.
-- **Equity Curve**: Grafik interaktif saldo vs. waktu menggunakan Chart.js.
-- **Suggested Markets**: Kartu pasar cuaca rekomendasi mendekati resolusi dengan tombol **Paper Buy**.
-- **Search Market**: Pencarian langsung pasar cuaca Polymarket dengan filter kategori dan harga.
-- **Modal Paper Buy**: Form eksekusi order paper trading manual dengan validasi risiko dan harga real-time live.
-- **Tabel Data**: Posisi aktif dan riwayat transaksi tertutup.
+Fitur dashboard bertema **Polymarket Dark Mode**:
+- **Portfolio & Available Card**: Saldo kas riil, nilai portofolio dinamis (*Mark-to-Market*), tombol sembunyikan saldo (eye toggle), tombol **Deposit** & **Withdraw / Reset**.
+- **Profit/Loss Card**: Nilai P/L dinamis (Realized + Unrealized), filter rentang waktu (`1D`, `1W`, `1M`, `1Y`, `YTD`, `ALL`), dan grafik sparkline area glowing.
+- **Tabel Posisi Dinamis (Polymarket Style)**:
+  - Kolom: `Market` (ikon cuaca, pertanyaan, badge outcome `No 70.3¢` / `Yes 60¢`, jumlah shares), `Avg → Now`, `Traded`, `To win` (potensi payout), `Value` (dengan persentase PnL & ROI berwarna), dan tombol **Sell**.
+- **Paper Sell Feature**: Jual posisi terbuka secara parsial maupun penuh langsung pada harga pasar real-time live, mengkredit saldo kas, dan mencatat riwayat transaksi.
+- **Tabs Navigasi**: Tab `Positions`, `Open Orders`, dan `History` dengan *instant search* dan dropdown pengurutan.
+- **Suggested Markets**: Rekomendasi pasar probabilitas tinggi dengan tombol **Paper Buy**.
+- **Search Market Lengkap**:
+  - Filter Kategori: `Temperature`, `Precipitation`, `Wind / Storm`, `Snow`.
+  - Filter Waktu Selesai (*Ending Soon*): `< 6 Hours`, `< 24 Hours`, `< 3 Days`, `< 7 Days`, `< 30 Days` disertai badge urgensi berwarna.
+  - Sorting: *Ending Soonest*, *Ending Latest*, *Highest Price*, *Lowest Price*, *Market Name*.
 
 ---
 
@@ -229,12 +234,14 @@ Sistem menyediakan API publik dan internal:
 | Method | Endpoint | Deskripsi |
 |---|---|---|
 | `GET` | `/api/markets/suggestions` | Mengambil saran pasar mendekati resolusi ($\le 6$ jam, harga 0.70-0.75) |
-| `GET` | `/api/markets/search?q={query}` | Pencarian pasar cuaca berdasarkan kata kunci & filter |
+| `GET` | `/api/markets/search` | Pencarian pasar cuaca dengan filter kata kunci, kategori, harga, sisa waktu, dan sorting |
 | `POST` | `/api/orders` | Membuat paper order manual dengan proteksi Anti-Stale Price |
-| `GET` | `/api/paper/status` | Mengambil status saldo dan ringkasan akun |
-| `GET` | `/api/paper/positions` | Mengambil daftar posisi terbuka aktif |
-| `GET` | `/api/paper/trades` | Mengambil riwayat transaksi selesai |
-| `GET` | `/api/paper/performance` | Mengambil metrik kinerja (Win Rate, Drawdown, ROI) |
+| `POST` | `/api/positions/sell` | Menjual/menutup posisi terbuka pada harga pasar live (*Paper Sell*) |
+| `POST` | `/api/account/deposit` | Menambah saldo akun paper trading (*Paper Deposit*) |
+| `POST` | `/api/account/reset` | Mereset akun ke saldo awal $20.00 dan me-refresh posisi default |
+| `GET` | `/api/positions` | Mengambil daftar posisi terbuka dengan valuasi dynamic Mark-to-Market |
+| `GET` | `/api/trades` | Mengambil riwayat transaksi selesai |
+| `GET` | `/api/summary` | Ringkasan saldo, portofolio, dan performa akun |
 
 ---
 
@@ -243,17 +250,18 @@ Sistem menyediakan API publik dan internal:
 Proyek ini dilengkapi dengan rangkaian pengujian unit menyeluruh (`pytest`):
 
 ```bash
-# Menjalankan seluruh test suite (91 test)
+# Menjalankan seluruh test suite (100 test)
 pytest -v
 
 # Menjalankan unit test modul spesifik
+pytest tests/test_positions_and_sell.py -v
 pytest tests/test_market_collector.py -v
 pytest tests/test_paper_service_db.py -v
 pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **91/91 unit test** berada dalam status **PASS**.
+Saat ini seluruh **100/100 unit test** berada dalam status **PASS**.
 
 ---
 

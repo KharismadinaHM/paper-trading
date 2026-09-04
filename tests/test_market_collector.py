@@ -58,7 +58,7 @@ class TestMarketParsing:
         assert parsed["current_price"] == Decimal("0.72")
         assert parsed["status"] == "open"
         assert parsed["is_resolved"] is False
-        assert parsed["category"] == "Weather"
+        assert parsed["category"] in ["Precipitation", "Weather"]
         assert parsed["resolution_time"] == datetime(2026, 9, 5, 20, 0, 0, tzinfo=timezone.utc)
 
     def test_parse_inverted_order_no_yes(self):

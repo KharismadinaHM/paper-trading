@@ -17,7 +17,7 @@ class TestMarketSuggestionsFilter(unittest.TestCase):
 
     def setUp(self):
         # Base reference time (fixed for deterministic test execution)
-        self.now = datetime(2026, 9, 4, 10, 0, 0, tzinfo=timezone.utc)
+        self.now = datetime.now(timezone.utc)
 
         # Mock dataset with various permutations of market conditions
         self.mock_markets = [
@@ -310,7 +310,7 @@ class TestMarketSuggestionsFilter(unittest.TestCase):
             "market_name": "Market with naive datetime",
             "status": "open",
             "is_resolved": False,
-            "resolution_time": datetime(2026, 9, 4, 13, 0, 0),  # Naive (3 jam setelah self.now)
+            "resolution_time": self.now.replace(tzinfo=None) + timedelta(hours=3),  # Naive (3 jam setelah self.now)
             "price_yes": Decimal("0.72"),
         }
         results = filter_market_suggestions([naive_market], now=self.now)
@@ -345,9 +345,9 @@ class TestMarketSuggestionsFilter(unittest.TestCase):
 
     def test_fastapi_endpoint_tight_max_hours(self):
         """Uji endpoint FastAPI jika diberikan max_hours sangat kecil."""
-        # 1 jam -> kemungkinan tidak ada yang lolos karena minimum stub data 2 jam
+        # 0.5 jam -> tidak ada yang lolos karena minimum stub data 1 jam
         with patch("app.paper_service.get_market_snapshots", return_value=self.mock_markets):
-            res_tight = get_market_suggestions_api(max_hours_to_resolution=1.0)
+            res_tight = get_market_suggestions_api(max_hours_to_resolution=0.5)
             self.assertEqual(len(res_tight), 0)
 
     def test_no_settlement_engine_imported(self):

@@ -22,36 +22,45 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 try:
     from app.paper_service import (
         create_paper_order,
+        deposit_paper_funds,
         get_account_status,
         get_equity_snapshots,
         get_market_suggestions,
         get_open_positions,
         get_performance,
         get_trade_history,
+        reset_paper_account,
         search_market_snapshots,
+        sell_paper_position,
     )
 except ImportError:
     try:
         from app.paper_trading.paper_service import (
             create_paper_order,
+            deposit_paper_funds,
             get_account_status,
             get_equity_snapshots,
             get_market_suggestions,
             get_open_positions,
             get_performance,
             get_trade_history,
+            reset_paper_account,
             search_market_snapshots,
+            sell_paper_position,
         )
     except ImportError:
         from .paper_service import (
             create_paper_order,
+            deposit_paper_funds,
             get_account_status,
             get_equity_snapshots,
             get_market_suggestions,
             get_open_positions,
             get_performance,
             get_trade_history,
+            reset_paper_account,
             search_market_snapshots,
+            sell_paper_position,
         )
 
 
@@ -103,6 +112,22 @@ def get_summary_api(strategy: Optional[str] = None):
     }
 
 
+@app.get("/api/positions")
+def get_positions_api():
+    """
+    JSON API endpoint untuk daftar open positions terkini.
+    """
+    return get_open_positions()
+
+
+@app.get("/api/trades")
+def get_trades_api(limit: int = 50, strategy: Optional[str] = None):
+    """
+    JSON API endpoint untuk trade history.
+    """
+    return get_trade_history(limit=limit, strategy_version=strategy)
+
+
 @app.get("/api/markets/suggestions")
 def get_market_suggestions_api(
     max_hours_to_resolution: float = 6.0,
@@ -128,19 +153,77 @@ def search_markets_api(
     category: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
+    time_filter: Optional[str] = None,
+    sort_by: Optional[str] = None,
 ):
     """
     Endpoint pencarian market data dari Market Collector:
-    - q: Kata kunci pencarian nama atau kategori (case-insensitive partial match).
+    - q: Kata kunci pencarian nama atau kategori.
     - category: Filter opsional berdasarkan kategori spesifik.
     - min_price / max_price: Filter opsional rentang harga.
+    - time_filter: Filter sisa waktu (e.g. '6h', '24h', '3d', '7d', '30d').
+    - sort_by: Pengurutan ('ending_soonest', 'ending_latest', 'highest_price', 'lowest_price', 'name').
     """
     return search_market_snapshots(
         query=q,
         category=category,
         min_price=min_price,
         max_price=max_price,
+        time_filter=time_filter,
+        sort_by=sort_by,
     )
+
+
+class SellPositionRequest(BaseModel):
+    market_id: str = Field(..., description="ID unik pasar yang akan dijual")
+    side: str = Field(..., description="Sisi transaksi (YES atau NO)")
+    shares: Optional[float] = Field(None, gt=0, description="Jumlah shares yang dijual (opsional, jika tidak diset maka jual semua)")
+
+
+@app.post("/api/positions/sell")
+def sell_position_api(payload: SellPositionRequest):
+    """
+    Endpoint untuk menjual posisi paper trading yang sedang terbuka (Paper Sell).
+    """
+    try:
+        sh_dec = Decimal(str(payload.shares)) if payload.shares is not None else None
+        res = sell_paper_position(
+            market_id=payload.market_id,
+            side=payload.side,
+            shares_to_sell=sh_dec,
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Terjadi kesalahan saat menjual posisi: {str(e)}"
+        )
+
+
+class DepositFundsRequest(BaseModel):
+    amount: float = Field(..., gt=0, description="Jumlah deposit USD")
+
+
+@app.post("/api/account/deposit")
+def deposit_funds_api(payload: DepositFundsRequest):
+    """
+    Endpoint untuk menambah saldo paper account.
+    """
+    try:
+        amt = Decimal(str(payload.amount))
+        return deposit_paper_funds(amt)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.post("/api/account/reset")
+def reset_account_api():
+    """
+    Endpoint untuk mereset akun paper trading ke kondisi awal ($20.00).
+    """
+    return reset_paper_account()
 
 
 # --- Request & Response Models untuk Paper Orders ---

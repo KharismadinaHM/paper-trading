@@ -153,19 +153,41 @@ def filter_market_suggestions(
     return suggestions
 
 
+def _category_matches(cat_filter: str, cat_lower: str, name_lower: str) -> bool:
+    """Mencocokkan filter kategori dengan kolom category dan alias nama pasar."""
+    cf = cat_filter.strip().lower()
+    if not cf or cf == "all":
+        return True
+    if cf in cat_lower:
+        return True
+    if "temp" in cf and any(k in name_lower for k in ("temp", "°f", "°c", "heat", "warm", "cold", "degree", "fahrenheit", "celsius")):
+        return True
+    if ("rain" in cf or "precip" in cf) and any(k in name_lower for k in ("rain", "precip", "shower", "wet", "rainfall")):
+        return True
+    if "snow" in cf and any(k in name_lower for k in ("snow", "snowfall", "blizzard")):
+        return True
+    if ("wind" in cf or "storm" in cf or "hurr" in cf) and any(k in name_lower for k in ("wind", "storm", "hurricane", "cyclone", "tornado")):
+        return True
+    return False
+
+
 def search_markets(
     markets: Iterable[Any],
     query: str = "",
     category: Optional[str] = None,
     min_price: Optional[Union[float, Decimal]] = None,
     max_price: Optional[Union[float, Decimal]] = None,
+    time_filter: Optional[str] = None,
+    sort_by: Optional[str] = "ending_soonest",
     now: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """
     Mencari dan memfilter market dari data snapshot pasar:
     - query: Pencarian parsial case-insensitive pada nama market atau kategori.
-    - category: Filter spesifik kategori (opsional).
+    - category: Filter spesifik kategori (Temperature, Precipitation, Snow, Wind / Storm).
     - min_price / max_price: Filter rentang harga (opsional).
+    - time_filter: Filter waktu resolusi ('6h', '24h', '3d', '7d', '30d', 'all').
+    - sort_by: Pengurutan ('ending_soonest', 'ending_latest', 'highest_price', 'lowest_price', 'name').
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -177,6 +199,21 @@ def search_markets(
     dec_min = Decimal(str(min_price)) if min_price is not None else None
     dec_max = Decimal(str(max_price)) if max_price is not None else None
 
+    # Parsing batas waktu maksimal (dalam detik)
+    max_seconds: Optional[float] = None
+    if time_filter:
+        tf = time_filter.strip().lower()
+        if tf in ("6h", "<6h", "< 6h", "6"):
+            max_seconds = 6.0 * 3600
+        elif tf in ("24h", "<24h", "< 24h", "1d", "today", "24"):
+            max_seconds = 24.0 * 3600
+        elif tf in ("3d", "<3d", "< 3d", "72h"):
+            max_seconds = 3.0 * 86400
+        elif tf in ("7d", "<7d", "< 7d", "1w"):
+            max_seconds = 7.0 * 86400
+        elif tf in ("30d", "<30d", "< 30d", "1m"):
+            max_seconds = 30.0 * 86400
+
     results: List[Dict[str, Any]] = []
 
     for m in markets:
@@ -187,14 +224,15 @@ def search_markets(
         cat = _get_attr_or_key(m, "category", "Weather")
         raw_status = _get_attr_or_key(m, "status", "open")
 
-        # 1. Pencarian keyword (case-insensitive partial match pada nama atau kategori)
         name_lower = str(market_name).lower()
         cat_lower = str(cat).lower()
+
+        # 1. Pencarian keyword
         if q and (q not in name_lower and q not in cat_lower):
             continue
 
-        # 2. Filter kategori opsional
-        if cat_filter and cat_filter not in cat_lower:
+        # 2. Filter kategori fleksibel
+        if cat_filter and not _category_matches(cat_filter, cat_lower, name_lower):
             continue
 
         # 3. Validasi harga
@@ -205,7 +243,7 @@ def search_markets(
         if curr_price is None and price_yes is not None:
             curr_price = price_yes
 
-        # Filter price range opsional jika disediakan
+        # Filter price range
         if dec_min is not None or dec_max is not None:
             prices_to_check = [p for p in (price_yes, price_no, curr_price) if p is not None]
             if not prices_to_check:
@@ -225,7 +263,7 @@ def search_markets(
             if not matches_range:
                 continue
 
-        # 4. Waktu resolusi
+        # 4. Waktu resolusi & sisa waktu
         raw_res_time = _get_attr_or_key(m, "resolution_time")
         if raw_res_time is None:
             raw_res_time = _get_attr_or_key(m, "end_date")
@@ -233,6 +271,8 @@ def search_markets(
         res_time = _parse_datetime(raw_res_time)
         res_time_iso = res_time.isoformat() if res_time is not None else None
         time_remaining_str = "-"
+        delta_sec = None
+
         if res_time:
             if res_time.tzinfo is None:
                 res_time = res_time.replace(tzinfo=timezone.utc)
@@ -241,6 +281,11 @@ def search_markets(
                 time_remaining_str = format_time_remaining(delta_sec)
             else:
                 time_remaining_str = "Passed"
+
+        # Filter waktu jika parameter time_filter aktif
+        if max_seconds is not None:
+            if delta_sec is None or delta_sec <= 0 or delta_sec > max_seconds:
+                continue
 
         side = _get_attr_or_key(m, "side")
         if not side:
@@ -255,9 +300,27 @@ def search_markets(
             "price_no": float(price_no) if price_no is not None else None,
             "resolution_time": res_time_iso,
             "time_remaining": time_remaining_str,
+            "_delta_sec": delta_sec if (delta_sec is not None and delta_sec > 0) else 999999999,
             "status": str(raw_status),
             "side": str(side),
         })
+
+    # 5. Sorting
+    sb = str(sort_by).lower() if sort_by else "ending_soonest"
+    if sb in ("ending_soonest", "ending_soon"):
+        results.sort(key=lambda x: x.get("_delta_sec", 999999999))
+    elif sb == "ending_latest":
+        results.sort(key=lambda x: x.get("_delta_sec", -1), reverse=True)
+    elif sb in ("highest_price", "price_desc"):
+        results.sort(key=lambda x: (x.get("current_price") or 0.0), reverse=True)
+    elif sb in ("lowest_price", "price_asc"):
+        results.sort(key=lambda x: (x.get("current_price") or 999.0))
+    elif sb == "name":
+        results.sort(key=lambda x: x.get("market_name", "").lower())
+
+    # Bersihkan internal sorting key
+    for r in results:
+        r.pop("_delta_sec", None)
 
     return results
 

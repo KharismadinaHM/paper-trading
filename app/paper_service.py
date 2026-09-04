@@ -48,14 +48,124 @@ except ImportError:
 logger = get_logger("paper_service")
 
 # In-memory runtime state untuk tracking saldo dan pesanan paper trading
+_INITIAL_BALANCE = Decimal("20.00")
+
 _account_state: Dict[str, Any] = {
     "balance": Decimal("20.00"),
-    "invested": Decimal("3.00"),
-    "realized_pnl": Decimal("0.42"),
-    "win_rate": Decimal("0.80"),
+    "initial_balance": Decimal("20.00"),
+    "invested": Decimal("4.00"),
+    "realized_pnl": Decimal("2.87"),
+    "win_rate": Decimal("0.75"),
     "open_trades": 3,
+    "deposit_total": Decimal("20.00"),
 }
 _paper_orders: List[Dict[str, Any]] = []
+_paper_positions: Dict[str, Dict[str, Any]] = {}
+_trade_history: List[Dict[str, Any]] = []
+
+
+def _init_default_data():
+    """Inisialisasi posisi dan riwayat awal sesuai gaya platform Polymarket."""
+    _paper_positions.clear()
+    _paper_positions["mkt-hk-temp_NO"] = {
+        "id": "pos-001",
+        "market_id": "mkt-hk-temp",
+        "market_name": "Will the highest temperature in Hong Kong be 34°C or above on Sep 5?",
+        "side": "NO",
+        "shares": Decimal("2.84"),
+        "average_entry_price": Decimal("0.703"),
+        "position_size": Decimal("2.00"),
+        "current_price": Decimal("0.79"),
+        "strategy_version": "weather_v1",
+        "created_at": datetime.now(timezone.utc) - timedelta(hours=8),
+    }
+    _paper_positions["mkt-seoul-temp_YES"] = {
+        "id": "pos-002",
+        "market_id": "mkt-seoul-temp",
+        "market_name": "Will the highest temperature in Seoul (Incheon) be 30°C or above on Sep 5?",
+        "side": "YES",
+        "shares": Decimal("1.67"),
+        "average_entry_price": Decimal("0.60"),
+        "position_size": Decimal("1.00"),
+        "current_price": Decimal("0.805"),
+        "strategy_version": "weather_v1",
+        "created_at": datetime.now(timezone.utc) - timedelta(hours=5),
+    }
+    _paper_positions["mkt-sg-temp_NO"] = {
+        "id": "pos-003",
+        "market_id": "mkt-sg-temp",
+        "market_name": "Will the highest temperature in Singapore be 32°C or above on Sep 5?",
+        "side": "NO",
+        "shares": Decimal("1.28"),
+        "average_entry_price": Decimal("0.78"),
+        "position_size": Decimal("1.00"),
+        "current_price": Decimal("0.715"),
+        "strategy_version": "weather_v2",
+        "created_at": datetime.now(timezone.utc) - timedelta(hours=3),
+    }
+
+    _trade_history.clear()
+    _trade_history.extend([
+        {
+            "id": "tr-001",
+            "date": "2026-09-01 10:15",
+            "market": "Austin high > 95°F Sep 1",
+            "market_id": "mkt-austin",
+            "side": "YES",
+            "entry_price": Decimal("0.70"),
+            "exit_price": Decimal("1.00"),
+            "size": Decimal("1.00"),
+            "shares": Decimal("1.43"),
+            "status": "WON",
+            "net_pnl": Decimal("0.43"),
+            "strategy_version": "weather_v1",
+        },
+        {
+            "id": "tr-002",
+            "date": "2026-09-01 14:30",
+            "market": "Seattle rain > 0.1 in Sep 1",
+            "market_id": "mkt-seattle",
+            "side": "YES",
+            "entry_price": Decimal("0.50"),
+            "exit_price": Decimal("0.00"),
+            "size": Decimal("1.00"),
+            "shares": Decimal("2.00"),
+            "status": "LOST",
+            "net_pnl": Decimal("-1.00"),
+            "strategy_version": "weather_v1",
+        },
+        {
+            "id": "tr-003",
+            "date": "2026-09-02 09:00",
+            "market": "Dallas temp > 90°F Sep 2",
+            "market_id": "mkt-dallas",
+            "side": "YES",
+            "entry_price": Decimal("0.60"),
+            "exit_price": Decimal("1.00"),
+            "size": Decimal("1.00"),
+            "shares": Decimal("1.67"),
+            "status": "WON",
+            "net_pnl": Decimal("0.67"),
+            "strategy_version": "weather_v1",
+        },
+        {
+            "id": "tr-004",
+            "date": "2026-09-02 11:20",
+            "market": "Denver snow > 1 in Sep 2",
+            "market_id": "mkt-denver",
+            "side": "YES",
+            "entry_price": Decimal("0.75"),
+            "exit_price": Decimal("1.00"),
+            "size": Decimal("1.00"),
+            "shares": Decimal("1.33"),
+            "status": "WON",
+            "net_pnl": Decimal("0.33"),
+            "strategy_version": "weather_v2",
+        },
+    ])
+
+
+_init_default_data()
 
 
 def start_paper_trading(strategy: Optional[str] = None) -> Dict[str, Any]:
@@ -69,174 +179,327 @@ def start_paper_trading(strategy: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def get_open_positions(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """
+    Mengambil daftar posisi yang sedang terbuka (open positions)
+    dengan valuasi real-time Mark-to-Market sesuai platform Polymarket.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    positions_list = []
+    for pos_key, pos in list(_paper_positions.items()):
+        shares = Decimal(str(pos.get("shares", 0)))
+        if shares <= Decimal("0"):
+            continue
+
+        market_id = pos.get("market_id", "")
+        side = str(pos.get("side", "YES")).upper()
+        avg_entry = Decimal(str(pos.get("average_entry_price", "0.50")))
+        size = Decimal(str(pos.get("position_size", "1.00")))
+
+        # Fetch live price dari Market Collector jika ada di database
+        live_price: Optional[Decimal] = None
+        market = get_market_by_id(market_id, now=now)
+        if market:
+            if side in ["YES", "BUY"]:
+                live_price = market.get("price_yes") if market.get("price_yes") is not None else market.get("current_price")
+            elif side in ["NO", "SELL"]:
+                live_price = market.get("price_no")
+                if live_price is None and market.get("price_yes") is not None:
+                    live_price = Decimal("1.0") - Decimal(str(market.get("price_yes")))
+
+        if live_price is None or live_price <= Decimal("0"):
+            live_price = Decimal(str(pos.get("current_price") or pos.get("initial_current_price") or avg_entry))
+
+        current_value = (shares * live_price).quantize(Decimal("0.01"))
+        to_win = (shares * Decimal("1.00")).quantize(Decimal("0.01"))
+        unrealized_pnl = current_value - size
+        roi_pct = ((unrealized_pnl / size) * Decimal("100")).quantize(Decimal("0.01")) if size > Decimal("0") else Decimal("0.00")
+
+        avg_cents = (avg_entry * Decimal("100")).quantize(Decimal("0.1"))
+        now_cents = (live_price * Decimal("100")).quantize(Decimal("0.1"))
+
+        avg_cents_str = f"{avg_cents:.1f}".rstrip("0").rstrip(".") if avg_cents % 1 != 0 else f"{int(avg_cents)}"
+        now_cents_str = f"{now_cents:.1f}".rstrip("0").rstrip(".") if now_cents % 1 != 0 else f"{int(now_cents)}"
+        avg_to_now = f"{avg_cents_str}¢ → {now_cents_str}¢"
+
+        positions_list.append({
+            "id": pos.get("id", pos_key),
+            "market": pos.get("market_name", market_id),
+            "market_id": market_id,
+            "side": side,
+            "entry_price": avg_entry,
+            "size": size,
+            "shares": shares,
+            "current_price": live_price,
+            "current_value": current_value,
+            "to_win": to_win,
+            "unrealized_pnl": unrealized_pnl,
+            "roi_pct": roi_pct,
+            "avg_cents": avg_cents,
+            "now_cents": now_cents,
+            "avg_to_now": avg_to_now,
+            "strategy_version": pos.get("strategy_version", "manual"),
+        })
+
+    return positions_list
+
+
 def get_account_status() -> Dict[str, Any]:
     """
-    Mengambil ringkasan status paper account saat ini.
+    Mengambil ringkasan status paper account saat ini dengan kalkulasi Mark-to-Market dinamis.
     """
-    return dict(_account_state)
+    positions = get_open_positions()
+    total_invested = sum((Decimal(str(p.get("size", 0))) for p in positions), Decimal("0"))
+    total_current_val = sum((Decimal(str(p.get("current_value", 0))) for p in positions), Decimal("0"))
+    total_unrealized_pnl = sum((Decimal(str(p.get("unrealized_pnl", 0))) for p in positions), Decimal("0"))
 
+    cash_balance = _account_state.get("balance", Decimal("20.00"))
+    portfolio_val = cash_balance + total_current_val
+    realized_pnl = _account_state.get("realized_pnl", Decimal("0.00"))
+    total_pnl = realized_pnl + total_unrealized_pnl
 
-def get_open_positions() -> List[Dict[str, Any]]:
-    """
-    Mengambil daftar posisi yang sedang terbuka (open positions).
-    """
-    manual_positions = []
-    for o in reversed(_paper_orders):
-        if o.get("status") == "OPEN":
-            curr_p = o.get("actual_price", o.get("entry_price", Decimal("0")))
-            sz = o.get("position_size", Decimal("0"))
-            sh = o.get("shares", Decimal("0"))
-            manual_positions.append({
-                "market": o.get("market_name", o.get("market_id")),
-                "side": o.get("side", "BUY"),
-                "entry_price": o.get("entry_price"),
-                "size": sz,
-                "shares": sh,
-                "current_price": curr_p,
-                "unrealized_pnl": (sh * curr_p) - sz,
-                "strategy_version": o.get("strategy_version", "manual"),
-            })
+    initial_cap = _account_state.get("initial_balance", Decimal("20.00"))
+    roi = (total_pnl / initial_cap) if initial_cap > 0 else Decimal("0.00")
 
-    base_positions = [
-        {
-            "market": "Will NYC exceed 85°F on Sep 5?",
-            "side": "BUY",
-            "entry_price": Decimal("0.65"),
-            "size": Decimal("1.00"),
-            "shares": Decimal("1.5385"),
-            "current_price": Decimal("0.72"),
-            "unrealized_pnl": Decimal("0.11"),
-            "strategy_version": "weather_v1",
-        },
-        {
-            "market": "Will Miami rain > 0.5 in on Sep 6?",
-            "side": "BUY",
-            "entry_price": Decimal("0.40"),
-            "size": Decimal("1.00"),
-            "shares": Decimal("2.5000"),
-            "current_price": Decimal("0.38"),
-            "unrealized_pnl": Decimal("-0.05"),
-            "strategy_version": "weather_v1",
-        },
-        {
-            "market": "Will Chicago wind > 25mph on Sep 5?",
-            "side": "BUY",
-            "entry_price": Decimal("0.55"),
-            "size": Decimal("1.00"),
-            "shares": Decimal("1.8182"),
-            "current_price": Decimal("0.58"),
-            "unrealized_pnl": Decimal("0.05"),
-            "strategy_version": "weather_v2",
-        },
-    ]
-    return manual_positions + base_positions
+    # Hitung perubahan 24h (est. unrealized + recent trade PnL)
+    day_change_pnl = total_unrealized_pnl + Decimal("0.11")
+    day_change_pct = ((day_change_pnl / portfolio_val) * Decimal("100")).quantize(Decimal("0.01")) if portfolio_val > 0 else Decimal("0.00")
+
+    # Update state
+    _account_state["invested"] = total_invested
+    _account_state["open_trades"] = len(positions)
+
+    return {
+        "balance": cash_balance,
+        "available_balance": cash_balance,
+        "portfolio_value": portfolio_val,
+        "invested": total_invested,
+        "positions_value": total_current_val,
+        "realized_pnl": realized_pnl,
+        "unrealized_pnl": total_unrealized_pnl,
+        "total_pnl": total_pnl,
+        "roi": roi,
+        "roi_pct": (roi * Decimal("100")).quantize(Decimal("0.01")),
+        "day_change_pnl": day_change_pnl,
+        "day_change_pct": day_change_pct,
+        "win_rate": _account_state.get("win_rate", Decimal("0.75")),
+        "open_trades": len(positions),
+        "initial_balance": initial_cap,
+    }
 
 
 def get_trade_history(
-    limit: int = 20, 
+    limit: int = 50, 
     strategy_version: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Mengambil riwayat trade yang telah closed/selesai.
     """
-    all_trades = [
-        {
-            "id": "tr-001",
-            "date": "2026-09-01 10:15",
-            "market": "Austin high > 95°F Sep 1",
-            "side": "BUY",
-            "entry_price": Decimal("0.70"),
-            "exit_price": Decimal("1.00"),
-            "size": Decimal("1.00"),
-            "status": "WON",
-            "net_pnl": Decimal("0.43"),
-            "strategy_version": "weather_v1",
-        },
-        {
-            "id": "tr-002",
-            "date": "2026-09-01 14:30",
-            "market": "Seattle rain > 0.1 in Sep 1",
-            "side": "BUY",
-            "entry_price": Decimal("0.50"),
-            "exit_price": Decimal("0.00"),
-            "size": Decimal("1.00"),
-            "status": "LOST",
-            "net_pnl": Decimal("-1.00"),
-            "strategy_version": "weather_v1",
-        },
-        {
-            "id": "tr-003",
-            "date": "2026-09-02 09:00",
-            "market": "Dallas temp > 90°F Sep 2",
-            "side": "BUY",
-            "entry_price": Decimal("0.60"),
-            "exit_price": Decimal("1.00"),
-            "size": Decimal("1.00"),
-            "status": "WON",
-            "net_pnl": Decimal("0.67"),
-            "strategy_version": "weather_v1",
-        },
-        {
-            "id": "tr-004",
-            "date": "2026-09-02 11:20",
-            "market": "Denver snow > 1 in Sep 2",
-            "side": "BUY",
-            "entry_price": Decimal("0.75"),
-            "exit_price": Decimal("1.00"),
-            "size": Decimal("1.00"),
-            "status": "WON",
-            "net_pnl": Decimal("0.33"),
-            "strategy_version": "weather_v2",
-        },
-    ]
+    trades = list(_trade_history)
     if strategy_version:
-        all_trades = [t for t in all_trades if t.get("strategy_version") == strategy_version]
-    return all_trades[:limit]
+        trades = [t for t in trades if t.get("strategy_version") == strategy_version]
+    return trades[:limit]
 
 
 def get_performance(strategy_version: Optional[str] = None) -> Dict[str, Any]:
     """
-    Mengambil metrik performa (Win Rate, ROI, Drawdown, Realized/Unrealized P/L).
+    Mengambil metrik performa (Win Rate, ROI, Drawdown, Realized/Unrealized P/L) secara dinamis.
     """
-    if strategy_version == "weather_v2":
-        return {
-            "strategy_version": "weather_v2",
-            "trades": 1,
-            "wins": 1,
-            "losses": 0,
-            "win_rate": Decimal("1.00"),
-            "roi": Decimal("0.0165"),
-            "max_drawdown": Decimal("0.00"),
-            "realized_pnl": Decimal("0.33"),
-            "unrealized_pnl": Decimal("0.05"),
-        }
+    trades = get_trade_history(limit=500, strategy_version=strategy_version)
+    positions = get_open_positions()
+    if strategy_version:
+        positions = [p for p in positions if p.get("strategy_version") == strategy_version]
+
+    total_trades = len(trades)
+    wins = sum(1 for t in trades if Decimal(str(t.get("net_pnl", 0))) > 0)
+    losses = sum(1 for t in trades if Decimal(str(t.get("net_pnl", 0))) < 0)
+    win_rate = (Decimal(wins) / Decimal(total_trades)) if total_trades > 0 else Decimal("0.00")
+
+    realized_pnl = sum((Decimal(str(t.get("net_pnl", 0))) for t in trades), Decimal("0"))
+    unrealized_pnl = sum((Decimal(str(p.get("unrealized_pnl", 0))) for p in positions), Decimal("0"))
+    total_pnl = realized_pnl + unrealized_pnl
+
+    initial_cap = _account_state.get("initial_balance", Decimal("20.00"))
+    roi = (total_pnl / initial_cap) if initial_cap > 0 else Decimal("0.00")
+
+    # Max Drawdown calculation
+    peak = Decimal("20.00")
+    running_balance = Decimal("20.00")
+    max_dd = Decimal("0.00")
+    for t in reversed(trades):
+        running_balance += Decimal(str(t.get("net_pnl", 0)))
+        if running_balance > peak:
+            peak = running_balance
+        dd = (peak - running_balance) / peak if peak > 0 else Decimal("0")
+        if dd > max_dd:
+            max_dd = dd
+
     return {
         "strategy_version": strategy_version or "all",
-        "trades": 4,
-        "wins": 3,
-        "losses": 1,
-        "win_rate": Decimal("0.75"),
-        "roi": Decimal("0.0210"),
-        "max_drawdown": Decimal("0.0487"),  # ~4.87%
-        "realized_pnl": Decimal("0.42"),
-        "unrealized_pnl": Decimal("0.11"),
+        "trades": total_trades,
+        "wins": wins,
+        "losses": losses,
+        "win_rate": win_rate.quantize(Decimal("0.01")),
+        "roi": roi.quantize(Decimal("0.0001")),
+        "max_drawdown": max_dd.quantize(Decimal("0.0001")),
+        "realized_pnl": realized_pnl.quantize(Decimal("0.01")),
+        "unrealized_pnl": unrealized_pnl.quantize(Decimal("0.01")),
+        "total_pnl": total_pnl.quantize(Decimal("0.01")),
+    }
+
+
+def deposit_paper_funds(amount: Decimal) -> Dict[str, Any]:
+    """
+    Menambahkan saldo ke paper trading account (Paper Deposit).
+    """
+    if amount <= Decimal("0"):
+        raise ValueError("Deposit amount must be positive")
+    _account_state["balance"] = _account_state.get("balance", Decimal("0.00")) + amount
+    _account_state["deposit_total"] = _account_state.get("deposit_total", Decimal("20.00")) + amount
+    return {
+        "success": True,
+        "amount": float(amount),
+        "new_balance": float(_account_state["balance"]),
+        "message": f"Successfully deposited ${amount:.2f} to paper account.",
+    }
+
+
+def sell_paper_position(
+    market_id: str,
+    side: str,
+    shares_to_sell: Optional[Decimal] = None,
+    now: Optional[datetime] = None,
+    db_session: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    Menjual posisi paper trading yang sedang terbuka (Paper Sell).
+    
+    1. Mencari open position berdasarkan market_id dan side.
+    2. Mengambil harga real-time terbaru untuk market_id dari Market Collector.
+    3. Eksekusi harga jual.
+    4. Menghitung proceeds = shares_to_sell * execution_price.
+    5. Menghitung cost basis = shares_to_sell * average_entry_price.
+    6. Menghitung realized_pnl = proceeds - cost_basis.
+    7. Menambah saldo cash balance akun sebesar proceeds.
+    8. Mengupdate/menghapus posisi dari open positions.
+    9. Mencatat trade ke trade history (status WON jika pnl >= 0 else LOST).
+    """
+    normalized_side = str(side).strip().upper()
+    if normalized_side == "BUY":
+        normalized_side = "YES"
+    elif normalized_side == "SELL":
+        normalized_side = "NO"
+
+    pos_key = f"{market_id}_{normalized_side}"
+    if pos_key not in _paper_positions:
+        # Cari alternatif key jika market_id cocok
+        matching_keys = [k for k in _paper_positions if _paper_positions[k].get("market_id") == market_id]
+        if matching_keys:
+            pos_key = matching_keys[0]
+            normalized_side = _paper_positions[pos_key].get("side", normalized_side)
+        else:
+            raise ValueError(f"Posisi terbuka untuk market '{market_id}' ({side}) tidak ditemukan.")
+
+    pos = _paper_positions[pos_key]
+    available_shares = Decimal(str(pos.get("shares", 0)))
+    if available_shares <= Decimal("0"):
+        raise ValueError(f"Tidak ada shares tersedia untuk dijual pada market '{market_id}'.")
+
+    if shares_to_sell is None or shares_to_sell <= Decimal("0") or shares_to_sell > available_shares:
+        shares_to_sell = available_shares
+
+    # Fetch live price
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    market = get_market_by_id(market_id, now=now)
+    live_price: Optional[Decimal] = None
+    if market:
+        if normalized_side in ["YES", "BUY"]:
+            live_price = market.get("price_yes") if market.get("price_yes") is not None else market.get("current_price")
+        elif normalized_side in ["NO", "SELL"]:
+            live_price = market.get("price_no")
+            if live_price is None and market.get("price_yes") is not None:
+                live_price = Decimal("1.0") - Decimal(str(market.get("price_yes")))
+
+    if live_price is None or live_price <= Decimal("0"):
+        live_price = Decimal(str(pos.get("current_price") or pos.get("average_entry_price", "0.50")))
+
+    proceeds = (shares_to_sell * live_price).quantize(Decimal("0.01"))
+    cost_basis = (shares_to_sell * Decimal(str(pos["average_entry_price"]))).quantize(Decimal("0.01"))
+    realized_pnl = proceeds - cost_basis
+
+    # Update saldo akun
+    _account_state["balance"] = _account_state.get("balance", Decimal("0.00")) + proceeds
+    _account_state["realized_pnl"] = _account_state.get("realized_pnl", Decimal("0.00")) + realized_pnl
+
+    # Kurangi atau hapus posisi
+    remaining_shares = available_shares - shares_to_sell
+    if remaining_shares <= Decimal("0.0001"):
+        del _paper_positions[pos_key]
+    else:
+        pos["shares"] = remaining_shares
+        pos["position_size"] = max(Decimal("0.00"), Decimal(str(pos["position_size"])) - cost_basis)
+
+    # Catat ke _trade_history
+    trade_id = f"tr-{uuid.uuid4().hex[:6]}"
+    now_ts = now or datetime.now(timezone.utc)
+    closed_trade = {
+        "id": trade_id,
+        "date": now_ts.strftime("%Y-%m-%d %H:%M"),
+        "market": pos.get("market_name", market_id),
+        "market_id": market_id,
+        "side": normalized_side,
+        "entry_price": Decimal(str(pos["average_entry_price"])),
+        "exit_price": live_price,
+        "size": cost_basis,
+        "shares": shares_to_sell,
+        "proceeds": proceeds,
+        "net_pnl": realized_pnl,
+        "status": "WON" if realized_pnl >= Decimal("0") else "LOST",
+        "strategy_version": pos.get("strategy_version", "manual"),
+    }
+    _trade_history.insert(0, closed_trade)
+
+    logger.info(
+        f"Paper position sold: market={market_id}, side={normalized_side}, shares={shares_to_sell}, "
+        f"exit_price=${live_price:.4f}, proceeds=${proceeds:.2f}, pnl=${realized_pnl:.2f}"
+    )
+
+    return {
+        "success": True,
+        "trade_id": trade_id,
+        "market_id": market_id,
+        "market_name": pos.get("market_name", market_id),
+        "side": normalized_side,
+        "shares_sold": float(shares_to_sell),
+        "exit_price": float(live_price),
+        "proceeds": float(proceeds),
+        "cost_basis": float(cost_basis),
+        "realized_pnl": float(realized_pnl),
+        "new_balance": float(_account_state["balance"]),
+        "message": f"Successfully sold {shares_to_sell:.2f} shares at ${live_price:.2f}. Realized P/L: {'+' if realized_pnl >= 0 else ''}${realized_pnl:.2f}",
     }
 
 
 def reset_paper_account() -> Dict[str, Any]:
     """
-    Mereset seluruh paper account ke kondisi awal (saldo awal, hapus trades & positions).
+    Mereset seluruh paper account ke kondisi awal (saldo awal $20.00, reload default positions).
     """
     _account_state["balance"] = Decimal("20.00")
-    _account_state["invested"] = Decimal("0.00")
-    _account_state["realized_pnl"] = Decimal("0.00")
-    _account_state["win_rate"] = Decimal("0.00")
-    _account_state["open_trades"] = 0
+    _account_state["initial_balance"] = Decimal("20.00")
+    _account_state["invested"] = Decimal("4.00")
+    _account_state["realized_pnl"] = Decimal("2.87")
+    _account_state["win_rate"] = Decimal("0.75")
+    _account_state["open_trades"] = 3
     _paper_orders.clear()
+    _init_default_data()
     return {
         "success": True,
         "initial_balance": Decimal("20.00"),
-        "message": "Paper account reset to $20.00 initial balance. All trades wiped."
+        "message": "Paper account reset to $20.00 initial balance. Positions refreshed."
     }
 
 
@@ -244,14 +507,21 @@ def get_equity_snapshots() -> List[Dict[str, Any]]:
     """
     Mengambil data riwayat balance & equity dari waktu ke waktu untuk grafik Equity Curve.
     """
-    return [
+    acc = get_account_status()
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    base = [
         {"timestamp": "2026-09-01 10:00", "balance": Decimal("20.00"), "equity": Decimal("20.00")},
-        {"timestamp": "2026-09-01 10:15", "balance": Decimal("20.43"), "equity": Decimal("20.43")},
-        {"timestamp": "2026-09-01 14:30", "balance": Decimal("19.43"), "equity": Decimal("19.43")},
+        {"timestamp": "2026-09-01 14:30", "balance": Decimal("19.00"), "equity": Decimal("19.00")},
         {"timestamp": "2026-09-02 09:00", "balance": Decimal("20.10"), "equity": Decimal("20.10")},
-        {"timestamp": "2026-09-02 11:20", "balance": Decimal("20.43"), "equity": Decimal("20.43")},
-        {"timestamp": "2026-09-03 12:00", "balance": Decimal("20.42"), "equity": Decimal("20.53")},
+        {"timestamp": "2026-09-02 11:20", "balance": Decimal("21.32"), "equity": Decimal("21.32")},
+        {"timestamp": "2026-09-03 12:00", "balance": Decimal("21.32"), "equity": Decimal("22.50")},
     ]
+    base.append({
+        "timestamp": now_str,
+        "balance": acc["balance"],
+        "equity": acc["portfolio_value"],
+    })
+    return base
 
 
 def _format_market_snapshot(
@@ -398,10 +668,12 @@ def search_market_snapshots(
     category: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
+    time_filter: Optional[str] = None,
+    sort_by: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Mencari market berdasarkan keyword, kategori, dan rentang harga dari data Market Collector.
+    Mencari market berdasarkan keyword, kategori, rentang harga, dan filter waktu dari data Market Collector.
     """
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
     return search_markets(
@@ -410,6 +682,8 @@ def search_market_snapshots(
         category=category,
         min_price=min_price,
         max_price=max_price,
+        time_filter=time_filter,
+        sort_by=sort_by,
         now=now,
     )
 
@@ -630,10 +904,38 @@ def create_paper_order(
     }
     _paper_orders.append(order_data)
 
+    # Update or add open position in _paper_positions
+    pos_side = "YES" if normalized_side in ["YES", "BUY"] else "NO"
+    pos_key = f"{market_id}_{pos_side}"
+    if pos_key in _paper_positions:
+        p = _paper_positions[pos_key]
+        old_shares = Decimal(str(p.get("shares", 0)))
+        old_size = Decimal(str(p.get("position_size", 0)))
+        new_shares = old_shares + shares
+        new_size = old_size + position_size
+        new_avg_price = (new_size / new_shares).quantize(Decimal("0.0001")) if new_shares > 0 else execution_price
+        p["shares"] = new_shares
+        p["position_size"] = new_size
+        p["average_entry_price"] = new_avg_price
+        p["current_price"] = execution_price
+    else:
+        _paper_positions[pos_key] = {
+            "id": str(order_uuid),
+            "market_id": market_id,
+            "market_name": market.get("market_name", market_id),
+            "side": pos_side,
+            "shares": shares,
+            "average_entry_price": execution_price,
+            "position_size": position_size,
+            "current_price": execution_price,
+            "strategy_version": strategy_version,
+            "created_at": now_ts,
+        }
+
     # Update account balance in-memory
-    _account_state["balance"] = max(Decimal("0.00"), _account_state["balance"] - position_size)
-    _account_state["invested"] = _account_state["invested"] + position_size
-    _account_state["open_trades"] = _account_state["open_trades"] + 1
+    _account_state["balance"] = max(Decimal("0.00"), _account_state.get("balance", Decimal("20.00")) - position_size)
+    _account_state["invested"] = _account_state.get("invested", Decimal("0.00")) + position_size
+    _account_state["open_trades"] = len(_paper_positions)
 
     logger.info(
         f"Paper order successfully created: id={order_uuid}, market={market_id}, side={normalized_side}, "

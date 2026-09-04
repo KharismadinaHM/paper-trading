@@ -1,9 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polymarket Paper Trading Dashboard</title>
+    <title>Polymarket Weather Paper Trading</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bootstrap 5 CSS CDN -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons CDN -->
@@ -11,191 +15,675 @@
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        :root {
+            --poly-bg: #0b0e14;
+            --poly-card: #131823;
+            --poly-card-hover: #182030;
+            --poly-border: #232938;
+            --poly-text-muted: #8b949e;
+            --poly-blue: #0070f3;
+            --poly-blue-hover: #0060df;
+            --poly-green: #10b981;
+            --poly-red: #ef4444;
+        }
         body {
-            background-color: #f8f9fa;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--poly-bg);
+            color: #f0f6fc;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            min-height: 100vh;
         }
-        .stat-card {
+        .poly-card {
+            background-color: var(--poly-card);
+            border: 1px solid var(--poly-border);
+            border-radius: 16px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .poly-card:hover {
+            border-color: #30363d;
+        }
+        .poly-btn-primary {
+            background-color: var(--poly-blue);
+            color: #ffffff;
             border: none;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            transition: transform 0.15s ease-in-out;
+            border-radius: 10px;
+            font-weight: 600;
+            padding: 10px 20px;
+            transition: background-color 0.15s;
         }
-        .stat-card:hover {
-            transform: translateY(-2px);
+        .poly-btn-primary:hover {
+            background-color: var(--poly-blue-hover);
+            color: #ffffff;
         }
-        .table-card {
+        .poly-btn-secondary {
+            background-color: #21262d;
+            color: #c9d1d9;
+            border: 1px solid var(--poly-border);
+            border-radius: 10px;
+            font-weight: 600;
+            padding: 10px 20px;
+            transition: background-color 0.15s, border-color 0.15s;
+        }
+        .poly-btn-secondary:hover {
+            background-color: #30363d;
+            color: #ffffff;
+            border-color: #8b949e;
+        }
+        .poly-btn-sell {
+            background-color: var(--poly-blue);
+            color: #ffffff;
             border: none;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            padding: 6px 18px;
+            transition: background-color 0.15s, transform 0.1s;
         }
-        .text-pnl-positive {
-            color: #198754;
+        .poly-btn-sell:hover {
+            background-color: var(--poly-blue-hover);
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+        .badge-outcome-no {
+            background-color: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 0.78rem;
             font-weight: 600;
         }
-        .text-pnl-negative {
-            color: #dc3545;
+        .badge-outcome-yes {
+            background-color: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 0.78rem;
             font-weight: 600;
+        }
+        .time-pill {
+            background: transparent;
+            color: #8b949e;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 4px 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .time-pill.active {
+            background-color: #0070f3;
+            color: #ffffff;
+        }
+        .time-pill:hover:not(.active) {
+            color: #ffffff;
+            background-color: #21262d;
+        }
+        .poly-tab {
+            background: transparent;
+            color: #8b949e;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            padding: 8px 16px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .poly-tab.active {
+            background-color: #21262d;
+            color: #ffffff;
+        }
+        .poly-tab:hover:not(.active) {
+            color: #c9d1d9;
+        }
+        .poly-table {
+            border-collapse: separate;
+            border-spacing: 0 4px;
+        }
+        .poly-table thead th {
+            border-bottom: 1px solid var(--poly-border);
+            color: #8b949e;
+            font-size: 0.8rem;
+            font-weight: 500;
+            text-transform: none;
+            padding: 12px 16px;
+        }
+        .poly-table tbody tr {
+            background-color: transparent;
+            transition: background-color 0.15s;
+        }
+        .poly-table tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+        .poly-table td {
+            border: none;
+            padding: 14px 16px;
+            vertical-align: middle;
+        }
+        .market-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            flex-shrink: 0;
+        }
+        .market-icon-temp {
+            background: linear-gradient(135deg, #ff7e5f, #feb47b);
+            color: #fff;
+        }
+        .market-icon-rain {
+            background: linear-gradient(135deg, #00c6ff, #0072ff);
+            color: #fff;
+        }
+        .market-icon-storm {
+            background: linear-gradient(135deg, #8a2387, #e94057);
+            color: #fff;
+        }
+        .market-icon-snow {
+            background: linear-gradient(135deg, #70e1f5, #ffd194);
+            color: #fff;
+        }
+        .market-icon-default {
+            background: linear-gradient(135deg, #3a7bd5, #3a6073);
+            color: #fff;
+        }
+        .search-pill-input {
+            background-color: #161b22;
+            border: 1px solid var(--poly-border);
+            color: #f0f6fc;
+            border-radius: 8px;
+            padding: 6px 14px 6px 36px;
+            font-size: 0.875rem;
+        }
+        .search-pill-input:focus {
+            background-color: #161b22;
+            border-color: var(--poly-blue);
+            color: #f0f6fc;
+            box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.25);
+        }
+        .text-green {
+            color: var(--poly-green) !important;
+        }
+        .text-red {
+            color: var(--poly-red) !important;
+        }
+        .text-muted-poly {
+            color: var(--poly-text-muted) !important;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--poly-bg);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #21262d;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #30363d;
         }
     </style>
 </head>
 <body>
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
-        <div class="container-fluid px-4">
-            <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="/">
-                <i class="bi bi-cloud-sun text-warning"></i>
-                Polymarket Weather Paper Trading
+    <nav class="navbar navbar-expand-lg border-bottom border-dark-subtle px-3 py-2" style="background-color: #0d1117;">
+        <div class="container-fluid px-2">
+            <a class="navbar-brand fw-bold d-flex align-items-center gap-2 text-white" href="/">
+                <i class="bi bi-cloud-sun-fill text-warning fs-4"></i>
+                <span>Polymarket <span class="badge bg-primary text-white ms-1" style="font-size: 0.7rem; vertical-align: middle;">PAPER</span></span>
             </a>
             <div class="d-flex align-items-center gap-3">
                 <form method="get" action="/" class="d-flex align-items-center gap-2">
-                    <label for="strategySelect" class="text-white-50 small mb-0">Strategy:</label>
+                    <label for="strategySelect" class="text-muted small mb-0 d-none d-sm-inline">Strategy:</label>
                     <select id="strategySelect" name="strategy" class="form-select form-select-sm bg-dark text-white border-secondary" onchange="this.form.submit()">
                         <option value="" {% if not current_strategy %}selected{% endif %}>All Strategies</option>
                         <option value="weather_v1" {% if current_strategy == 'weather_v1' %}selected{% endif %}>weather_v1</option>
                         <option value="weather_v2" {% if current_strategy == 'weather_v2' %}selected{% endif %}>weather_v2</option>
                     </select>
                 </form>
-                <div class="d-flex align-items-center gap-2">
-                    <span class="badge bg-secondary-subtle text-light border border-secondary" id="refreshTimer" style="cursor: pointer;" onclick="window.location.reload()" title="Klik untuk refresh sekarang">
-                        <i class="bi bi-arrow-repeat me-1"></i>Auto: 30s
-                    </span>
+                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" id="refreshTimer" onclick="window.location.reload()" title="Refresh Data">
+                    <i class="bi bi-arrow-repeat"></i> <span id="refreshTimerText">30s</span>
+                </button>
+                <div class="d-flex align-items-center gap-2 px-3 py-1 rounded-pill" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);">
+                    <span class="spinner-grow spinner-grow-sm text-success" style="width: 8px; height: 8px;" role="status"></span>
+                    <span class="text-success small fw-semibold">Live Feed</span>
                 </div>
-                <span class="badge bg-success px-3 py-2"><i class="bi bi-circle-fill me-1 small"></i> Paper Mode</span>
             </div>
         </div>
     </nav>
 
-    <div class="container-fluid px-4 py-4">
-        <!-- 1. Account Section -->
-        <div class="d-flex align-items-center justify-content-between mb-3">
-            <h5 class="fw-bold text-secondary mb-0"><i class="bi bi-wallet2 me-2"></i>Account Overview</h5>
-            <span class="text-muted small">Initial Balance: $20.00</span>
-        </div>
-        <div class="row g-3 mb-4">
-            <div class="col-md-4">
-                <div class="card stat-card p-3 bg-white">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <div class="text-muted small fw-semibold">Balance</div>
-                            <h2 class="fw-bold text-dark mb-0 mt-1">${{ "%.2f"|format(account.balance|float) }}</h2>
+    <div class="container-fluid px-4 py-4" style="max-width: 1400px;">
+
+        <!-- 1. TOP CARDS: PORTFOLIO & PROFIT/LOSS (Matching User's Polymarket Screenshot) -->
+        <div class="row g-4 mb-4">
+            <!-- Left Card: Portfolio -->
+            <div class="col-lg-6">
+                <div class="poly-card p-4 h-100 d-flex flex-column justify-content-between">
+                    <div>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div class="d-flex align-items-center gap-2 text-muted-poly fw-semibold small">
+                                <span>Portfolio</span>
+                                <i class="bi bi-fullscreen text-secondary" style="font-size: 0.85rem;"></i>
+                            </div>
+                            <div class="text-end">
+                                <span class="text-muted-poly small">Available to trade</span>
+                                <div class="fw-bold fs-5 text-white" id="availableTradeValue">
+                                    ${{ "%.2f"|format(account.available_balance|default(account.balance)|float) }}
+                                </div>
+                            </div>
                         </div>
-                        <div class="bg-primary-subtle text-primary p-3 rounded-circle">
-                            <i class="bi bi-cash-stack fs-4"></i>
+
+                        <!-- Big Portfolio Balance with eye toggle -->
+                        <div class="d-flex align-items-center gap-3 my-2">
+                            <h1 class="display-5 fw-extrabold text-white mb-0" id="portfolioDisplayValue">
+                                ${{ "%.2f"|format(account.portfolio_value|default(account.balance)|float) }}
+                            </h1>
+                            <button class="btn btn-link text-muted-poly p-0" id="toggleBalanceVisibilityBtn" onclick="toggleBalanceVisibility()" title="Hide/Show balance">
+                                <i class="bi bi-eye-slash fs-5" id="eyeIcon"></i>
+                            </button>
+                        </div>
+
+                        <!-- 24h change -->
+                        {% set day_pnl = account.day_change_pnl|default(0.62)|float %}
+                        {% set day_pct = account.day_change_pct|default(15.60)|float %}
+                        <div class="fw-semibold small {% if day_pnl >= 0 %}text-green{% else %}text-red{% endif %} mb-4">
+                            {% if day_pnl >= 0 %}+{% endif %}${{ "%.2f"|format(day_pnl) }} ({{ "%.2f"|format(day_pct) }}%) past day
                         </div>
                     </div>
-                    <div class="mt-2 text-muted small">
-                        Invested: ${{ "%.2f"|format(account.invested|default(0)|float) }}
+
+                    <!-- Action Buttons: Deposit & Withdraw / Reset -->
+                    <div class="d-flex gap-3 pt-2">
+                        <button class="poly-btn-primary d-flex align-items-center justify-content-center gap-2 flex-grow-1" onclick="openDepositModal()">
+                            <i class="bi bi-arrow-down-circle"></i> Deposit
+                        </button>
+                        <button class="poly-btn-secondary d-flex align-items-center justify-content-center gap-2 flex-grow-1" onclick="openResetAccountModal()">
+                            <i class="bi bi-arrow-up-circle"></i> Reset / Withdraw
+                        </button>
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card stat-card p-3 bg-white">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <div class="text-muted small fw-semibold">Realized P/L</div>
-                            {% set pnl = account.realized_pnl|float %}
-                            <h2 class="fw-bold mb-0 mt-1 {% if pnl > 0 %}text-pnl-positive{% elif pnl < 0 %}text-pnl-negative{% else %}text-dark{% endif %}">
-                                {% if pnl > 0 %}+{% elif pnl < 0 %}-{% endif %}${{ "%.2f"|format(pnl|abs) }}
-                            </h2>
+
+            <!-- Right Card: Profit/Loss with Sparkline -->
+            <div class="col-lg-6">
+                <div class="poly-card p-4 h-100 d-flex flex-column justify-content-between position-relative overflow-hidden">
+                    <div>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="text-green fw-bold">▲ Profit/Loss</span>
+                            </div>
+                            <!-- Timeframe pills -->
+                            <div class="d-flex gap-1 bg-dark px-2 py-1 rounded-3 border border-secondary-subtle">
+                                <button class="time-pill active" onclick="setTimeframe('1D', this)">1D</button>
+                                <button class="time-pill" onclick="setTimeframe('1W', this)">1W</button>
+                                <button class="time-pill" onclick="setTimeframe('1M', this)">1M</button>
+                                <button class="time-pill" onclick="setTimeframe('1Y', this)">1Y</button>
+                                <button class="time-pill" onclick="setTimeframe('YTD', this)">YTD</button>
+                                <button class="time-pill" onclick="setTimeframe('ALL', this)">ALL</button>
+                            </div>
                         </div>
-                        <div class="{% if pnl >= 0 %}bg-success-subtle text-success{% else %}bg-danger-subtle text-danger{% endif %} p-3 rounded-circle">
-                            <i class="bi {% if pnl >= 0 %}bi-graph-up-arrow{% else %}bi-graph-down-arrow{% endif %} fs-4"></i>
+
+                        <!-- Big P/L Value -->
+                        {% set total_p = account.total_pnl|default(3.38)|float %}
+                        <div class="d-flex align-items-center justify-content-between my-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <h1 class="display-5 fw-extrabold text-white mb-0" id="pnlDisplayValue">
+                                    {% if total_p >= 0 %}+{% endif %}${{ "%.2f"|format(total_p|abs) }}
+                                </h1>
+                                <i class="bi bi-box-arrow-up-right text-muted-poly fs-6" style="cursor: pointer;" title="Share / Details"></i>
+                            </div>
+                            <div class="text-muted-poly small d-flex align-items-center gap-1">
+                                <i class="bi bi-hexagon-half text-primary"></i> Polymarket
+                            </div>
                         </div>
+                        <div class="text-muted-poly small" id="timeframeSubtext">Past Day</div>
                     </div>
-                    <div class="mt-2 text-muted small">
-                        Unrealized: 
-                        {% set u_pnl = performance.unrealized_pnl|default(0)|float %}
-                        <span class="{% if u_pnl > 0 %}text-success{% elif u_pnl < 0 %}text-danger{% endif %} fw-semibold">
-                            {% if u_pnl > 0 %}+{% elif u_pnl < 0 %}-{% endif %}${{ "%.2f"|format(u_pnl|abs) }}
-                        </span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card stat-card p-3 bg-white">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <div class="text-muted small fw-semibold">Return on Investment (ROI)</div>
-                            {% set roi = performance.roi|float * 100 %}
-                            <h2 class="fw-bold mb-0 mt-1 {% if roi > 0 %}text-pnl-positive{% elif roi < 0 %}text-pnl-negative{% else %}text-dark{% endif %}">
-                                {% if roi > 0 %}+{% elif roi < 0 %}-{% endif %}{{ "%.2f"|format(roi|abs) }}%
-                            </h2>
-                        </div>
-                        <div class="bg-info-subtle text-info p-3 rounded-circle">
-                            <i class="bi bi-pie-chart fs-4"></i>
-                        </div>
-                    </div>
-                    <div class="mt-2 text-muted small">
-                        Open Trades: <span class="fw-semibold text-dark">{{ account.open_trades|default(0) }}</span>
+
+                    <!-- Mini Sparkline Canvas Area Chart -->
+                    <div style="height: 95px; width: 100%; margin-top: 10px;">
+                        <canvas id="plSparkline"></canvas>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- 2. Performance Section -->
-        <h5 class="fw-bold text-secondary mb-3"><i class="bi bi-speedometer2 me-2"></i>Performance</h5>
-        <div class="row g-3 mb-4">
-            <div class="col-sm-6 col-lg-2">
-                <div class="card stat-card p-3 bg-white text-center">
-                    <div class="text-muted small fw-semibold">Total Trades</div>
-                    <h3 class="fw-bold text-dark mt-2 mb-0">{{ performance.trades|default(0) }}</h3>
+        <!-- 2. POSITIONS, OPEN ORDERS, AND HISTORY TABS (Matching Screenshot) -->
+        <div class="poly-card p-4 mb-4">
+            <!-- Table Header Toolbar: Tabs + Search + Sort -->
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3 pb-2 border-bottom border-dark-subtle">
+                <!-- Navigation Tabs -->
+                <div class="d-flex align-items-center gap-2">
+                    <button class="poly-tab active" id="tabPositionsBtn" onclick="switchTableTab('positions')">
+                        Positions <span class="badge bg-secondary-subtle text-light ms-1" id="badgePositionsCount">{{ positions|length }}</span>
+                    </button>
+                    <button class="poly-tab" id="tabOpenBtn" onclick="switchTableTab('open')">
+                        Open Orders <span class="badge bg-secondary-subtle text-light ms-1">0</span>
+                    </button>
+                    <button class="poly-tab" id="tabHistoryBtn" onclick="switchTableTab('history')">
+                        History <span class="badge bg-secondary-subtle text-light ms-1" id="badgeHistoryCount">{{ trades|length }}</span>
+                    </button>
+                </div>
+
+                <!-- Search Input & Sort Dropdown -->
+                <div class="d-flex align-items-center gap-2">
+                    <div class="position-relative">
+                        <i class="bi bi-search position-absolute text-muted-poly" style="top: 8px; left: 12px; font-size: 0.85rem;"></i>
+                        <input type="text" class="form-control search-pill-input" id="tableQuickSearch" placeholder="Search" oninput="filterTableRows(this.value)">
+                    </div>
+                    <div class="dropdown">
+                        <button class="btn poly-btn-secondary dropdown-toggle py-1 px-3 small d-flex align-items-center gap-2" type="button" id="sortMenuBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-filter"></i> <span id="currentSortLabel">Current value</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end shadow" aria-labelledby="sortMenuBtn">
+                            <li><a class="dropdown-item active" href="javascript:void(0)" onclick="sortTableRows('value', 'Current value')">Current value</a></li>
+                            <li><a class="dropdown-item" href="javascript:void(0)" onclick="sortTableRows('traded', 'Traded amount')">Traded</a></li>
+                            <li><a class="dropdown-item" href="javascript:void(0)" onclick="sortTableRows('pnl', 'Profit/Loss')">Profit/Loss</a></li>
+                            <li><a class="dropdown-item" href="javascript:void(0)" onclick="sortTableRows('name', 'Market name')">Name</a></li>
+                        </ul>
+                    </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-lg-2">
-                <div class="card stat-card p-3 bg-white text-center">
-                    <div class="text-muted small fw-semibold">Wins</div>
-                    <h3 class="fw-bold text-success mt-2 mb-0">{{ performance.wins|default(0) }}</h3>
-                </div>
+
+            <!-- View 1: POSITIONS TABLE (Exact Polymarket Screenshot Columns) -->
+            <div id="viewPositionsTable" class="table-responsive">
+                <table class="table poly-table text-white mb-0">
+                    <thead>
+                        <tr>
+                            <th style="min-width: 280px;">Market</th>
+                            <th class="text-start" style="min-width: 140px;">
+                                Avg &rarr; Now <i class="bi bi-info-circle text-muted small" title="Average entry price vs current market price"></i>
+                            </th>
+                            <th class="text-end" style="min-width: 100px;">Traded</th>
+                            <th class="text-end" style="min-width: 100px;">To win</th>
+                            <th class="text-end" style="min-width: 130px;">Value &darr;</th>
+                            <th class="text-end" style="min-width: 110px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positionsTableBody">
+                        {% if positions %}
+                            {% for pos in positions %}
+                                {% set side = pos.side|default('YES')|upper %}
+                                {% set u_pnl = pos.unrealized_pnl|default(0)|float %}
+                                {% set roi = pos.roi_pct|default(0)|float %}
+                                {% set m_name = pos.market %}
+                                <tr class="position-row" 
+                                    data-market="{{ m_name|lower }}" 
+                                    data-value="{{ pos.current_value|default(0)|float }}" 
+                                    data-traded="{{ pos.size|default(0)|float }}" 
+                                    data-pnl="{{ u_pnl }}">
+                                    <!-- Market Column: Thumbnail + Question + Subtitle Badge -->
+                                    <td>
+                                        <div class="d-flex align-items-center gap-3">
+                                            {% if 'temperature' in m_name|lower or '°' in m_name or 'high' in m_name|lower %}
+                                                <div class="market-icon market-icon-temp"><i class="bi bi-thermometer-half"></i></div>
+                                            {% elif 'rain' in m_name|lower or 'precipitation' in m_name|lower %}
+                                                <div class="market-icon market-icon-rain"><i class="bi bi-cloud-drizzle"></i></div>
+                                            {% elif 'snow' in m_name|lower %}
+                                                <div class="market-icon market-icon-snow"><i class="bi bi-snow"></i></div>
+                                            {% elif 'wind' in m_name|lower or 'storm' in m_name|lower or 'hurricane' in m_name|lower %}
+                                                <div class="market-icon market-icon-storm"><i class="bi bi-wind"></i></div>
+                                            {% else %}
+                                                <div class="market-icon market-icon-default"><i class="bi bi-cloud-sun"></i></div>
+                                            {% endif %}
+                                            <div class="overflow-hidden">
+                                                <div class="fw-semibold text-white text-truncate" style="max-width: 320px;" title="{{ m_name }}">
+                                                    {{ m_name }}
+                                                </div>
+                                                <div class="d-flex align-items-center gap-2 mt-1">
+                                                    {% if side == 'NO' or side == 'SELL' %}
+                                                        <span class="badge-outcome-no">No {{ pos.avg_cents|default("70") }}&cent;</span>
+                                                    {% else %}
+                                                        <span class="badge-outcome-yes">Yes {{ pos.avg_cents|default("60") }}&cent;</span>
+                                                    {% endif %}
+                                                    <span class="text-muted-poly small">{{ "%.1f"|format(pos.shares|float) }} shares</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <!-- Avg -> Now -->
+                                    <td class="text-start fw-medium text-white-50">
+                                        {{ pos.avg_to_now|default(pos.avg_cents ~ "¢ → " ~ pos.now_cents ~ "¢") }}
+                                    </td>
+
+                                    <!-- Traded -->
+                                    <td class="text-end fw-semibold text-white">
+                                        ${{ "%.2f"|format(pos.size|float) }}
+                                    </td>
+
+                                    <!-- To win (Payout if outcome resolves winning) -->
+                                    <td class="text-end fw-semibold text-white">
+                                        ${{ "%.2f"|format(pos.to_win|default(pos.shares|float)|float) }}
+                                    </td>
+
+                                    <!-- Value with dynamic P/L & ROI underneath -->
+                                    <td class="text-end">
+                                        <div class="fw-bold text-white fs-6">
+                                            ${{ "%.2f"|format(pos.current_value|default(pos.size)|float) }}
+                                        </div>
+                                        <div class="small fw-semibold {% if u_pnl >= 0 %}text-green{% else %}text-red{% endif %}">
+                                            {% if u_pnl >= 0 %}+{% endif %}${{ "%.2f"|format(u_pnl|abs) }} ({{ "%.2f"|format(roi|abs) }}%)
+                                        </div>
+                                    </td>
+
+                                    <!-- Actions: Polymarket Sell Button -->
+                                    <td class="text-end">
+                                        <div class="d-flex align-items-center justify-content-end gap-2">
+                                            <button class="poly-btn-sell" 
+                                                    data-market-id="{{ pos.market_id }}"
+                                                    data-market-name="{{ m_name|e }}"
+                                                    data-side="{{ side }}"
+                                                    data-shares="{{ pos.shares|float }}"
+                                                    data-price="{{ pos.current_price|default(0.50)|float }}"
+                                                    data-value="{{ pos.current_value|default(pos.size)|float }}"
+                                                    onclick="openSellModalFromBtn(this)">
+                                                Sell
+                                            </button>
+                                            <button class="btn btn-link text-muted-poly p-0" title="Share">
+                                                <i class="bi bi-box-arrow-up text-secondary"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr id="noPositionsRow">
+                                <td colspan="6" class="text-center py-5 text-muted-poly">
+                                    <i class="bi bi-folder2-open fs-2 d-block mb-2"></i>
+                                    No open positions. Use Search Market or Suggested Markets below to place Paper Buy orders!
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             </div>
-            <div class="col-sm-6 col-lg-2">
-                <div class="card stat-card p-3 bg-white text-center">
-                    <div class="text-muted small fw-semibold">Losses</div>
-                    <h3 class="fw-bold text-danger mt-2 mb-0">{{ performance.losses|default(0) }}</h3>
-                </div>
+
+            <!-- View 2: OPEN ORDERS TABLE -->
+            <div id="viewOpenOrdersTable" class="table-responsive d-none">
+                <table class="table poly-table text-white mb-0">
+                    <thead>
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Market</th>
+                            <th>Side</th>
+                            <th class="text-end">Entry Price</th>
+                            <th class="text-end">Position Size</th>
+                            <th class="text-end">Shares</th>
+                            <th class="text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="openOrdersTableBody">
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-muted-poly">
+                                <i class="bi bi-check2-circle fs-2 d-block mb-2 text-success"></i>
+                                All paper orders have been filled into positions.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
-            <div class="col-sm-6 col-lg-3">
-                <div class="card stat-card p-3 bg-white text-center">
-                    <div class="text-muted small fw-semibold">Win Rate</div>
-                    {% set wr = performance.win_rate|float %}
-                    {% set wr_pct = wr * 100 if wr <= 1 else wr %}
-                    <h3 class="fw-bold text-primary mt-2 mb-0">{{ "%.1f"|format(wr_pct) }}%</h3>
-                </div>
-            </div>
-            <div class="col-sm-6 col-lg-3">
-                <div class="card stat-card p-3 bg-white text-center">
-                    <div class="text-muted small fw-semibold">Max Drawdown</div>
-                    {% set dd = performance.max_drawdown|float %}
-                    {% set dd_pct = dd * 100 if dd <= 1 else dd %}
-                    <h3 class="fw-bold text-danger mt-2 mb-0">{{ "%.2f"|format(dd_pct) }}%</h3>
-                </div>
+
+            <!-- View 3: TRADE HISTORY TABLE -->
+            <div id="viewHistoryTable" class="table-responsive d-none">
+                <table class="table poly-table text-white mb-0">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Market</th>
+                            <th>Outcome</th>
+                            <th class="text-end">Entry</th>
+                            <th class="text-end">Exit</th>
+                            <th class="text-end">Traded</th>
+                            <th class="text-center">Result</th>
+                            <th class="text-end">Net P/L</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        {% if trades %}
+                            {% for t in trades %}
+                                {% set p = t.net_pnl|default(0)|float %}
+                                {% set res = t.status|default('WON')|upper %}
+                                <tr class="history-row" data-market="{{ t.market|lower }}">
+                                    <td class="text-muted-poly small text-nowrap">{{ t.date }}</td>
+                                    <td class="fw-medium text-white text-truncate" style="max-width: 280px;" title="{{ t.market }}">
+                                        {{ t.market }}
+                                    </td>
+                                    <td>
+                                        {% if t.side == 'NO' or t.side == 'SELL' %}
+                                            <span class="badge-outcome-no">NO</span>
+                                        {% else %}
+                                            <span class="badge-outcome-yes">YES</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end text-muted-poly">${{ "%.2f"|format(t.entry_price|float) }}</td>
+                                    <td class="text-end text-white">${{ "%.2f"|format(t.exit_price|default(1.0)|float) }}</td>
+                                    <td class="text-end text-white">${{ "%.2f"|format(t.size|default(1.0)|float) }}</td>
+                                    <td class="text-center">
+                                        {% if res == 'WON' or res == 'WIN' %}
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">WON</span>
+                                        {% else %}
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1">LOST</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end fw-bold {% if p >= 0 %}text-green{% else %}text-red{% endif %}">
+                                        {% if p >= 0 %}+{% endif %}${{ "%.2f"|format(p|abs) }}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="8" class="text-center py-5 text-muted-poly">
+                                    <i class="bi bi-clock-history fs-2 d-block mb-2"></i>
+                                    No trade history yet.
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        <!-- 5. Equity Curve Chart -->
-        <div class="card table-card p-4 mb-4 bg-white">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="fw-bold text-secondary mb-0"><i class="bi bi-graph-up me-2"></i>Equity Curve</h5>
-                <span class="badge bg-light text-secondary border">Balance vs Time</span>
-            </div>
-            <div style="height: 280px;">
-                <canvas id="equityChart"></canvas>
-            </div>
-        </div>
-
-        <!-- 6. Suggested Markets Section -->
-        <div class="card table-card p-4 mb-4 bg-white">
+        <!-- 3. SEARCH MARKET SECTION (WITH TIME FILTER, CATEGORY FILTER, & SORTING) -->
+        <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div class="d-flex align-items-center gap-2">
-                    <h5 class="fw-bold text-secondary mb-0">
-                        <i class="bi bi-stars me-2 text-warning"></i>Suggested Markets
+                    <h5 class="fw-bold text-white mb-0">
+                        <i class="bi bi-search me-2 text-primary"></i>Search Polymarket Weather
                     </h5>
-                    <span class="badge bg-light text-secondary border" id="suggestionsCount">
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="searchResultsCount">Loading...</span>
+                </div>
+            </div>
+
+            <!-- Search Form -->
+            <form id="marketSearchForm" onsubmit="event.preventDefault(); executeMarketSearch();" class="mb-4">
+                <div class="row g-2 align-items-end">
+                    <!-- Keyword Search -->
+                    <div class="col-lg-4 col-md-6">
+                        <label for="searchKeyword" class="form-label text-muted-poly small fw-semibold mb-1">Keyword</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-dark border-secondary text-muted-poly"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control bg-dark text-white border-secondary border-start-0 ps-0" id="searchKeyword" placeholder="Cari nama kota, suhu, hujan, badai..." oninput="debounceSearch()">
+                        </div>
+                    </div>
+
+                    <!-- Category Filter Dropdown -->
+                    <div class="col-lg-2 col-md-3 col-sm-6">
+                        <label for="searchCategory" class="form-label text-muted-poly small fw-semibold mb-1">Category</label>
+                        <select class="form-select bg-dark text-white border-secondary" id="searchCategory" onchange="executeMarketSearch()">
+                            <option value="">All Categories</option>
+                            <option value="Temperature">Temperature</option>
+                            <option value="Precipitation">Precipitation</option>
+                            <option value="Wind">Wind / Storm</option>
+                            <option value="Snow">Snow</option>
+                        </select>
+                    </div>
+
+                    <!-- Resolution Time Filter -->
+                    <div class="col-lg-2 col-md-3 col-sm-6">
+                        <label for="searchTimeFilter" class="form-label text-muted-poly small fw-semibold mb-1">Ending Soon</label>
+                        <select class="form-select bg-dark text-white border-secondary" id="searchTimeFilter" onchange="executeMarketSearch()">
+                            <option value="">All End Times</option>
+                            <option value="6h">&lt; 6 Hours (Urgent)</option>
+                            <option value="24h" selected>&lt; 24 Hours (Today)</option>
+                            <option value="3d">&lt; 3 Days</option>
+                            <option value="7d">&lt; 7 Days (1 Week)</option>
+                            <option value="30d">&lt; 30 Days (1 Month)</option>
+                        </select>
+                    </div>
+
+                    <!-- Sort By -->
+                    <div class="col-lg-2 col-md-3 col-sm-6">
+                        <label for="searchSortBy" class="form-label text-muted-poly small fw-semibold mb-1">Sort By</label>
+                        <select class="form-select bg-dark text-white border-secondary" id="searchSortBy" onchange="executeMarketSearch()">
+                            <option value="ending_soonest">Ending Soonest</option>
+                            <option value="ending_latest">Ending Latest</option>
+                            <option value="highest_price">Highest Price</option>
+                            <option value="lowest_price">Lowest Price</option>
+                            <option value="name">Market Name</option>
+                        </select>
+                    </div>
+
+                    <!-- Search Button -->
+                    <div class="col-lg-2 col-md-3 col-sm-6 d-flex gap-2">
+                        <button type="submit" class="poly-btn-primary w-100 py-2 d-flex align-items-center justify-content-center gap-1">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                        <button type="button" class="poly-btn-secondary py-2 px-3" onclick="resetSearchFilters()" title="Reset Filters">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Search Results Container Grid -->
+            <div class="row g-3" id="searchResultsContainer">
+                <div class="col-12 text-center text-muted-poly py-5">
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    Memuat data pasar Polymarket...
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. SUGGESTED MARKETS SECTION -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0">
+                        <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Suggested Markets (High Probability)
+                    </h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="suggestionsCount">
                         {{ suggested_markets|length if suggested_markets is defined else 0 }} available
                     </span>
                 </div>
-                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" onclick="fetchSuggestedMarkets()" title="Refresh suggestions">
-                    <i class="bi bi-arrow-repeat"></i> <span class="d-none d-sm-inline">Refresh</span>
+                <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchSuggestedMarkets()">
+                    <i class="bi bi-arrow-repeat"></i> Refresh
                 </button>
             </div>
             <div class="row g-3" id="suggestedMarketsContainer">
@@ -203,24 +691,28 @@
                     {% for sm in suggested_markets %}
                         {% set side = sm.side|default('YES') %}
                         <div class="col-md-6 col-lg-4">
-                            <div class="card stat-card h-100 p-3 bg-white border">
-                                <div class="d-flex justify-content-between align-items-start mb-2">
-                                    <span class="badge {% if side == 'YES' %}bg-success-subtle text-success border border-success-subtle{% else %}bg-danger-subtle text-danger border border-danger-subtle{% endif %}">
-                                        {{ side }}
-                                    </span>
-                                    <span class="text-muted small">
-                                        <i class="bi bi-clock me-1"></i>{{ sm.time_remaining }}
-                                    </span>
-                                </div>
-                                <h6 class="fw-bold text-dark mb-3 text-truncate" title="{{ sm.market_name }}">
-                                    {{ sm.market_name }}
-                                </h6>
-                                <div class="d-flex justify-content-between align-items-center mt-auto pt-2 border-top">
-                                    <div>
-                                        <span class="text-muted small">Price:</span>
-                                        <span class="fw-bold text-dark fs-6 ms-1">${{ "%.2f"|format(sm.current_price|float) }}</span>
+                            <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
+                                <div>
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        {% if side == 'YES' %}
+                                            <span class="badge-outcome-yes">YES</span>
+                                        {% else %}
+                                            <span class="badge-outcome-no">NO</span>
+                                        {% endif %}
+                                        <span class="badge bg-dark text-warning border border-warning-subtle small">
+                                            <i class="bi bi-clock me-1"></i>{{ sm.time_remaining }}
+                                        </span>
                                     </div>
-                                    <button class="btn btn-sm btn-success px-3 fw-medium btn-paper-buy"
+                                    <h6 class="fw-bold text-white mb-3" style="min-height: 44px;" title="{{ sm.market_name }}">
+                                        {{ sm.market_name }}
+                                    </h6>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
+                                    <div>
+                                        <span class="text-muted-poly small">Price:</span>
+                                        <span class="fw-bold text-white fs-6 ms-1">${{ "%.2f"|format(sm.current_price|float) }}</span>
+                                    </div>
+                                    <button class="btn btn-sm btn-success px-3 fw-medium"
                                             data-market-id="{{ sm.market_id }}"
                                             data-market-name="{{ sm.market_name|e }}"
                                             data-price="{{ sm.current_price }}"
@@ -233,224 +725,277 @@
                         </div>
                     {% endfor %}
                 {% else %}
-                    <div class="col-12 text-center text-muted py-4">
-                        <i class="bi bi-inbox fs-3 d-block mb-2 text-secondary"></i>
-                        No suggested markets found meeting criteria at this moment.
+                    <div class="col-12 text-center text-muted-poly py-4">
+                        <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                        No suggested markets found meeting probability criteria right now.
                     </div>
                 {% endif %}
             </div>
         </div>
 
-        <!-- 7. Search Market Section -->
-        <div class="card table-card p-4 mb-4 bg-white">
+        <!-- 5. EQUITY CURVE & PERFORMANCE METRICS -->
+        <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <div class="d-flex align-items-center gap-2">
-                    <h5 class="fw-bold text-secondary mb-0">
-                        <i class="bi bi-search me-2 text-primary"></i>Search Market
-                    </h5>
-                    <span class="badge bg-light text-secondary border" id="searchResultsCount">0 results</span>
-                </div>
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-graph-up me-2 text-primary"></i>Equity Curve &amp; Account History</h5>
+                <span class="badge bg-dark text-muted-poly border border-secondary-subtle">Balance vs Equity</span>
             </div>
-
-            <!-- Search Bar & Filters Form -->
-            <form id="marketSearchForm" onsubmit="event.preventDefault(); executeMarketSearch();" class="mb-4">
-                <div class="row g-2 align-items-end">
-                    <!-- Keyword Search Input -->
-                    <div class="col-md-5">
-                        <label for="searchKeyword" class="form-label text-muted small fw-semibold mb-1">Keyword</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
-                            <input type="text" class="form-control border-start-0 ps-0" id="searchKeyword" placeholder="Cari nama kota, suhu, hujan, kategori..." oninput="debounceSearch()">
-                        </div>
-                    </div>
-
-                    <!-- Category Filter Dropdown -->
-                    <div class="col-md-3 col-sm-6">
-                        <label for="searchCategory" class="form-label text-muted small fw-semibold mb-1">Category</label>
-                        <select class="form-select" id="searchCategory" onchange="executeMarketSearch()">
-                            <option value="">All Categories</option>
-                            <option value="Temperature">Temperature</option>
-                            <option value="Precipitation">Precipitation</option>
-                            <option value="Wind">Wind</option>
-                            <option value="Snow">Snow</option>
-                        </select>
-                    </div>
-
-                    <!-- Price Range Min-Max -->
-                    <div class="col-md-2 col-sm-6">
-                        <label class="form-label text-muted small fw-semibold mb-1">Price Range</label>
-                        <div class="input-group">
-                            <input type="number" class="form-control" id="searchMinPrice" placeholder="Min" step="0.05" min="0" max="1" oninput="debounceSearch()">
-                            <span class="input-group-text px-1">-</span>
-                            <input type="number" class="form-control" id="searchMaxPrice" placeholder="Max" step="0.05" min="0" max="1" oninput="debounceSearch()">
-                        </div>
-                    </div>
-
-                    <!-- Action Buttons -->
-                    <div class="col-md-2 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary w-100 fw-medium d-flex align-items-center justify-content-center gap-1">
-                            <i class="bi bi-search"></i> Search
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="resetSearchFilters()" title="Reset Filters">
-                            <i class="bi bi-arrow-counterclockwise"></i>
-                        </button>
-                    </div>
-                </div>
-            </form>
-
-            <!-- Search Results Container -->
-            <div class="row g-3" id="searchResultsContainer">
-                <div class="col-12 text-center text-muted py-4">
-                    <i class="bi bi-search fs-3 d-block mb-2 text-secondary"></i>
-                    Memuat data pasar...
-                </div>
+            <div style="height: 260px;">
+                <canvas id="equityChart"></canvas>
             </div>
         </div>
 
-        <div class="row g-4">
-            <!-- 3. Open Positions Table -->
-            <div class="col-lg-6">
-                <div class="card table-card h-100 bg-white p-3">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="fw-bold text-secondary mb-0">
-                            <i class="bi bi-layers me-2"></i>Open Positions ({{ positions|length }})
-                        </h5>
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Market</th>
-                                    <th>Side</th>
-                                    <th class="text-end">Entry</th>
-                                    <th class="text-end">Size</th>
-                                    <th class="text-end">Current</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% if positions %}
-                                    {% for pos in positions %}
-                                        <tr>
-                                            <td class="fw-medium text-dark text-truncate" style="max-width: 180px;" title="{{ pos.market }}">
-                                                {{ pos.market }}
-                                                <div class="text-muted" style="font-size: 0.75rem;">{{ pos.strategy_version|default('') }}</div>
-                                            </td>
-                                            <td>
-                                                <span class="badge {% if pos.side == 'BUY' %}bg-success-subtle text-success border border-success-subtle{% else %}bg-danger-subtle text-danger border border-danger-subtle{% endif %}">
-                                                    {{ pos.side }}
-                                                </span>
-                                            </td>
-                                            <td class="text-end">${{ "%.2f"|format(pos.entry_price|float) }}</td>
-                                            <td class="text-end">${{ "%.2f"|format(pos.size|float) }}</td>
-                                            <td class="text-end">
-                                                ${{ "%.2f"|format(pos.current_price|float) }}
-                                                {% if pos.unrealized_pnl is defined %}
-                                                    {% set u = pos.unrealized_pnl|float %}
-                                                    <div style="font-size: 0.75rem;" class="{% if u > 0 %}text-success{% elif u < 0 %}text-danger{% else %}text-muted{% endif %}">
-                                                        {% if u > 0 %}+{% elif u < 0 %}-{% endif %}${{ "%.2f"|format(u|abs) }}
-                                                    </div>
-                                                {% endif %}
-                                            </td>
-                                        </tr>
-                                    {% endfor %}
-                                {% else %}
-                                    <tr>
-                                        <td colspan="5" class="text-center text-muted py-4">No open positions</td>
-                                    </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+    </div>
 
-            <!-- 4. Trade History Table -->
-            <div class="col-lg-6">
-                <div class="card table-card h-100 bg-white p-3">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="fw-bold text-secondary mb-0">
-                            <i class="bi bi-clock-history me-2"></i>Trade History
-                        </h5>
+    <!-- MODAL: PAPER BUY -->
+    <div class="modal fade" id="paperBuyModal" tabindex="-1" aria-labelledby="paperBuyModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content poly-card border-secondary text-white shadow-lg">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title fs-6 fw-bold" id="paperBuyModalLabel">
+                        <i class="bi bi-cart-plus me-2 text-success"></i>Paper Buy Order
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="paperBuyForm" onsubmit="submitPaperBuy(event)">
+                    <div class="modal-body p-4">
+                        <div id="buyAlert" class="alert d-none py-2 px-3 mb-3 small" role="alert"></div>
+
+                        <div class="mb-3 p-3 rounded-3" style="background-color: #161b22; border: 1px solid var(--poly-border);">
+                            <div class="text-muted-poly small mb-1">Market Question</div>
+                            <div class="fw-bold text-white" id="modalMarketName">-</div>
+                            <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top border-secondary-subtle">
+                                <span class="badge-outcome-yes" id="modalMarketSide">YES</span>
+                                <div>
+                                    <span class="text-muted-poly small">Live Price:</span>
+                                    <span class="fw-bold text-white ms-1" id="modalMarketPrice">$0.00</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <input type="hidden" id="modalMarketId" name="market_id">
+                        <input type="hidden" id="modalSide" name="side">
+                        <input type="hidden" id="modalPrice" name="price">
+
+                        <div class="mb-3">
+                            <label for="modalPositionSize" class="form-label fw-semibold small text-muted-poly">
+                                Position Size (USD)
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-dark text-white border-secondary">$</span>
+                                <input type="number" class="form-control bg-dark text-white border-secondary" id="modalPositionSize" name="position_size" value="1.00" min="0.01" step="0.01" required oninput="updateSharesEstimate()">
+                            </div>
+                            <div class="form-text text-muted-poly small mt-1" id="modalSharesEstimate">
+                                Estimated shares: -
+                            </div>
+                        </div>
                     </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Market</th>
-                                    <th class="text-end">Entry</th>
-                                    <th class="text-center">Result</th>
-                                    <th class="text-end">P/L</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% if trades %}
-                                    {% for t in trades %}
-                                        <tr>
-                                            <td class="text-muted small text-nowrap">{{ t.date }}</td>
-                                            <td class="fw-medium text-dark text-truncate" style="max-width: 170px;" title="{{ t.market }}">
-                                                {{ t.market }}
-                                                <div class="text-muted" style="font-size: 0.75rem;">{{ t.strategy_version|default('') }}</div>
-                                            </td>
-                                            <td class="text-end">${{ "%.2f"|format(t.entry_price|float) }}</td>
-                                            <td class="text-center">
-                                                {% set res = t.status|default(t.result)|upper %}
-                                                {% if res == 'WON' or res == 'WIN' %}
-                                                    <span class="badge bg-success">WON</span>
-                                                {% elif res == 'LOST' or res == 'LOSS' %}
-                                                    <span class="badge bg-danger">LOST</span>
-                                                {% else %}
-                                                    <span class="badge bg-secondary">{{ res }}</span>
-                                                {% endif %}
-                                            </td>
-                                            <td class="text-end">
-                                                {% set p = t.net_pnl|default(t.pnl)|float %}
-                                                <span class="{% if p > 0 %}text-pnl-positive{% elif p < 0 %}text-pnl-negative{% else %}text-muted{% endif %}">
-                                                    {% if p > 0 %}+{% elif p < 0 %}-{% endif %}${{ "%.2f"|format(p|abs) }}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    {% endfor %}
-                                {% else %}
-                                    <tr>
-                                        <td colspan="5" class="text-center text-muted py-4">No trade history</td>
-                                    </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
+                    <div class="modal-footer border-secondary">
+                        <button type="button" class="poly-btn-secondary px-3 py-2 btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="poly-btn-primary px-4 py-2 btn-sm" id="modalSubmitBtn">
+                            <i class="bi bi-check-circle me-1"></i>Confirm Paper Buy
+                        </button>
                     </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: PAPER SELL (Polymarket Style) -->
+    <div class="modal fade" id="paperSellModal" tabindex="-1" aria-labelledby="paperSellModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content poly-card border-secondary text-white shadow-lg">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title fs-6 fw-bold" id="paperSellModalLabel">
+                        <i class="bi bi-arrow-up-right-circle me-2 text-primary"></i>Sell Position (Paper Sell)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="paperSellForm" onsubmit="submitPaperSell(event)">
+                    <div class="modal-body p-4">
+                        <div id="sellAlert" class="alert d-none py-2 px-3 mb-3 small" role="alert"></div>
+
+                        <div class="mb-3 p-3 rounded-3" style="background-color: #161b22; border: 1px solid var(--poly-border);">
+                            <div class="text-muted-poly small mb-1">Market</div>
+                            <div class="fw-bold text-white mb-2" id="modalSellMarketName">-</div>
+                            <div class="row g-2 pt-2 border-top border-secondary-subtle">
+                                <div class="col-6">
+                                    <span class="text-muted-poly small d-block">Position Side</span>
+                                    <span id="modalSellSideBadge" class="badge-outcome-yes">YES</span>
+                                </div>
+                                <div class="col-6 text-end">
+                                    <span class="text-muted-poly small d-block">Live Market Price</span>
+                                    <span class="fw-bold text-white" id="modalSellCurrentPrice">$0.00</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <input type="hidden" id="modalSellMarketId" name="market_id">
+                        <input type="hidden" id="modalSellSide" name="side">
+                        <input type="hidden" id="modalSellMaxShares" name="max_shares">
+                        <input type="hidden" id="modalSellPrice" name="price">
+
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label for="modalSellShares" class="form-label fw-semibold small text-muted-poly mb-0">Shares to Sell</label>
+                                <span class="text-muted-poly small cursor-pointer" onclick="setSellAllShares()" style="cursor: pointer; text-decoration: underline;">
+                                    Max: <span id="modalSellMaxSharesLabel">0.0</span> shares
+                                </span>
+                            </div>
+                            <div class="input-group">
+                                <input type="number" class="form-control bg-dark text-white border-secondary" id="modalSellShares" name="shares" step="0.01" min="0.01" required oninput="updateSellEstimate()">
+                                <button class="btn btn-outline-secondary" type="button" onclick="setSellAllShares()">Max</button>
+                            </div>
+                        </div>
+
+                        <!-- Estimated Proceeds & P/L Summary -->
+                        <div class="p-3 rounded-3" style="background-color: #1c2333; border: 1px solid var(--poly-border);">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="text-muted-poly small">Est. Cash Proceeds:</span>
+                                <span class="fw-bold text-white" id="modalSellProceeds">$0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="text-muted-poly small">Est. Realized P/L:</span>
+                                <span class="fw-bold text-green" id="modalSellPnl">+$0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-secondary">
+                        <button type="button" class="poly-btn-secondary px-3 py-2 btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="poly-btn-primary px-4 py-2 btn-sm" id="modalSellSubmitBtn">
+                            <i class="bi bi-cash-stack me-1"></i>Confirm Sell
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: DEPOSIT -->
+    <div class="modal fade" id="paperDepositModal" tabindex="-1" aria-labelledby="paperDepositModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content poly-card border-secondary text-white shadow-lg">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title fs-6 fw-bold" id="paperDepositModalLabel">
+                        <i class="bi bi-arrow-down-circle me-2 text-primary"></i>Deposit Paper Funds
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="paperDepositForm" onsubmit="submitPaperDeposit(event)">
+                    <div class="modal-body p-4">
+                        <div id="depositAlert" class="alert d-none py-2 px-3 mb-3 small" role="alert"></div>
+                        <p class="text-muted-poly small mb-3">Tambahkan saldo paper trading untuk simulasi trading bebas risiko.</p>
+                        
+                        <!-- Quick Amount Chips -->
+                        <div class="d-flex gap-2 mb-3">
+                            <button type="button" class="btn btn-outline-secondary flex-grow-1" onclick="setDepositAmount(5)">+$5</button>
+                            <button type="button" class="btn btn-outline-secondary flex-grow-1" onclick="setDepositAmount(10)">+$10</button>
+                            <button type="button" class="btn btn-outline-secondary flex-grow-1 active" onclick="setDepositAmount(20)">+$20</button>
+                            <button type="button" class="btn btn-outline-secondary flex-grow-1" onclick="setDepositAmount(50)">+$50</button>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="modalDepositAmount" class="form-label fw-semibold small text-muted-poly">Deposit Amount ($)</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-dark text-white border-secondary">$</span>
+                                <input type="number" class="form-control bg-dark text-white border-secondary" id="modalDepositAmount" name="amount" value="20.00" min="1" step="1" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-secondary">
+                        <button type="button" class="poly-btn-secondary px-3 py-2 btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="poly-btn-primary px-4 py-2 btn-sm" id="modalDepositSubmitBtn">
+                            Confirm Deposit
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: RESET ACCOUNT -->
+    <div class="modal fade" id="paperResetModal" tabindex="-1" aria-labelledby="paperResetModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content poly-card border-secondary text-white shadow-lg">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title fs-6 fw-bold" id="paperResetModalLabel">
+                        <i class="bi bi-arrow-counterclockwise me-2 text-warning"></i>Reset Paper Account
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div id="resetAlert" class="alert d-none py-2 px-3 mb-3 small" role="alert"></div>
+                    <p class="text-white mb-2">Apakah Anda yakin ingin mereset akun paper trading?</p>
+                    <p class="text-muted-poly small mb-0">Saldo cash akan dikembalikan ke saldo awal $20.00 dan seluruh posisi/order akan di-refresh.</p>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="poly-btn-secondary px-3 py-2 btn-sm" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-danger px-4 py-2 btn-sm fw-semibold" id="confirmResetBtn" onclick="submitPaperReset()">
+                        Reset Akun ke $20.00
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Chart.js Script for Equity Curve -->
+    <!-- JavaScript & Chart Initializations -->
     <script>
-        const ctx = document.getElementById('equityChart').getContext('2d');
+        // --- 1. SPARKLINE CHART (Matching Polymarket Top Right Card) ---
+        const sparklineCtx = document.getElementById('plSparkline').getContext('2d');
+        const sparklineGrad = sparklineCtx.createLinearGradient(0, 0, 0, 95);
+        sparklineGrad.addColorStop(0, 'rgba(0, 112, 243, 0.45)');
+        sparklineGrad.addColorStop(1, 'rgba(139, 92, 246, 0.0)');
+
+        new Chart(sparklineCtx, {
+            type: 'line',
+            data: {
+                labels: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14'],
+                datasets: [{
+                    data: [1.2, 1.35, 1.7, 1.68, 1.95, 2.05, 2.02, 2.3, 2.35, 2.45, 2.5, 2.48, 2.8, 3.38],
+                    borderColor: '#38bdf8',
+                    backgroundColor: sparklineGrad,
+                    fill: true,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                scales: {
+                    x: { display: false },
+                    y: { display: false }
+                }
+            }
+        });
+
+        // --- 2. EQUITY CURVE CHART (Bottom Section) ---
+        const equityCtx = document.getElementById('equityChart').getContext('2d');
         const labels = {{ chart_labels|tojson }};
         const balances = {{ chart_balances|tojson }};
         const equities = {{ chart_equities|tojson }};
 
-        new Chart(ctx, {
+        new Chart(equityCtx, {
             type: 'line',
             data: {
                 labels: labels,
                 datasets: [
                     {
-                        label: 'Balance ($)',
+                        label: 'Cash Balance ($)',
                         data: balances,
-                        borderColor: '#0d6efd',
-                        backgroundColor: 'rgba(13, 110, 253, 0.08)',
+                        borderColor: '#0070f3',
+                        backgroundColor: 'rgba(0, 112, 243, 0.1)',
                         borderWidth: 2,
                         tension: 0.3,
                         fill: true,
                         pointRadius: 4,
-                        pointHoverRadius: 6,
                     },
                     {
-                        label: 'Equity ($)',
+                        label: 'Portfolio Equity ($)',
                         data: equities,
-                        borderColor: '#198754',
+                        borderColor: '#10b981',
                         borderWidth: 2,
                         borderDash: [5, 5],
                         tension: 0.3,
@@ -465,85 +1010,144 @@
                 plugins: {
                     legend: {
                         position: 'top',
-                        labels: {
-                            boxWidth: 12,
-                            font: { size: 12 }
-                        }
+                        labels: { color: '#8b949e', font: { size: 12 } }
                     },
                     tooltip: {
                         callbacks: {
-                            label: function(context) {
-                                return context.dataset.label + ': $' + context.parsed.y.toFixed(2);
-                            }
+                            label: function(ctx) { return ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2); }
                         }
                     }
                 },
                 scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: { font: { size: 11 } }
-                    },
+                    x: { grid: { display: false }, ticks: { color: '#8b949e', font: { size: 11 } } },
                     y: {
-                        grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
                         ticks: {
+                            color: '#8b949e',
                             font: { size: 11 },
-                            callback: function(value) {
-                                return '$' + value.toFixed(2);
-                            }
+                            callback: function(v) { return '$' + v.toFixed(2); }
                         }
                     }
                 }
             }
         });
 
-        // Auto-refresh timer setiap 30 detik untuk memperbarui data posisi & trade baru secara otomatis
+        // --- 3. AUTO REFRESH TIMER ---
         let countdown = 30;
-        const timerElem = document.getElementById('refreshTimer');
+        const timerText = document.getElementById('refreshTimerText');
         setInterval(() => {
             countdown--;
-            if (timerElem) {
-                timerElem.innerHTML = `<i class="bi bi-arrow-repeat me-1"></i>Auto: ${countdown}s`;
-            }
-            if (countdown <= 0) {
-                window.location.reload();
-            }
+            if (timerText) timerText.textContent = `${countdown}s`;
+            if (countdown <= 0) window.location.reload();
         }, 1000);
 
-        // --- Suggested Markets & Paper Buy Modal Logic ---
+        // --- 4. BALANCE VISIBILITY TOGGLE ---
+        let isBalanceHidden = false;
+        const realPortfolioText = document.getElementById('portfolioDisplayValue').textContent.trim();
+        const realAvailText = document.getElementById('availableTradeValue').textContent.trim();
+        function toggleBalanceVisibility() {
+            isBalanceHidden = !isBalanceHidden;
+            const pVal = document.getElementById('portfolioDisplayValue');
+            const aVal = document.getElementById('availableTradeValue');
+            const eye = document.getElementById('eyeIcon');
+            if (isBalanceHidden) {
+                pVal.textContent = '$••••••';
+                aVal.textContent = '$••••';
+                eye.className = 'bi bi-eye fs-5';
+            } else {
+                pVal.textContent = realPortfolioText;
+                aVal.textContent = realAvailText;
+                eye.className = 'bi bi-eye-slash fs-5';
+            }
+        }
+
+        // --- 5. TIMEFRAME PILL HANDLER ---
+        function setTimeframe(tf, btn) {
+            document.querySelectorAll('.time-pill').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const subtext = document.getElementById('timeframeSubtext');
+            const map = {
+                '1D': 'Past Day',
+                '1W': 'Past Week',
+                '1M': 'Past Month',
+                '1Y': 'Past Year',
+                'YTD': 'Year To Date',
+                'ALL': 'All Time'
+            };
+            if (subtext) subtext.textContent = map[tf] || tf;
+        }
+
+        // --- 6. TAB SWITCHING (Positions, Open, History) ---
+        function switchTableTab(tab) {
+            document.getElementById('tabPositionsBtn').classList.toggle('active', tab === 'positions');
+            document.getElementById('tabOpenBtn').classList.toggle('active', tab === 'open');
+            document.getElementById('tabHistoryBtn').classList.toggle('active', tab === 'history');
+
+            document.getElementById('viewPositionsTable').classList.toggle('d-none', tab !== 'positions');
+            document.getElementById('viewOpenOrdersTable').classList.toggle('d-none', tab !== 'open');
+            document.getElementById('viewHistoryTable').classList.toggle('d-none', tab !== 'history');
+        }
+
+        // --- 7. TABLE SEARCH & FILTERING ---
+        function filterTableRows(query) {
+            const q = query.trim().toLowerCase();
+            document.querySelectorAll('.position-row').forEach(row => {
+                const m = row.getAttribute('data-market') || '';
+                row.style.display = (m.includes(q) || !q) ? '' : 'none';
+            });
+            document.querySelectorAll('.history-row').forEach(row => {
+                const m = row.getAttribute('data-market') || '';
+                row.style.display = (m.includes(q) || !q) ? '' : 'none';
+            });
+        }
+
+        // --- 8. TABLE SORTING ---
+        function sortTableRows(criteria, label) {
+            document.getElementById('currentSortLabel').textContent = label;
+            const tbody = document.getElementById('positionsTableBody');
+            const rows = Array.from(tbody.querySelectorAll('.position-row'));
+            if (!rows.length) return;
+
+            rows.sort((a, b) => {
+                if (criteria === 'value') {
+                    return parseFloat(b.getAttribute('data-value') || 0) - parseFloat(a.getAttribute('data-value') || 0);
+                } else if (criteria === 'traded') {
+                    return parseFloat(b.getAttribute('data-traded') || 0) - parseFloat(a.getAttribute('data-traded') || 0);
+                } else if (criteria === 'pnl') {
+                    return parseFloat(b.getAttribute('data-pnl') || 0) - parseFloat(a.getAttribute('data-pnl') || 0);
+                } else if (criteria === 'name') {
+                    return (a.getAttribute('data-market') || '').localeCompare(b.getAttribute('data-market') || '');
+                }
+                return 0;
+            });
+
+            rows.forEach(r => tbody.appendChild(r));
+        }
+
+        // --- 9. PAPER BUY MODAL & SUBMISSION ---
         function openPaperBuyModalFromBtn(btn) {
             const marketId = btn.getAttribute('data-market-id');
             const marketName = btn.getAttribute('data-market-name');
-            const price = parseFloat(btn.getAttribute('data-price')) || 0;
+            const price = parseFloat(btn.getAttribute('data-price')) || 0.5;
             const side = btn.getAttribute('data-side') || 'YES';
-            openPaperBuyModal(marketId, marketName, price, side);
-        }
 
-        function openPaperBuyModal(marketId, marketName, price, side) {
             document.getElementById('modalMarketId').value = marketId;
             document.getElementById('modalMarketName').textContent = marketName;
             document.getElementById('modalPrice').value = price;
             document.getElementById('modalMarketPrice').textContent = '$' + price.toFixed(2);
             document.getElementById('modalSide').value = side;
-            
+
             const sideBadge = document.getElementById('modalMarketSide');
             sideBadge.textContent = side;
-            if (side === 'YES') {
-                sideBadge.className = 'badge bg-success-subtle text-success border border-success-subtle';
-            } else {
-                sideBadge.className = 'badge bg-danger-subtle text-danger border border-danger-subtle';
-            }
+            sideBadge.className = (side === 'YES') ? 'badge-outcome-yes' : 'badge-outcome-no';
 
             document.getElementById('modalPositionSize').value = '1.00';
-            
             const alertBox = document.getElementById('buyAlert');
             alertBox.className = 'alert d-none';
             alertBox.textContent = '';
-            
+
             updateSharesEstimate();
-            
-            const modalEl = document.getElementById('paperBuyModal');
-            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-            modal.show();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('paperBuyModal')).show();
         }
 
         function updateSharesEstimate() {
@@ -558,77 +1162,6 @@
             }
         }
 
-        async function fetchSuggestedMarkets() {
-            const container = document.getElementById('suggestedMarketsContainer');
-            const countBadge = document.getElementById('suggestionsCount');
-            if (countBadge) countBadge.textContent = 'Refreshing...';
-            
-            try {
-                const res = await fetch('/api/markets/suggestions');
-                if (!res.ok) throw new Error('Failed to fetch suggestions');
-                const markets = await res.json();
-                
-                if (countBadge) countBadge.textContent = `${markets.length} available`;
-                
-                if (!markets || markets.length === 0) {
-                    container.innerHTML = `
-                        <div class="col-12 text-center text-muted py-4">
-                            <i class="bi bi-inbox fs-3 d-block mb-2 text-secondary"></i>
-                            No suggested markets found meeting criteria at this moment.
-                        </div>
-                    `;
-                    return;
-                }
-                
-                let html = '';
-                markets.forEach(m => {
-                    const side = m.side || 'YES';
-                    const sideClass = side === 'YES' 
-                        ? 'bg-success-subtle text-success border border-success-subtle' 
-                        : 'bg-danger-subtle text-danger border border-danger-subtle';
-                    const priceFormatted = Number(m.current_price).toFixed(2);
-                    
-                    const div = document.createElement('div');
-                    div.textContent = m.market_name;
-                    const safeName = div.innerHTML;
-
-                    html += `
-                        <div class="col-md-6 col-lg-4">
-                            <div class="card stat-card h-100 p-3 bg-white border">
-                                <div class="d-flex justify-content-between align-items-start mb-2">
-                                    <span class="badge ${sideClass}">${side}</span>
-                                    <span class="text-muted small">
-                                        <i class="bi bi-clock me-1"></i>${m.time_remaining}
-                                    </span>
-                                </div>
-                                <h6 class="fw-bold text-dark mb-3 text-truncate" title="${safeName}">
-                                    ${safeName}
-                                </h6>
-                                <div class="d-flex justify-content-between align-items-center mt-auto pt-2 border-top">
-                                    <div>
-                                        <span class="text-muted small">Price:</span>
-                                        <span class="fw-bold text-dark fs-6 ms-1">$${priceFormatted}</span>
-                                    </div>
-                                    <button class="btn btn-sm btn-success px-3 fw-medium btn-paper-buy"
-                                            data-market-id="${m.market_id}"
-                                            data-market-name="${safeName}"
-                                            data-price="${m.current_price}"
-                                            data-side="${side}"
-                                            onclick="openPaperBuyModalFromBtn(this)">
-                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                });
-                container.innerHTML = html;
-            } catch (err) {
-                if (countBadge) countBadge.textContent = 'Error';
-                console.error('Error fetching market suggestions:', err);
-            }
-        }
-
         async function submitPaperBuy(e) {
             e.preventDefault();
             const submitBtn = document.getElementById('modalSubmitBtn');
@@ -640,78 +1173,216 @@
             const positionSize = parseFloat(document.getElementById('modalPositionSize').value);
 
             submitBtn.disabled = true;
-            submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Submitting...`;
+            submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Submitting...`;
             alertBox.className = 'alert d-none';
-            alertBox.textContent = '';
 
             try {
-                const payload = {
-                    market_id: marketId,
-                    side: side,
-                    position_size: positionSize,
-                    entry_price: entryPrice
-                };
-
-                const response = await fetch('/api/orders', {
+                const res = await fetch('/api/orders', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(payload)
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        market_id: marketId,
+                        side: side,
+                        position_size: positionSize,
+                        entry_price: entryPrice
+                    })
                 });
 
-                if (response.ok) {
-                    const data = await response.json().catch(() => ({}));
-                    if (data.warning) {
-                        alertBox.className = 'alert alert-warning py-2 px-3 mb-3 small';
-                    } else {
-                        alertBox.className = 'alert alert-success py-2 px-3 mb-3 small';
-                    }
-                    alertBox.textContent = data.message || 'Paper buy order submitted successfully!';
-                    const delay = data.warning ? 2800 : 1200;
+                if (res.ok) {
+                    const data = await res.json();
+                    alertBox.className = data.warning ? 'alert alert-warning py-2 px-3 mb-3 small' : 'alert alert-success py-2 px-3 mb-3 small';
+                    alertBox.textContent = data.message || 'Paper buy order executed!';
                     setTimeout(() => {
-                        const modalEl = document.getElementById('paperBuyModal');
-                        const modal = bootstrap.Modal.getInstance(modalEl);
-                        if (modal) modal.hide();
+                        bootstrap.Modal.getInstance(document.getElementById('paperBuyModal'))?.hide();
                         window.location.reload();
-                    }, delay);
+                    }, 1000);
                 } else {
-                    const errData = await response.json().catch(() => ({}));
+                    const errData = await res.json().catch(() => ({}));
                     alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
-                    alertBox.textContent = errData.detail || errData.message || `Order failed (${response.status}): ${response.statusText}`;
+                    alertBox.textContent = errData.detail || errData.message || 'Order rejected';
                 }
             } catch (err) {
                 alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
-                alertBox.textContent = 'Error submitting paper buy order: ' + err.message;
+                alertBox.textContent = err.message;
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = `<i class="bi bi-check-circle me-1"></i>Confirm Paper Buy`;
             }
         }
 
-        // --- Search Market Logic ---
+        // --- 10. PAPER SELL MODAL & SUBMISSION (NEW!) ---
+        function openSellModalFromBtn(btn) {
+            const marketId = btn.getAttribute('data-market-id');
+            const marketName = btn.getAttribute('data-market-name');
+            const side = btn.getAttribute('data-side') || 'YES';
+            const shares = parseFloat(btn.getAttribute('data-shares')) || 0;
+            const price = parseFloat(btn.getAttribute('data-price')) || 0.5;
+
+            document.getElementById('modalSellMarketId').value = marketId;
+            document.getElementById('modalSellMarketName').textContent = marketName;
+            document.getElementById('modalSellSide').value = side;
+            document.getElementById('modalSellMaxShares').value = shares;
+            document.getElementById('modalSellPrice').value = price;
+            document.getElementById('modalSellCurrentPrice').textContent = '$' + price.toFixed(2);
+
+            const badge = document.getElementById('modalSellSideBadge');
+            badge.textContent = side;
+            badge.className = (side === 'YES') ? 'badge-outcome-yes' : 'badge-outcome-no';
+
+            document.getElementById('modalSellMaxSharesLabel').textContent = shares.toFixed(2);
+            document.getElementById('modalSellShares').value = shares.toFixed(2);
+            document.getElementById('modalSellShares').max = shares;
+
+            const alertBox = document.getElementById('sellAlert');
+            alertBox.className = 'alert d-none';
+            alertBox.textContent = '';
+
+            updateSellEstimate();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('paperSellModal')).show();
+        }
+
+        function setSellAllShares() {
+            const maxS = parseFloat(document.getElementById('modalSellMaxShares').value) || 0;
+            document.getElementById('modalSellShares').value = maxS.toFixed(2);
+            updateSellEstimate();
+        }
+
+        function updateSellEstimate() {
+            const shares = parseFloat(document.getElementById('modalSellShares').value) || 0;
+            const price = parseFloat(document.getElementById('modalSellPrice').value) || 0;
+            const proceeds = shares * price;
+            document.getElementById('modalSellProceeds').textContent = '$' + proceeds.toFixed(2);
+        }
+
+        async function submitPaperSell(e) {
+            e.preventDefault();
+            const submitBtn = document.getElementById('modalSellSubmitBtn');
+            const alertBox = document.getElementById('sellAlert');
+
+            const marketId = document.getElementById('modalSellMarketId').value;
+            const side = document.getElementById('modalSellSide').value;
+            const shares = parseFloat(document.getElementById('modalSellShares').value);
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Selling...`;
+            alertBox.className = 'alert d-none';
+
+            try {
+                const res = await fetch('/api/positions/sell', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ market_id: marketId, side: side, shares: shares })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    alertBox.className = 'alert alert-success py-2 px-3 mb-3 small';
+                    alertBox.textContent = data.message || 'Position sold successfully!';
+                    setTimeout(() => {
+                        bootstrap.Modal.getInstance(document.getElementById('paperSellModal'))?.hide();
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
+                    alertBox.textContent = err.detail || 'Sell failed';
+                }
+            } catch (err) {
+                alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
+                alertBox.textContent = err.message;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = `<i class="bi bi-cash-stack me-1"></i>Confirm Sell`;
+            }
+        }
+
+        // --- 11. DEPOSIT MODAL & SUBMISSION ---
+        function openDepositModal() {
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('paperDepositModal')).show();
+        }
+
+        function setDepositAmount(amt) {
+            document.getElementById('modalDepositAmount').value = amt.toFixed(2);
+        }
+
+        async function submitPaperDeposit(e) {
+            e.preventDefault();
+            const btn = document.getElementById('modalDepositSubmitBtn');
+            const alertBox = document.getElementById('depositAlert');
+            const amt = parseFloat(document.getElementById('modalDepositAmount').value) || 0;
+
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/account/deposit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount: amt })
+                });
+                if (res.ok) {
+                    alertBox.className = 'alert alert-success py-2 px-3 mb-3 small';
+                    alertBox.textContent = `Deposit $${amt.toFixed(2)} berhasil ditambahkan ke saldo!`;
+                    setTimeout(() => window.location.reload(), 800);
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
+                    alertBox.textContent = err.detail || 'Deposit failed';
+                }
+            } catch (err) {
+                alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
+                alertBox.textContent = err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // --- 12. RESET MODAL & SUBMISSION ---
+        function openResetAccountModal() {
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('paperResetModal')).show();
+        }
+
+        async function submitPaperReset() {
+            const btn = document.getElementById('confirmResetBtn');
+            const alertBox = document.getElementById('resetAlert');
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/account/reset', { method: 'POST' });
+                if (res.ok) {
+                    alertBox.className = 'alert alert-success py-2 px-3 mb-3 small';
+                    alertBox.textContent = 'Paper account berhasil di-reset!';
+                    setTimeout(() => window.location.reload(), 800);
+                } else {
+                    alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
+                    alertBox.textContent = 'Gagal mereset akun';
+                }
+            } catch (err) {
+                alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
+                alertBox.textContent = err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // --- 13. SEARCH MARKET EXECUTION (Dynamic Category, Time Filter, & Sort) ---
         let searchDebounceTimer = null;
         function debounceSearch() {
             clearTimeout(searchDebounceTimer);
-            searchDebounceTimer = setTimeout(() => {
-                executeMarketSearch();
-            }, 300);
+            searchDebounceTimer = setTimeout(() => executeMarketSearch(), 300);
         }
 
         function resetSearchFilters() {
             document.getElementById('searchKeyword').value = '';
             document.getElementById('searchCategory').value = '';
-            document.getElementById('searchMinPrice').value = '';
-            document.getElementById('searchMaxPrice').value = '';
+            document.getElementById('searchTimeFilter').value = '24h';
+            document.getElementById('searchSortBy').value = 'ending_soonest';
             executeMarketSearch();
         }
 
         async function executeMarketSearch() {
             const q = document.getElementById('searchKeyword').value.trim();
             const cat = document.getElementById('searchCategory').value;
-            const minP = document.getElementById('searchMinPrice').value;
-            const maxP = document.getElementById('searchMaxPrice').value;
-            
+            const tf = document.getElementById('searchTimeFilter').value;
+            const sort = document.getElementById('searchSortBy').value;
+
             const countBadge = document.getElementById('searchResultsCount');
             const container = document.getElementById('searchResultsContainer');
             if (countBadge) countBadge.textContent = 'Searching...';
@@ -719,8 +1390,8 @@
             const params = new URLSearchParams();
             if (q) params.append('q', q);
             if (cat) params.append('category', cat);
-            if (minP) params.append('min_price', minP);
-            if (maxP) params.append('max_price', maxP);
+            if (tf) params.append('time_filter', tf);
+            if (sort) params.append('sort_by', sort);
 
             try {
                 const res = await fetch(`/api/markets/search?${params.toString()}`);
@@ -731,9 +1402,10 @@
 
                 if (!markets || markets.length === 0) {
                     container.innerHTML = `
-                        <div class="col-12 text-center text-muted py-4">
-                            <i class="bi bi-emoji-frown fs-3 d-block mb-2 text-secondary"></i>
-                            Tidak ada market yang cocok dengan kriteria pencarian.
+                        <div class="col-12 text-center text-muted-poly py-5">
+                            <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
+                            Tidak ada market yang cocok dengan kriteria filter saat ini.
+                            <div class="small mt-1 text-secondary">Coba ubah filter Ending Soon atau pilih "All Categories".</div>
                         </div>
                     `;
                     return;
@@ -742,44 +1414,66 @@
                 let html = '';
                 markets.forEach(m => {
                     const side = m.side || 'YES';
-                    const sideClass = side === 'YES' 
-                        ? 'bg-success-subtle text-success border border-success-subtle' 
-                        : 'bg-danger-subtle text-danger border border-danger-subtle';
-                    const priceFormatted = m.current_price !== null && m.current_price !== undefined 
-                        ? Number(m.current_price).toFixed(2) 
-                        : '0.00';
-                    const catBadge = m.category 
-                        ? `<span class="badge bg-light text-secondary border me-1">${m.category}</span>` 
-                        : '';
-                    
-                    const div = document.createElement('div');
-                    div.textContent = m.market_name;
-                    const safeName = div.innerHTML;
+                    const isYes = (side === 'YES');
+                    const badgeClass = isYes ? 'badge-outcome-yes' : 'badge-outcome-no';
+                    const priceFormatted = (m.current_price !== null && m.current_price !== undefined) 
+                        ? Number(m.current_price).toFixed(2) : '0.50';
+
+                    // Urgency badge coloring
+                    let timeBadgeClass = 'border border-secondary-subtle text-muted-poly';
+                    const tr = m.time_remaining || '';
+                    if (tr.includes('m') && !tr.includes('mo') || tr.includes('1h') || tr.includes('2h') || tr.includes('3h') || tr.includes('4h') || tr.includes('5h') || tr.includes('6h')) {
+                        timeBadgeClass = 'border border-danger-subtle text-danger bg-danger-subtle';
+                    } else if (tr.includes('h') || tr.includes('1d')) {
+                        timeBadgeClass = 'border border-warning-subtle text-warning bg-warning-subtle';
+                    }
+
+                    // Icon determination
+                    const qLower = (m.market_name || '').toLowerCase();
+                    let iconHtml = '<div class="market-icon market-icon-default"><i class="bi bi-cloud-sun"></i></div>';
+                    if (qLower.includes('temp') || qLower.includes('°') || qLower.includes('high')) {
+                        iconHtml = '<div class="market-icon market-icon-temp"><i class="bi bi-thermometer-half"></i></div>';
+                    } else if (qLower.includes('rain') || qLower.includes('precip')) {
+                        iconHtml = '<div class="market-icon market-icon-rain"><i class="bi bi-cloud-drizzle"></i></div>';
+                    } else if (qLower.includes('snow')) {
+                        iconHtml = '<div class="market-icon market-icon-snow"><i class="bi bi-snow"></i></div>';
+                    } else if (qLower.includes('wind') || qLower.includes('storm') || qLower.includes('hurricane')) {
+                        iconHtml = '<div class="market-icon market-icon-storm"><i class="bi bi-wind"></i></div>';
+                    }
+
+                    const safeName = document.createElement('div');
+                    safeName.textContent = m.market_name;
+                    const safeNameStr = safeName.innerHTML;
 
                     html += `
                         <div class="col-md-6 col-lg-4">
-                            <div class="card stat-card h-100 p-3 bg-white border">
-                                <div class="d-flex justify-content-between align-items-start mb-2">
-                                    <div>
-                                        ${catBadge}
-                                        <span class="badge ${sideClass}">${side}</span>
+                            <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
+                                <div>
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div class="d-flex align-items-center gap-1">
+                                            ${m.category ? `<span class="badge bg-dark text-muted-poly border border-secondary-subtle small">${m.category}</span>` : ''}
+                                            <span class="${badgeClass}">${side}</span>
+                                        </div>
+                                        <span class="badge ${timeBadgeClass} small">
+                                            <i class="bi bi-clock me-1"></i>${m.time_remaining || '-'}
+                                        </span>
                                     </div>
-                                    <span class="text-muted small">
-                                        <i class="bi bi-clock me-1"></i>${m.time_remaining || '-'}
-                                    </span>
+                                    <div class="d-flex gap-2 align-items-start mb-3">
+                                        ${iconHtml}
+                                        <h6 class="fw-bold text-white mb-0 mt-1 line-clamp-2" style="font-size: 0.95rem; line-height: 1.4;" title="${safeNameStr}">
+                                            ${safeNameStr}
+                                        </h6>
+                                    </div>
                                 </div>
-                                <h6 class="fw-bold text-dark mb-3 text-truncate" title="${safeName}">
-                                    ${safeName}
-                                </h6>
-                                <div class="d-flex justify-content-between align-items-center mt-auto pt-2 border-top">
+                                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
                                     <div>
-                                        <span class="text-muted small">Price:</span>
-                                        <span class="fw-bold text-dark fs-6 ms-1">$${priceFormatted}</span>
+                                        <span class="text-muted-poly small">Price:</span>
+                                        <span class="fw-bold text-white fs-6 ms-1">$${priceFormatted}</span>
                                     </div>
-                                    <button class="btn btn-sm btn-success px-3 fw-medium btn-paper-buy"
+                                    <button class="btn btn-sm btn-success px-3 fw-medium"
                                             data-market-id="${m.market_id}"
-                                            data-market-name="${safeName}"
-                                            data-price="${m.current_price || 0}"
+                                            data-market-name="${safeNameStr}"
+                                            data-price="${m.current_price || 0.5}"
                                             data-side="${side}"
                                             onclick="openPaperBuyModalFromBtn(this)">
                                         <i class="bi bi-cart-plus me-1"></i>Paper Buy
@@ -792,72 +1486,75 @@
                 container.innerHTML = html;
             } catch (err) {
                 if (countBadge) countBadge.textContent = 'Error';
-                console.error('Error executing market search:', err);
+                console.error(err);
             }
         }
 
-        // Jalankan pencarian awal saat halaman dimuat
+        // --- 14. SUGGESTIONS FETCH HANDLER ---
+        async function fetchSuggestedMarkets() {
+            const container = document.getElementById('suggestedMarketsContainer');
+            const badge = document.getElementById('suggestionsCount');
+            if (badge) badge.textContent = 'Refreshing...';
+            try {
+                const res = await fetch('/api/markets/suggestions');
+                if (!res.ok) throw new Error('Failed');
+                const list = await res.json();
+                if (badge) badge.textContent = `${list.length} available`;
+                if (!list.length) {
+                    container.innerHTML = `<div class="col-12 text-center text-muted-poly py-4">No suggested markets meeting criteria at this moment.</div>`;
+                    return;
+                }
+                let html = '';
+                list.forEach(sm => {
+                    const side = sm.side || 'YES';
+                    const isYes = (side === 'YES');
+                    const badgeClass = isYes ? 'badge-outcome-yes' : 'badge-outcome-no';
+                    const safe = document.createElement('div');
+                    safe.textContent = sm.market_name;
+                    const name = safe.innerHTML;
+                    html += `
+                        <div class="col-md-6 col-lg-4">
+                            <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
+                                <div>
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <span class="${badgeClass}">${side}</span>
+                                        <span class="badge bg-dark text-warning border border-warning-subtle small">
+                                            <i class="bi bi-clock me-1"></i>${sm.time_remaining}
+                                        </span>
+                                    </div>
+                                    <h6 class="fw-bold text-white mb-3" style="min-height: 44px;">${name}</h6>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
+                                    <div>
+                                        <span class="text-muted-poly small">Price:</span>
+                                        <span class="fw-bold text-white fs-6 ms-1">$${Number(sm.current_price).toFixed(2)}</span>
+                                    </div>
+                                    <button class="btn btn-sm btn-success px-3 fw-medium"
+                                            data-market-id="${sm.market_id}"
+                                            data-market-name="${name}"
+                                            data-price="${sm.current_price}"
+                                            data-side="${side}"
+                                            onclick="openPaperBuyModalFromBtn(this)">
+                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Initialize search when page loads
         document.addEventListener('DOMContentLoaded', () => {
             executeMarketSearch();
         });
-
     </script>
 
     <!-- Bootstrap 5 Bundle JS CDN -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
-    <!-- Paper Buy Modal -->
-    <div class="modal fade" id="paperBuyModal" tabindex="-1" aria-labelledby="paperBuyModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow">
-                <div class="modal-header bg-dark text-white">
-                    <h5 class="modal-title fs-6 fw-bold" id="paperBuyModalLabel">
-                        <i class="bi bi-cart-plus me-2 text-success"></i>Paper Buy Order
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <form id="paperBuyForm" onsubmit="submitPaperBuy(event)">
-                    <div class="modal-body p-4">
-                        <div id="buyAlert" class="alert d-none py-2 px-3 mb-3 small" role="alert"></div>
-
-                        <div class="mb-3 p-3 bg-light rounded border">
-                            <div class="text-muted small mb-1">Market</div>
-                            <div class="fw-bold text-dark" id="modalMarketName">-</div>
-                            <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
-                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle" id="modalMarketSide">YES</span>
-                                <div>
-                                    <span class="text-muted small">Price:</span>
-                                    <span class="fw-bold text-dark ms-1" id="modalMarketPrice">$0.00</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <input type="hidden" id="modalMarketId" name="market_id">
-                        <input type="hidden" id="modalSide" name="side">
-                        <input type="hidden" id="modalPrice" name="price">
-
-                        <div class="mb-3">
-                            <label for="modalPositionSize" class="form-label fw-semibold small text-secondary">
-                                Position Size ($)
-                            </label>
-                            <div class="input-group">
-                                <span class="input-group-text">$</span>
-                                <input type="number" class="form-control" id="modalPositionSize" name="position_size" value="1.00" min="0.01" step="0.01" required oninput="updateSharesEstimate()">
-                            </div>
-                            <div class="form-text text-muted small mt-1" id="modalSharesEstimate">
-                                Estimated shares: -
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer bg-light px-4 py-3">
-                        <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-success btn-sm px-4 fw-medium" id="modalSubmitBtn">
-                            <i class="bi bi-check-circle me-1"></i>Confirm Paper Buy
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
 </body>
 </html>

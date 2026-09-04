@@ -42,6 +42,20 @@ def _parse_datetime(dt_str: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _detect_category(market_name: str, raw_category: Optional[str] = None) -> str:
+    """Mendeteksi subkategori cuaca secara cerdas berdasarkan judul pasar."""
+    text = (str(raw_category or "") + " " + str(market_name or "")).lower()
+    if any(k in text for k in ("temperature", "°f", "°c", "heat", "warm", "cold", "degree", "fahrenheit", "celsius")):
+        return "Temperature"
+    if any(k in text for k in ("rain", "precipitation", "rainfall", "shower", "wet", "inches of rain")):
+        return "Precipitation"
+    if any(k in text for k in ("snow", "snowfall", "blizzard", "inches of snow")):
+        return "Snow"
+    if any(k in text for k in ("hurricane", "storm", "wind", "cyclone", "typhoon", "tornado", "gale")):
+        return "Wind / Storm"
+    return "Weather"
+
+
 def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Memvalidasi dan mengonversi dictionary mentah dari Gamma API
@@ -116,11 +130,12 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     # current_price default ke price_yes
     current_price = price_yes if price_yes is not None else price_no
+    category = _detect_category(market_name, m.get("category"))
 
     return {
         "market_id": str(condition_id),
         "market_name": str(market_name),
-        "category": "Weather",
+        "category": category,
         "status": status,
         "is_resolved": closed,
         "resolution_time": resolution_time,
