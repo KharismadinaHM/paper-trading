@@ -614,14 +614,14 @@
                     </div>
 
                     <!-- Category Filter Dropdown -->
-                    <div class="col-lg-2 col-md-3 col-sm-6">
+                    <div class="col-lg-3 col-md-3 col-sm-6">
                         <label for="searchCategory" class="form-label text-muted-poly small fw-semibold mb-1">Category</label>
                         <select class="form-select bg-dark text-white border-secondary" id="searchCategory" onchange="executeMarketSearch()">
                             <option value="">All Categories</option>
-                            <option value="Temperature">Temperature</option>
-                            <option value="Precipitation">Precipitation</option>
-                            <option value="Wind">Wind / Storm</option>
-                            <option value="Snow">Snow</option>
+                            <option value="Temperature">Temperature (Highest / Lowest)</option>
+                            <option value="Precipitation">Precipitation (Rain / Shower)</option>
+                            <option value="Wind">Wind / Storm / Hurricane</option>
+                            <option value="Snow">Snow / Snowfall</option>
                         </select>
                     </div>
 
@@ -629,9 +629,9 @@
                     <div class="col-lg-2 col-md-3 col-sm-6">
                         <label for="searchTimeFilter" class="form-label text-muted-poly small fw-semibold mb-1">Ending Soon</label>
                         <select class="form-select bg-dark text-white border-secondary" id="searchTimeFilter" onchange="executeMarketSearch()">
-                            <option value="">All End Times</option>
+                            <option value="" selected>All End Times</option>
                             <option value="6h">&lt; 6 Hours (Urgent)</option>
-                            <option value="24h" selected>&lt; 24 Hours (Today)</option>
+                            <option value="24h">&lt; 24 Hours (Today)</option>
                             <option value="3d">&lt; 3 Days</option>
                             <option value="7d">&lt; 7 Days (1 Week)</option>
                             <option value="30d">&lt; 30 Days (1 Month)</option>
@@ -1372,7 +1372,7 @@
         function resetSearchFilters() {
             document.getElementById('searchKeyword').value = '';
             document.getElementById('searchCategory').value = '';
-            document.getElementById('searchTimeFilter').value = '24h';
+            document.getElementById('searchTimeFilter').value = '';
             document.getElementById('searchSortBy').value = 'ending_soonest';
             executeMarketSearch();
         }

@@ -45,14 +45,14 @@ def _parse_datetime(dt_str: Optional[str]) -> Optional[datetime]:
 def _detect_category(market_name: str, raw_category: Optional[str] = None) -> str:
     """Mendeteksi subkategori cuaca secara cerdas berdasarkan judul pasar."""
     text = (str(raw_category or "") + " " + str(market_name or "")).lower()
-    if any(k in text for k in ("temperature", "°f", "°c", "heat", "warm", "cold", "degree", "fahrenheit", "celsius")):
+    if any(k in text for k in ("highest", "lowest", "temperature", "°f", "°c", "heat", "warm", "cold", "degree", "fahrenheit", "celsius", "maximum", "minimum", "high temp", "low temp")):
         return "Temperature"
-    if any(k in text for k in ("rain", "precipitation", "rainfall", "shower", "wet", "inches of rain")):
-        return "Precipitation"
-    if any(k in text for k in ("snow", "snowfall", "blizzard", "inches of snow")):
+    if any(k in text for k in ("snow", "snowfall", "blizzard", "inches of snow", "freeze", "frost", "ice")):
         return "Snow"
-    if any(k in text for k in ("hurricane", "storm", "wind", "cyclone", "typhoon", "tornado", "gale")):
+    if any(k in text for k in ("hurricane", "storm", "wind", "cyclone", "typhoon", "tornado", "gale", "gust", "thunderstorm")):
         return "Wind / Storm"
+    if any(k in text for k in ("rain", "precipitation", "rainfall", "shower", "wet", "inches of rain", "drizzle")):
+        return "Precipitation"
     return "Weather"
 
 

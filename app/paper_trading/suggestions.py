@@ -158,15 +158,15 @@ def _category_matches(cat_filter: str, cat_lower: str, name_lower: str) -> bool:
     cf = cat_filter.strip().lower()
     if not cf or cf == "all":
         return True
-    if cf in cat_lower:
+    if cf in cat_lower or cat_lower in cf:
         return True
-    if "temp" in cf and any(k in name_lower for k in ("temp", "°f", "°c", "heat", "warm", "cold", "degree", "fahrenheit", "celsius")):
+    if "temp" in cf and any(k in name_lower for k in ("temp", "highest", "lowest", "°f", "°c", "heat", "warm", "cold", "degree", "fahrenheit", "celsius", "maximum", "minimum", "high", "low")):
         return True
-    if ("rain" in cf or "precip" in cf) and any(k in name_lower for k in ("rain", "precip", "shower", "wet", "rainfall")):
+    if ("rain" in cf or "precip" in cf) and any(k in name_lower for k in ("rain", "precip", "shower", "wet", "rainfall", "drizzle")):
         return True
-    if "snow" in cf and any(k in name_lower for k in ("snow", "snowfall", "blizzard")):
+    if "snow" in cf and any(k in name_lower for k in ("snow", "snowfall", "blizzard", "freeze", "ice", "frost")):
         return True
-    if ("wind" in cf or "storm" in cf or "hurr" in cf) and any(k in name_lower for k in ("wind", "storm", "hurricane", "cyclone", "tornado")):
+    if ("wind" in cf or "storm" in cf or "hurr" in cf) and any(k in name_lower for k in ("wind", "storm", "hurricane", "cyclone", "tornado", "gale", "gust", "thunderstorm")):
         return True
     return False
 
