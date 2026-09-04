@@ -13,14 +13,15 @@ from app.core.logging import get_logger, setup_logging
 class TestConfigAndLogging(unittest.TestCase):
 
     def test_config_defaults(self):
-        config = Settings()
-        self.assertIsInstance(config.SLIPPAGE_BPS, int)
-        self.assertIsInstance(config.MAX_POSITION_SIZE, Decimal)
-        self.assertIsInstance(config.INITIAL_BALANCE, Decimal)
-        self.assertIn("postgresql", config.DATABASE_URL)
-        self.assertEqual(config.SLIPPAGE_BPS, 0)
-        self.assertEqual(config.MAX_POSITION_SIZE, Decimal("1.00"))
-        self.assertEqual(config.INITIAL_BALANCE, Decimal("20.00"))
+        with patch.dict(os.environ, {}, clear=True):
+            config = Settings(_env_file=None)
+            self.assertIsInstance(config.SLIPPAGE_BPS, int)
+            self.assertIsInstance(config.MAX_POSITION_SIZE, Decimal)
+            self.assertIsInstance(config.INITIAL_BALANCE, Decimal)
+            self.assertIn("postgresql", config.DATABASE_URL)
+            self.assertEqual(config.SLIPPAGE_BPS, 0)
+            self.assertEqual(config.MAX_POSITION_SIZE, Decimal("1.00"))
+            self.assertEqual(config.INITIAL_BALANCE, Decimal("20.00"))
 
     def test_config_env_override(self):
         with patch.dict(

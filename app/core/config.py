@@ -23,12 +23,18 @@ try:
 
         # Paper Trading & Risk Controls
         SLIPPAGE_BPS: int = 0
+        SPREAD_BPS: int = 0
         MAX_POSITION_SIZE: Decimal = Decimal("1.00")
         INITIAL_BALANCE: Decimal = Decimal("20.00")
+        PRICE_DIVERGENCE_WARNING_THRESHOLD: Decimal = Decimal("0.05")
 
         # Telegram Integration
         TELEGRAM_BOT_TOKEN: Optional[str] = None
         TELEGRAM_CHAT_ID: Optional[str] = None
+
+        # Market Collector Configuration
+        COLLECTOR_INTERVAL_SECONDS: int = 300
+        GAMMA_API_BASE_URL: str = "https://gamma-api.polymarket.com"
 
         # Logging Configuration
         LOG_LEVEL: str = "INFO"
@@ -60,10 +66,14 @@ except ImportError:
     class Settings(BaseModel):
         DATABASE_URL: str = Field(default_factory=lambda: os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paper_trading"))
         SLIPPAGE_BPS: int = Field(default_factory=lambda: int(os.getenv("SLIPPAGE_BPS", "0")))
+        SPREAD_BPS: int = Field(default_factory=lambda: int(os.getenv("SPREAD_BPS", "0")))
         MAX_POSITION_SIZE: Decimal = Field(default_factory=lambda: Decimal(os.getenv("MAX_POSITION_SIZE", "1.00")))
         INITIAL_BALANCE: Decimal = Field(default_factory=lambda: Decimal(os.getenv("INITIAL_BALANCE", "20.00")))
+        PRICE_DIVERGENCE_WARNING_THRESHOLD: Decimal = Field(default_factory=lambda: Decimal(os.getenv("PRICE_DIVERGENCE_WARNING_THRESHOLD", "0.05")))
         TELEGRAM_BOT_TOKEN: Optional[str] = Field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN"))
         TELEGRAM_CHAT_ID: Optional[str] = Field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID"))
+        COLLECTOR_INTERVAL_SECONDS: int = Field(default_factory=lambda: int(os.getenv("COLLECTOR_INTERVAL_SECONDS", "300")))
+        GAMMA_API_BASE_URL: str = Field(default_factory=lambda: os.getenv("GAMMA_API_BASE_URL", "https://gamma-api.polymarket.com"))
         LOG_LEVEL: str = Field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
         LOG_FILE: str = Field(default_factory=lambda: os.getenv("LOG_FILE", "logs/app.log"))
         APP_ENV: str = Field(default_factory=lambda: os.getenv("APP_ENV", "development"))

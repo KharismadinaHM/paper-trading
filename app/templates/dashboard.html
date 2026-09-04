@@ -183,6 +183,130 @@
             </div>
         </div>
 
+        <!-- 6. Suggested Markets Section -->
+        <div class="card table-card p-4 mb-4 bg-white">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-secondary mb-0">
+                        <i class="bi bi-stars me-2 text-warning"></i>Suggested Markets
+                    </h5>
+                    <span class="badge bg-light text-secondary border" id="suggestionsCount">
+                        {{ suggested_markets|length if suggested_markets is defined else 0 }} available
+                    </span>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" onclick="fetchSuggestedMarkets()" title="Refresh suggestions">
+                    <i class="bi bi-arrow-repeat"></i> <span class="d-none d-sm-inline">Refresh</span>
+                </button>
+            </div>
+            <div class="row g-3" id="suggestedMarketsContainer">
+                {% if suggested_markets %}
+                    {% for sm in suggested_markets %}
+                        {% set side = sm.side|default('YES') %}
+                        <div class="col-md-6 col-lg-4">
+                            <div class="card stat-card h-100 p-3 bg-white border">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <span class="badge {% if side == 'YES' %}bg-success-subtle text-success border border-success-subtle{% else %}bg-danger-subtle text-danger border border-danger-subtle{% endif %}">
+                                        {{ side }}
+                                    </span>
+                                    <span class="text-muted small">
+                                        <i class="bi bi-clock me-1"></i>{{ sm.time_remaining }}
+                                    </span>
+                                </div>
+                                <h6 class="fw-bold text-dark mb-3 text-truncate" title="{{ sm.market_name }}">
+                                    {{ sm.market_name }}
+                                </h6>
+                                <div class="d-flex justify-content-between align-items-center mt-auto pt-2 border-top">
+                                    <div>
+                                        <span class="text-muted small">Price:</span>
+                                        <span class="fw-bold text-dark fs-6 ms-1">${{ "%.2f"|format(sm.current_price|float) }}</span>
+                                    </div>
+                                    <button class="btn btn-sm btn-success px-3 fw-medium btn-paper-buy"
+                                            data-market-id="{{ sm.market_id }}"
+                                            data-market-name="{{ sm.market_name|e }}"
+                                            data-price="{{ sm.current_price }}"
+                                            data-side="{{ side }}"
+                                            onclick="openPaperBuyModalFromBtn(this)">
+                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="col-12 text-center text-muted py-4">
+                        <i class="bi bi-inbox fs-3 d-block mb-2 text-secondary"></i>
+                        No suggested markets found meeting criteria at this moment.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 7. Search Market Section -->
+        <div class="card table-card p-4 mb-4 bg-white">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-secondary mb-0">
+                        <i class="bi bi-search me-2 text-primary"></i>Search Market
+                    </h5>
+                    <span class="badge bg-light text-secondary border" id="searchResultsCount">0 results</span>
+                </div>
+            </div>
+
+            <!-- Search Bar & Filters Form -->
+            <form id="marketSearchForm" onsubmit="event.preventDefault(); executeMarketSearch();" class="mb-4">
+                <div class="row g-2 align-items-end">
+                    <!-- Keyword Search Input -->
+                    <div class="col-md-5">
+                        <label for="searchKeyword" class="form-label text-muted small fw-semibold mb-1">Keyword</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" class="form-control border-start-0 ps-0" id="searchKeyword" placeholder="Cari nama kota, suhu, hujan, kategori..." oninput="debounceSearch()">
+                        </div>
+                    </div>
+
+                    <!-- Category Filter Dropdown -->
+                    <div class="col-md-3 col-sm-6">
+                        <label for="searchCategory" class="form-label text-muted small fw-semibold mb-1">Category</label>
+                        <select class="form-select" id="searchCategory" onchange="executeMarketSearch()">
+                            <option value="">All Categories</option>
+                            <option value="Temperature">Temperature</option>
+                            <option value="Precipitation">Precipitation</option>
+                            <option value="Wind">Wind</option>
+                            <option value="Snow">Snow</option>
+                        </select>
+                    </div>
+
+                    <!-- Price Range Min-Max -->
+                    <div class="col-md-2 col-sm-6">
+                        <label class="form-label text-muted small fw-semibold mb-1">Price Range</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="searchMinPrice" placeholder="Min" step="0.05" min="0" max="1" oninput="debounceSearch()">
+                            <span class="input-group-text px-1">-</span>
+                            <input type="number" class="form-control" id="searchMaxPrice" placeholder="Max" step="0.05" min="0" max="1" oninput="debounceSearch()">
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="col-md-2 d-flex gap-2">
+                        <button type="submit" class="btn btn-primary w-100 fw-medium d-flex align-items-center justify-content-center gap-1">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="resetSearchFilters()" title="Reset Filters">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Search Results Container -->
+            <div class="row g-3" id="searchResultsContainer">
+                <div class="col-12 text-center text-muted py-4">
+                    <i class="bi bi-search fs-3 d-block mb-2 text-secondary"></i>
+                    Memuat data pasar...
+                </div>
+            </div>
+        </div>
+
         <div class="row g-4">
             <!-- 3. Open Positions Table -->
             <div class="col-lg-6">
@@ -384,6 +508,356 @@
                 window.location.reload();
             }
         }, 1000);
+
+        // --- Suggested Markets & Paper Buy Modal Logic ---
+        function openPaperBuyModalFromBtn(btn) {
+            const marketId = btn.getAttribute('data-market-id');
+            const marketName = btn.getAttribute('data-market-name');
+            const price = parseFloat(btn.getAttribute('data-price')) || 0;
+            const side = btn.getAttribute('data-side') || 'YES';
+            openPaperBuyModal(marketId, marketName, price, side);
+        }
+
+        function openPaperBuyModal(marketId, marketName, price, side) {
+            document.getElementById('modalMarketId').value = marketId;
+            document.getElementById('modalMarketName').textContent = marketName;
+            document.getElementById('modalPrice').value = price;
+            document.getElementById('modalMarketPrice').textContent = '$' + price.toFixed(2);
+            document.getElementById('modalSide').value = side;
+            
+            const sideBadge = document.getElementById('modalMarketSide');
+            sideBadge.textContent = side;
+            if (side === 'YES') {
+                sideBadge.className = 'badge bg-success-subtle text-success border border-success-subtle';
+            } else {
+                sideBadge.className = 'badge bg-danger-subtle text-danger border border-danger-subtle';
+            }
+
+            document.getElementById('modalPositionSize').value = '1.00';
+            
+            const alertBox = document.getElementById('buyAlert');
+            alertBox.className = 'alert d-none';
+            alertBox.textContent = '';
+            
+            updateSharesEstimate();
+            
+            const modalEl = document.getElementById('paperBuyModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+
+        function updateSharesEstimate() {
+            const price = parseFloat(document.getElementById('modalPrice').value) || 0;
+            const size = parseFloat(document.getElementById('modalPositionSize').value) || 0;
+            const estimateElem = document.getElementById('modalSharesEstimate');
+            if (price > 0 && size > 0) {
+                const estShares = (size / price).toFixed(4);
+                estimateElem.textContent = `Estimated shares: ~${estShares} shares`;
+            } else {
+                estimateElem.textContent = 'Estimated shares: -';
+            }
+        }
+
+        async function fetchSuggestedMarkets() {
+            const container = document.getElementById('suggestedMarketsContainer');
+            const countBadge = document.getElementById('suggestionsCount');
+            if (countBadge) countBadge.textContent = 'Refreshing...';
+            
+            try {
+                const res = await fetch('/api/markets/suggestions');
+                if (!res.ok) throw new Error('Failed to fetch suggestions');
+                const markets = await res.json();
+                
+                if (countBadge) countBadge.textContent = `${markets.length} available`;
+                
+                if (!markets || markets.length === 0) {
+                    container.innerHTML = `
+                        <div class="col-12 text-center text-muted py-4">
+                            <i class="bi bi-inbox fs-3 d-block mb-2 text-secondary"></i>
+                            No suggested markets found meeting criteria at this moment.
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                markets.forEach(m => {
+                    const side = m.side || 'YES';
+                    const sideClass = side === 'YES' 
+                        ? 'bg-success-subtle text-success border border-success-subtle' 
+                        : 'bg-danger-subtle text-danger border border-danger-subtle';
+                    const priceFormatted = Number(m.current_price).toFixed(2);
+                    
+                    const div = document.createElement('div');
+                    div.textContent = m.market_name;
+                    const safeName = div.innerHTML;
+
+                    html += `
+                        <div class="col-md-6 col-lg-4">
+                            <div class="card stat-card h-100 p-3 bg-white border">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <span class="badge ${sideClass}">${side}</span>
+                                    <span class="text-muted small">
+                                        <i class="bi bi-clock me-1"></i>${m.time_remaining}
+                                    </span>
+                                </div>
+                                <h6 class="fw-bold text-dark mb-3 text-truncate" title="${safeName}">
+                                    ${safeName}
+                                </h6>
+                                <div class="d-flex justify-content-between align-items-center mt-auto pt-2 border-top">
+                                    <div>
+                                        <span class="text-muted small">Price:</span>
+                                        <span class="fw-bold text-dark fs-6 ms-1">$${priceFormatted}</span>
+                                    </div>
+                                    <button class="btn btn-sm btn-success px-3 fw-medium btn-paper-buy"
+                                            data-market-id="${m.market_id}"
+                                            data-market-name="${safeName}"
+                                            data-price="${m.current_price}"
+                                            data-side="${side}"
+                                            onclick="openPaperBuyModalFromBtn(this)">
+                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            } catch (err) {
+                if (countBadge) countBadge.textContent = 'Error';
+                console.error('Error fetching market suggestions:', err);
+            }
+        }
+
+        async function submitPaperBuy(e) {
+            e.preventDefault();
+            const submitBtn = document.getElementById('modalSubmitBtn');
+            const alertBox = document.getElementById('buyAlert');
+
+            const marketId = document.getElementById('modalMarketId').value;
+            const side = document.getElementById('modalSide').value;
+            const entryPrice = parseFloat(document.getElementById('modalPrice').value);
+            const positionSize = parseFloat(document.getElementById('modalPositionSize').value);
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Submitting...`;
+            alertBox.className = 'alert d-none';
+            alertBox.textContent = '';
+
+            try {
+                const payload = {
+                    market_id: marketId,
+                    side: side,
+                    position_size: positionSize,
+                    entry_price: entryPrice
+                };
+
+                const response = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    if (data.warning) {
+                        alertBox.className = 'alert alert-warning py-2 px-3 mb-3 small';
+                    } else {
+                        alertBox.className = 'alert alert-success py-2 px-3 mb-3 small';
+                    }
+                    alertBox.textContent = data.message || 'Paper buy order submitted successfully!';
+                    const delay = data.warning ? 2800 : 1200;
+                    setTimeout(() => {
+                        const modalEl = document.getElementById('paperBuyModal');
+                        const modal = bootstrap.Modal.getInstance(modalEl);
+                        if (modal) modal.hide();
+                        window.location.reload();
+                    }, delay);
+                } else {
+                    const errData = await response.json().catch(() => ({}));
+                    alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
+                    alertBox.textContent = errData.detail || errData.message || `Order failed (${response.status}): ${response.statusText}`;
+                }
+            } catch (err) {
+                alertBox.className = 'alert alert-danger py-2 px-3 mb-3 small';
+                alertBox.textContent = 'Error submitting paper buy order: ' + err.message;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = `<i class="bi bi-check-circle me-1"></i>Confirm Paper Buy`;
+            }
+        }
+
+        // --- Search Market Logic ---
+        let searchDebounceTimer = null;
+        function debounceSearch() {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                executeMarketSearch();
+            }, 300);
+        }
+
+        function resetSearchFilters() {
+            document.getElementById('searchKeyword').value = '';
+            document.getElementById('searchCategory').value = '';
+            document.getElementById('searchMinPrice').value = '';
+            document.getElementById('searchMaxPrice').value = '';
+            executeMarketSearch();
+        }
+
+        async function executeMarketSearch() {
+            const q = document.getElementById('searchKeyword').value.trim();
+            const cat = document.getElementById('searchCategory').value;
+            const minP = document.getElementById('searchMinPrice').value;
+            const maxP = document.getElementById('searchMaxPrice').value;
+            
+            const countBadge = document.getElementById('searchResultsCount');
+            const container = document.getElementById('searchResultsContainer');
+            if (countBadge) countBadge.textContent = 'Searching...';
+
+            const params = new URLSearchParams();
+            if (q) params.append('q', q);
+            if (cat) params.append('category', cat);
+            if (minP) params.append('min_price', minP);
+            if (maxP) params.append('max_price', maxP);
+
+            try {
+                const res = await fetch(`/api/markets/search?${params.toString()}`);
+                if (!res.ok) throw new Error('Search failed');
+                const markets = await res.json();
+
+                if (countBadge) countBadge.textContent = `${markets.length} results`;
+
+                if (!markets || markets.length === 0) {
+                    container.innerHTML = `
+                        <div class="col-12 text-center text-muted py-4">
+                            <i class="bi bi-emoji-frown fs-3 d-block mb-2 text-secondary"></i>
+                            Tidak ada market yang cocok dengan kriteria pencarian.
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = '';
+                markets.forEach(m => {
+                    const side = m.side || 'YES';
+                    const sideClass = side === 'YES' 
+                        ? 'bg-success-subtle text-success border border-success-subtle' 
+                        : 'bg-danger-subtle text-danger border border-danger-subtle';
+                    const priceFormatted = m.current_price !== null && m.current_price !== undefined 
+                        ? Number(m.current_price).toFixed(2) 
+                        : '0.00';
+                    const catBadge = m.category 
+                        ? `<span class="badge bg-light text-secondary border me-1">${m.category}</span>` 
+                        : '';
+                    
+                    const div = document.createElement('div');
+                    div.textContent = m.market_name;
+                    const safeName = div.innerHTML;
+
+                    html += `
+                        <div class="col-md-6 col-lg-4">
+                            <div class="card stat-card h-100 p-3 bg-white border">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div>
+                                        ${catBadge}
+                                        <span class="badge ${sideClass}">${side}</span>
+                                    </div>
+                                    <span class="text-muted small">
+                                        <i class="bi bi-clock me-1"></i>${m.time_remaining || '-'}
+                                    </span>
+                                </div>
+                                <h6 class="fw-bold text-dark mb-3 text-truncate" title="${safeName}">
+                                    ${safeName}
+                                </h6>
+                                <div class="d-flex justify-content-between align-items-center mt-auto pt-2 border-top">
+                                    <div>
+                                        <span class="text-muted small">Price:</span>
+                                        <span class="fw-bold text-dark fs-6 ms-1">$${priceFormatted}</span>
+                                    </div>
+                                    <button class="btn btn-sm btn-success px-3 fw-medium btn-paper-buy"
+                                            data-market-id="${m.market_id}"
+                                            data-market-name="${safeName}"
+                                            data-price="${m.current_price || 0}"
+                                            data-side="${side}"
+                                            onclick="openPaperBuyModalFromBtn(this)">
+                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            } catch (err) {
+                if (countBadge) countBadge.textContent = 'Error';
+                console.error('Error executing market search:', err);
+            }
+        }
+
+        // Jalankan pencarian awal saat halaman dimuat
+        document.addEventListener('DOMContentLoaded', () => {
+            executeMarketSearch();
+        });
+
     </script>
+
+    <!-- Bootstrap 5 Bundle JS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Paper Buy Modal -->
+    <div class="modal fade" id="paperBuyModal" tabindex="-1" aria-labelledby="paperBuyModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title fs-6 fw-bold" id="paperBuyModalLabel">
+                        <i class="bi bi-cart-plus me-2 text-success"></i>Paper Buy Order
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="paperBuyForm" onsubmit="submitPaperBuy(event)">
+                    <div class="modal-body p-4">
+                        <div id="buyAlert" class="alert d-none py-2 px-3 mb-3 small" role="alert"></div>
+
+                        <div class="mb-3 p-3 bg-light rounded border">
+                            <div class="text-muted small mb-1">Market</div>
+                            <div class="fw-bold text-dark" id="modalMarketName">-</div>
+                            <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle" id="modalMarketSide">YES</span>
+                                <div>
+                                    <span class="text-muted small">Price:</span>
+                                    <span class="fw-bold text-dark ms-1" id="modalMarketPrice">$0.00</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <input type="hidden" id="modalMarketId" name="market_id">
+                        <input type="hidden" id="modalSide" name="side">
+                        <input type="hidden" id="modalPrice" name="price">
+
+                        <div class="mb-3">
+                            <label for="modalPositionSize" class="form-label fw-semibold small text-secondary">
+                                Position Size ($)
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" class="form-control" id="modalPositionSize" name="position_size" value="1.00" min="0.01" step="0.01" required oninput="updateSharesEstimate()">
+                            </div>
+                            <div class="form-text text-muted small mt-1" id="modalSharesEstimate">
+                                Estimated shares: -
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light px-4 py-3">
+                        <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success btn-sm px-4 fw-medium" id="modalSubmitBtn">
+                            <i class="bi bi-check-circle me-1"></i>Confirm Paper Buy
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

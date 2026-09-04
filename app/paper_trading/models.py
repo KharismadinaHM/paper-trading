@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import (
-    CheckConstraint, DateTime, Enum, ForeignKey, Index, Numeric, 
+    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Numeric, 
     String, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -20,6 +20,8 @@ class Base(DeclarativeBase):
 class TradeSide(str, enum.Enum):
     BUY = "BUY"
     SELL = "SELL"
+    YES = "YES"
+    NO = "NO"
 
 
 class PaperTradeStatus(str, enum.Enum):
@@ -30,6 +32,7 @@ class PaperTradeStatus(str, enum.Enum):
 
 
 class PaperOrderStatus(str, enum.Enum):
+    OPEN = "OPEN"
     PENDING = "PENDING"
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
@@ -161,3 +164,28 @@ class PaperBalanceSnapshot(Base):
     __table_args__ = (
         CheckConstraint("balance >= 0", name="chk_snapshots_balance"),
     )
+
+
+class MarketSnapshot(Base):
+    __tablename__ = "market_snapshots"
+    
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    market_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="open")
+    is_resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    resolution_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    price_yes: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    price_no: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    current_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="Weather")
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_market_snapshots_market_id", "market_id"),
+        Index("idx_market_snapshots_timestamp", "timestamp"),
+        Index("idx_market_snapshots_status", "status"),
+        Index("idx_market_snapshots_category", "category"),
+    )
+
