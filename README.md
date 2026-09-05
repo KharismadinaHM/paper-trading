@@ -274,7 +274,7 @@ pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **105/105 unit test** berada dalam status **PASS**.
+Saat ini seluruh **107/107 unit test** berada dalam status **PASS**.
 
 ---
 

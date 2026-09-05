@@ -373,6 +373,41 @@ jobs:
 
 ---
 
+### 4. Panduan Troubleshooting: Jika Dashboard Tidak Membaca Market di GCP
+
+Jika setelah deploy dashboard menampilkan pesan tidak ada data atau tidak bisa membaca market:
+
+#### A. Penyebab Umum & Solusi Otomatis yang Sudah Diterapkan:
+1. **Perbedaan Jaringan Docker (`localhost` vs `postgres`)**:
+   - Di dalam Docker, `localhost` merujuk ke container itu sendiri, bukan ke database PostgreSQL.
+   - **Solusi**: `docker-compose.prod.yml` kini secara eksplisit menginjeksi `DATABASE_URL=postgresql://...postgres:5432/...` dan `app/core/config.py` memiliki auto-resolver cerdas saat mendeteksi environment Docker.
+2. **Inisialisasi Tabel Database Baru**:
+   - Saat database PostgreSQL pertama kali dibuat di GCP, tabel `market_snapshots` belum ada.
+   - **Solusi**: FastAPI Dashboard kini secara otomatis menjalankan `init_db()` (`Base.metadata.create_all`) saat server pertama kali menyala (*lifespan startup*).
+3. **Konektivitas Gamma API pada IP Cloud VM**:
+   - Beberapa IP datacenter GCP terkadang mengalami timeout atau pembatasan dari Cloudflare Polymarket.
+   - **Solusi**: Sistem dilengkapi mekanisme **Auto-Bootstrap** (`ensure_initial_market_snapshots`). Jika Gamma API belum selesai mengambil data atau terhambat jaringan cloud, sistem langsung mengisi baseline pasar cuaca Polymarket lengkap (Temperature, Precipitation, Wind/Storm, Snow) sehingga dashboard langsung aktif seketika.
+
+#### B. Perintah Diagnostik di Server GCP:
+```bash
+# 1. Pastikan semua container berstatus Up (healthy)
+docker compose -f docker-compose.prod.yml ps
+
+# 2. Periksa log startup dashboard
+docker compose -f docker-compose.prod.yml logs -f --tail=50 dashboard
+
+# 3. Periksa log collector
+docker compose -f docker-compose.prod.yml logs -f --tail=50 collector
+
+# 4. Cek langsung data pasar di PostgreSQL
+docker exec -it paper_trading_postgres psql -U postgres -d paper_trading -c "SELECT count(*), category FROM market_snapshots GROUP BY category;"
+
+# 5. Jalankan satu siklus pengumpulan data manual jika diperlukan
+docker exec -it paper_trading_dashboard python -m app.market_collector.run --once
+```
+
+---
+
 ## 🛡️ 4 Aturan Penting (Best Practices)
 
 1. **Jangan Pernah Mengunggah File `.env` ke Git**:

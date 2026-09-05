@@ -13,8 +13,9 @@ import time
 from datetime import datetime, timezone
 
 from app.core.config import settings
+from app.core.database import init_db
 from app.core.logging import get_logger
-from app.market_collector.collector import run_collection_cycle
+from app.market_collector.collector import ensure_initial_market_snapshots, run_collection_cycle
 
 logger = get_logger("market_collector_runner")
 
@@ -59,6 +60,13 @@ def main():
         interval,
         "ONCE" if args.once else "DAEMON",
     )
+
+    # Inisialisasi tabel database dan pastikan ada snapshot pasar awal
+    try:
+        init_db()
+        ensure_initial_market_snapshots()
+    except Exception as init_err:
+        logger.warning("Peringatan inisialisasi awal database/pasar pada runner: %s", init_err)
 
     if args.once:
         count = run_collection_cycle()

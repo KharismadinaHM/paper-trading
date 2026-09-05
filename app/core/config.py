@@ -3,11 +3,25 @@ Configuration Loader menggunakan pydantic-settings.
 Membaca environment variables dari file .env dengan tipe data tervalidasi.
 """
 import os
+import re
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
+
+def _resolve_database_url(url: str) -> str:
+    """
+    Jika aplikasi berjalan di dalam container Docker dan URL masih menunjuk ke
+    localhost/127.0.0.1, otomatis dialihkan ke hostname service 'postgres' di docker network.
+    """
+    if os.path.exists("/.dockerenv") or os.getenv("IN_DOCKER"):
+        if "@localhost" in url or "@127.0.0.1" in url:
+            url = re.sub(r"@(localhost|127\.0\.0\.1)(:\d+)?/", "@postgres:5432/", url)
+    return url
+
+
 try:
+    from pydantic import field_validator
     from pydantic_settings import BaseSettings, SettingsConfigDict
 
     class Settings(BaseSettings):
@@ -20,6 +34,11 @@ try:
 
         # Database Configuration
         DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/paper_trading"
+
+        @field_validator("DATABASE_URL", mode="after")
+        @classmethod
+        def validate_database_url(cls, v: str) -> str:
+            return _resolve_database_url(v)
 
         # Paper Trading & Risk Controls
         SLIPPAGE_BPS: int = 0
@@ -64,7 +83,7 @@ except ImportError:
     _load_env_file(Path(__file__).resolve().parent.parent.parent / ".env")
 
     class Settings(BaseModel):
-        DATABASE_URL: str = Field(default_factory=lambda: os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paper_trading"))
+        DATABASE_URL: str = Field(default_factory=lambda: _resolve_database_url(os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/paper_trading")))
         SLIPPAGE_BPS: int = Field(default_factory=lambda: int(os.getenv("SLIPPAGE_BPS", "0")))
         SPREAD_BPS: int = Field(default_factory=lambda: int(os.getenv("SPREAD_BPS", "0")))
         MAX_POSITION_SIZE: Decimal = Field(default_factory=lambda: Decimal(os.getenv("MAX_POSITION_SIZE", "1.00")))

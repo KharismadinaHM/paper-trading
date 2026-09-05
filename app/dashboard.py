@@ -2,6 +2,7 @@
 FastAPI Dashboard untuk Polymarket Paper Trading.
 Dijalankan via: uvicorn app.dashboard:app --reload atau python -m app.dashboard
 """
+from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
@@ -15,8 +16,30 @@ from pydantic import BaseModel, Field
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 
-app = FastAPI(title="Polymarket Paper Trading Dashboard")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Inisialisasi tabel database otomatis dan pastikan data awal snapshot pasar tersedia.
+    Memastikan saat baru dideploy di GCP (atau environment baru), dashboard langsung dapat membaca pasar.
+    """
+    try:
+        from app.core.database import init_db
+        init_db()
+    except Exception as err:
+        print(f"[Dashboard Startup] Database init warning: {err}")
+
+    try:
+        from app.market_collector.collector import ensure_initial_market_snapshots
+        ensure_initial_market_snapshots()
+    except Exception as err:
+        print(f"[Dashboard Startup] Market snapshots bootstrap warning: {err}")
+    yield
+
+
+app = FastAPI(title="Polymarket Paper Trading Dashboard", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
 
 # Import service functions dari paper_service.py dengan fallback fleksibel
 try:

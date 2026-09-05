@@ -271,3 +271,26 @@ class TestSnapshotPersistence:
         db_row = in_memory_session.query(MarketSnapshot).filter_by(market_id="0xcycle_1").first()
         assert db_row is not None
         assert db_row.market_name == "Cycle Market"
+
+    @patch("app.market_collector.collector.fetch_weather_markets")
+    def test_ensure_initial_market_snapshots_empty_db_fallback(self, mock_fetch, in_memory_session):
+        """Memastikan jika DB kosong dan Gamma API gagal/kosong, baseline snapshot di-bootstrap."""
+        from app.market_collector.collector import ensure_initial_market_snapshots
+        mock_fetch.return_value = []
+
+        count = ensure_initial_market_snapshots(session=in_memory_session)
+        assert count > 0
+        total = in_memory_session.query(MarketSnapshot).count()
+        assert total == count
+
+    def test_ensure_initial_market_snapshots_already_populated(self, in_memory_session):
+        """Memastikan jika DB sudah memiliki data, bootstrap tidak dipanggil ulang."""
+        from app.market_collector.collector import ensure_initial_market_snapshots
+        save_snapshot({
+            "market_id": "existing_mkt",
+            "market_name": "Existing Market",
+            "price_yes": Decimal("0.5"),
+        }, session=in_memory_session)
+
+        count = ensure_initial_market_snapshots(session=in_memory_session)
+        assert count == 1

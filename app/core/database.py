@@ -35,3 +35,13 @@ def get_db_session() -> Session:
     Caller should manage or close the session when finished.
     """
     return SessionLocal()
+
+
+def init_db() -> None:
+    """
+    Membuat seluruh tabel database jika belum ada (paper_accounts, paper_positions, 
+    paper_orders, paper_trades, market_snapshots, dll.).
+    Aman dipanggil berulang kali (idempotent).
+    """
+    from app.paper_trading.models import Base
+    Base.metadata.create_all(bind=engine)
