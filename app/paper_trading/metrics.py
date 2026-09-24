@@ -61,13 +61,15 @@ def calculate_performance_metrics(
     # 2. Iterate Trades untuk metrik dan P/L
     for trade in trades:
         status = trade.get('status')
-        if status in ['WON', 'LOST']:
+        if status in ['WON', 'LOST', 'CLOSED']:
             total_closed += 1
-            if status == 'WON':
+            net_pnl = Decimal(str(trade.get('net_pnl') or '0'))
+            # WON/LOST dari settlement; CLOSED (jual manual) dinilai dari tanda P/L-nya
+            if status == 'WON' or (status == 'CLOSED' and net_pnl > 0):
                 wins += 1
-            elif status == 'LOST':
+            else:
                 losses += 1
-            realized_pnl += Decimal(str(trade.get('net_pnl', '0')))
+            realized_pnl += net_pnl
             
         elif status == 'OPEN':
             # Kalkulasi Unrealized PNL berdasarkan MTM (Mark-to-Market) harga terkini

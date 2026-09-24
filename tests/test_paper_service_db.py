@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -194,14 +195,8 @@ class TestPaperServiceDatabaseQueries:
         all_list = get_market_snapshots(now=now, include_resolved=True, db=db_session)
         assert len(all_list) == 2
 
-    def test_create_order_emits_warning_on_stale_market(self, db_session):
-        """Memastikan create_paper_order mencatat warning jika market berstatus stale (>15m)."""
-        reset_paper_account()
-        now = datetime.now(timezone.utc)
-        mkt_id = "0xstale_order_market"
-
-        # Simpan snapshot 30 menit lalu
-        old_snap = MarketSnapshot(
+    def _save_stale_snapshot(self, db_session, mkt_id, now):
+        db_session.add(MarketSnapshot(
             id=uuid.uuid4(),
             market_id=mkt_id,
             market_name="Stale Test Market",
@@ -211,21 +206,37 @@ class TestPaperServiceDatabaseQueries:
             price_no=Decimal("0.30"),
             current_price=Decimal("0.70"),
             timestamp=now - timedelta(minutes=30),
-        )
-        db_session.add(old_snap)
+        ))
         db_session.commit()
 
-        # Patch get_db_session agar get_market_by_id menggunakan session ini
-        from unittest.mock import patch
-        with patch("app.paper_service.get_db_session", return_value=db_session):
-            order = create_paper_order(
-                market_id=mkt_id,
-                side="YES",
-                position_size=Decimal("1.00"),
-                user_viewed_price=Decimal("0.70"),
-                now=now,
-            )
+    def test_create_order_rejected_on_stale_market(self, db_session):
+        """Default: order ditolak jika snapshot harga stale (>15m), tanpa partial write."""
+        from app.paper_service import get_paper_orders
+        reset_paper_account()
+        now = datetime.now(timezone.utc)
+        self._save_stale_snapshot(db_session, "0xstale_order_market", now)
 
-            assert order["status"] == "OPEN"
-            assert order["warning"] is not None
-            assert "stale" in order["warning"].lower()
+        with patch("app.paper_service.get_market_by_id",
+                   side_effect=lambda mid, **kw: get_market_by_id(mid, now=now, db=db_session)):
+            with pytest.raises(ValueError) as exc:
+                create_paper_order(market_id="0xstale_order_market", side="YES",
+                                   position_size=Decimal("1.00"), now=now)
+        assert "stale" in str(exc.value).lower()
+        assert get_paper_orders() == []
+
+    def test_create_order_warns_on_stale_market_when_rejection_disabled(self, db_session, monkeypatch):
+        """Jika REJECT_STALE_ORDERS=false, order tetap diterima dengan warning stale."""
+        from app.core.config import settings
+        monkeypatch.setattr(settings, "REJECT_STALE_ORDERS", False)
+        reset_paper_account()
+        now = datetime.now(timezone.utc)
+        self._save_stale_snapshot(db_session, "0xstale_order_market", now)
+
+        with patch("app.paper_service.get_market_by_id",
+                   side_effect=lambda mid, **kw: get_market_by_id(mid, now=now, db=db_session)):
+            order = create_paper_order(market_id="0xstale_order_market", side="YES",
+                                       position_size=Decimal("1.00"),
+                                       user_viewed_price=Decimal("0.70"), now=now)
+        assert order["status"] == "FILLED"
+        assert order["warning"] is not None
+        assert "stale" in order["warning"].lower()

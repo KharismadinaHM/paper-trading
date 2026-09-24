@@ -7,22 +7,31 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.dashboard import CreateOrderRequest, create_order_api, app
+from app.core.database import get_db_session
 from app.paper_service import (
     create_paper_order,
     get_account_status,
-    get_market_by_id,
     get_paper_orders,
     reset_paper_account,
-    _account_state,
-    _paper_orders,
 )
+from app.paper_trading.models import PaperAccount
+
+
+def _set_cash_balance(amount: Decimal) -> None:
+    get_account_status()  # memastikan akun default sudah dibuat
+    db = get_db_session()
+    try:
+        db.query(PaperAccount).update({PaperAccount.current_balance: amount})
+        db.commit()
+    finally:
+        db.close()
 
 
 class TestOrdersEndpoint(unittest.TestCase):
 
     def setUp(self):
         reset_paper_account()
-        self.now = datetime(2026, 9, 4, 10, 0, 0, tzinfo=timezone.utc)
+        self.now = datetime.now(timezone.utc)
         self.mock_stub_markets = {
             "mkt-nyc-85f-0905": {
                 "market_id": "mkt-nyc-85f-0905",
@@ -112,8 +121,8 @@ class TestOrdersEndpoint(unittest.TestCase):
             self.assertEqual(response.shares, 1.2821)
             self.assertNotEqual(response.shares, 1.3514)
 
-            # 4. Pastikan status order adalah OPEN
-            self.assertEqual(response.status, "OPEN")
+            # 4. Order paper langsung tereksekusi (FILLED) dan membuka posisi
+            self.assertEqual(response.status, "FILLED")
 
             # 5. Pastikan warning muncul karena selisih (0.78 - 0.74) / 0.74 = 5.41% > 5%
             self.assertIsNotNone(response.warning)
@@ -196,7 +205,7 @@ class TestOrdersEndpoint(unittest.TestCase):
         Verifikasi: Langsung raise HTTP 400, dan TIDAK ADA order yang tersimpan di DB!
         """
         # Saldo diset $0.50, request position_size $1.00 (lolos max_position_size $1.00 tapi saldo tidak cukup)
-        _account_state["balance"] = Decimal("0.50")
+        _set_cash_balance(Decimal("0.50"))
         request_payload = CreateOrderRequest(
             market_id="mkt-nyc-85f-0905",
             side="YES",
@@ -297,7 +306,7 @@ class TestOrdersEndpoint(unittest.TestCase):
 
             self.assertEqual(res["actual_price"], Decimal("0.74"))
             self.assertEqual(res["side"], "NO")
-            self.assertEqual(res["status"], "OPEN")
+            self.assertEqual(res["status"], "FILLED")
 
 
 if __name__ == "__main__":

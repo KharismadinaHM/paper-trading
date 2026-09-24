@@ -1,5 +1,5 @@
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 # Configuration untuk presisi kalkulasi (Standardizing to 4 decimal places)
 SHARE_PRECISION = Decimal('0.0001')
@@ -78,10 +78,15 @@ def evaluate_risk_and_rules(
     position_size: Decimal,
     available_balance: Decimal,
     max_position_size: Decimal,
-    historical_price_available: bool
+    historical_price_available: bool,
+    current_market_exposure: Decimal = Decimal('0'),
+    max_market_exposure: Optional[Decimal] = None,
+    current_total_exposure: Decimal = Decimal('0'),
+    max_total_exposure: Optional[Decimal] = None,
 ) -> Tuple[bool, str]:
     """
     Evaluasi aturan paper trading (Anti-cheating & Risk Management).
+    Exposure = cost basis posisi terbuka yang sudah ada (per market / seluruh akun).
     Return format: (is_approved, rejection_reason)
     """
     if position_size <= Decimal('0'):
@@ -95,6 +100,20 @@ def evaluate_risk_and_rules(
     if position_size > max_position_size:
         return False, f"REJECTED: Position size {position_size} exceeds max allowed {max_position_size}"
         
+    # Risk Control: Akumulasi eksposur per market (mencegah memecah order besar jadi banyak order kecil)
+    if max_market_exposure is not None and current_market_exposure + position_size > max_market_exposure:
+        return False, (
+            f"REJECTED: Market exposure {current_market_exposure + position_size} "
+            f"exceeds max allowed per market {max_market_exposure}"
+        )
+
+    # Risk Control: Total eksposur seluruh posisi terbuka
+    if max_total_exposure is not None and current_total_exposure + position_size > max_total_exposure:
+        return False, (
+            f"REJECTED: Total exposure {current_total_exposure + position_size} "
+            f"exceeds max allowed {max_total_exposure}"
+        )
+
     # Risk Control: Available Balance
     if position_size > available_balance:
         return False, f"REJECTED: Insufficient balance {available_balance} for position {position_size}"

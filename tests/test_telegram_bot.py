@@ -12,6 +12,29 @@ from app.paper_trading.telegram_bot import (
 )
 
 
+def _open_and_close_sample_trade():
+    """Membuat satu posisi terbuka dan satu trade selesai di database test."""
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import get_db_session
+    from app.paper_service import create_paper_order, sell_paper_position
+    from app.paper_trading.models import MarketSnapshot
+
+    now = datetime.now(timezone.utc)
+    db = get_db_session()
+    for mid, name in (("0xbot_open", "Will NYC exceed 85°F?"), ("0xbot_closed", "Will Seattle rain?")):
+        db.add(MarketSnapshot(id=uuid.uuid4(), market_id=mid, market_name=name, status="open",
+                              is_resolved=False, resolution_time=now + timedelta(hours=5),
+                              price_yes=Decimal("0.60"), price_no=Decimal("0.40"),
+                              current_price=Decimal("0.60"), timestamp=now))
+    db.commit()
+    db.close()
+    create_paper_order("0xbot_open", "YES", Decimal("1.00"))
+    create_paper_order("0xbot_closed", "YES", Decimal("1.00"))
+    sell_paper_position("0xbot_closed", "YES")
+
+
 class TestTelegramBotCommands(unittest.TestCase):
 
     def test_help_message(self):
@@ -62,6 +85,7 @@ class TestTelegramBotCommands(unittest.TestCase):
         self.assertIn("tidak dikenal", reply)
 
     def test_positions_contains_polymarket_links_and_mtm(self):
+        _open_and_close_sample_trade()
         reply = handle_incoming_message("/positions", sender_chat_id="123", allowed_chat_id="123")
         self.assertIn("Posisi Terbuka", reply)
         self.assertIn("[Buka di Polymarket](https://polymarket.com/markets?_q=", reply)
@@ -76,6 +100,7 @@ class TestTelegramBotCommands(unittest.TestCase):
         self.assertIn("Floating P/L", reply)
 
     def test_trades_contains_polymarket_links(self):
+        _open_and_close_sample_trade()
         reply = handle_incoming_message("/trades", sender_chat_id="123", allowed_chat_id="123")
         self.assertIn("Riwayat Transaksi", reply)
         self.assertIn("[Buka di Polymarket](https://polymarket.com/markets?_q=", reply)

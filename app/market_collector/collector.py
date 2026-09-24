@@ -4,9 +4,12 @@ Mengambil data pasar prediksi cuaca dari Gamma API publik Polymarket
 dan menyimpan snapshot time-series ke PostgreSQL (tabel market_snapshots).
 """
 import json
+import re
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -17,9 +20,12 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
-from app.paper_trading.models import MarketSnapshot
+from app.paper_trading.models import MarketResolution, MarketSnapshot, PaperPosition
 
 logger = get_logger("market_collector")
+
+# In-memory cache for weather events (TTL 60 seconds)
+_weather_events_cache: Dict[str, Any] = {"timestamp": 0.0, "events": []}
 
 DEFAULT_WEATHER_QUERIES = ["weather", "temperature", "rain", "snow", "hurricane"]
 DEFAULT_USER_AGENT = (
@@ -238,6 +244,228 @@ def fetch_weather_markets(
     return collected_markets
 
 
+def fetch_weather_events(
+    date_filter: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Mengambil data event cuaca "Highest/Lowest Temperature" dari Polymarket Gamma API
+    dalam format grouped-by-event (per kota + tanggal).
+    
+    Fitur:
+    - Multi-endpoint parallel fetch (tag Weather, Daily Temperature, Highest Temperature)
+    - Caching in-memory (TTL 60 detik) untuk performa responsif
+    - Ekstraksi harga/probabilitas akurat dari lastTradePrice & outcomePrices
+    - Sub-markets diurutkan berdasarkan probabilitas (pct_yes) tertinggi (menyerupai kartu Polymarket)
+    - Support filter by date (format YYYY-MM-DD)
+    """
+    # 1. Cek cache in-memory jika masih valid (TTL 60 detik)
+    now_ts = time.time()
+    cached_events = _weather_events_cache.get("events", [])
+    cache_ts = _weather_events_cache.get("timestamp", 0.0)
+
+    if cached_events and (now_ts - cache_ts < 60):
+        if date_filter:
+            return [e for e in cached_events if e.get("end_date") == date_filter]
+        return cached_events
+
+    if base_url is None:
+        base_url = settings.GAMMA_API_BASE_URL.rstrip("/")
+
+    headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "application/json",
+    }
+
+    # Endpoint multi-tag untuk menjaring semua event cuaca (hari ini, besok, lusa)
+    endpoints = [
+        f"{base_url}/events?limit=100&active=true&closed=false&tag_id=84&order=volume24hr&ascending=false",
+        f"{base_url}/events?limit=100&active=true&closed=false&tag_id=103040&order=startDate&ascending=false",
+        f"{base_url}/events?limit=100&active=true&closed=false&tag_id=103040&order=volume24hr&ascending=false",
+        f"{base_url}/events?limit=100&active=true&closed=false&tag_id=104596&order=startDate&ascending=false",
+        f"{base_url}/public-search?q=Highest+temperature",
+        f"{base_url}/public-search?q=Lowest+temperature",
+    ]
+
+    def _fetch_url(target_url: str) -> List[Dict[str, Any]]:
+        try:
+            req = urllib.request.Request(target_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if isinstance(data, list):
+                    return data
+                elif isinstance(data, dict):
+                    return data.get("events", [])
+        except Exception as net_err:
+            logger.warning("Gagal fetch dari %s: %s", target_url, str(net_err))
+        return []
+
+    # Eksekusi parallel fetch
+    with ThreadPoolExecutor(max_workers=min(len(endpoints), 6)) as executor:
+        responses = list(executor.map(_fetch_url, endpoints))
+
+    seen_event_ids = set()
+    all_events: List[Dict[str, Any]] = []
+
+    for raw_events in responses:
+        for ev in raw_events:
+            event_id = ev.get("id")
+            if not event_id or event_id in seen_event_ids:
+                continue
+
+            title = ev.get("title", "")
+            title_lower = title.lower()
+            if "temperature" not in title_lower:
+                continue
+
+            # Skip jika event closed dan tidak aktif
+            if ev.get("closed", False) and not ev.get("active", True):
+                continue
+
+            seen_event_ids.add(event_id)
+
+            # Parse end_date event
+            raw_end = ev.get("endDate") or ""
+            end_date_str = ""
+            if raw_end:
+                parsed_end = _parse_datetime(raw_end)
+                if parsed_end:
+                    end_date_str = parsed_end.strftime("%Y-%m-%d")
+
+            # Fallback: parse tanggal dari judul (misal "on September 9?")
+            if not end_date_str:
+                m_date = re.search(
+                    r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})",
+                    title,
+                    re.IGNORECASE,
+                )
+                if m_date:
+                    mon_name = m_date.group(1).capitalize()
+                    day_num = int(m_date.group(2))
+                    cur_year = datetime.now(timezone.utc).year
+                    try:
+                        dt = datetime.strptime(f"{mon_name} {day_num} {cur_year}", "%B %d %Y")
+                        end_date_str = dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+
+            # Parse sub-markets
+            raw_markets = ev.get("markets", [])
+            sub_markets: List[Dict[str, Any]] = []
+
+            for raw_m in raw_markets:
+                if raw_m.get("closed", False):
+                    continue
+
+                question = raw_m.get("question", "")
+                group_item_title = raw_m.get("groupItemTitle", "")
+                condition_id = raw_m.get("conditionId", "")
+
+                price_yes = None
+                price_no = None
+
+                # Sumber harga SAMA dengan yang dipakai eksekusi order (outcomePrices, dicocokkan
+                # eksplisit ke outcome 'Yes'), agar harga di kartu tidak memicu divergence palsu.
+                parsed_prices = parse_market_dict({**raw_m, "question": question or "-", "conditionId": condition_id or "-"})
+                if parsed_prices and parsed_prices.get("price_yes") is not None:
+                    price_yes = round(float(parsed_prices["price_yes"]), 4)
+                    price_no = round(1.0 - price_yes, 4)
+
+                # Fallback ke lastTradePrice jika outcomePrices belum tersedia
+                last_trade = raw_m.get("lastTradePrice")
+                if price_yes is None and last_trade is not None:
+                    try:
+                        lt = float(last_trade)
+                        if 0 <= lt <= 1:
+                            price_yes = round(lt, 4)
+                            price_no = round(1.0 - lt, 4)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Persentase Yes / No
+                pct_yes = round(price_yes * 100) if price_yes is not None else 0
+                pct_no = round(price_no * 100) if price_no is not None else 0
+
+                vol_num = 0
+                try:
+                    vol_num = float(raw_m.get("volumeNum", 0) or 0)
+                except (ValueError, TypeError):
+                    vol_num = 0
+
+                sub_markets.append({
+                    "condition_id": str(condition_id),
+                    "question": str(question),
+                    "group_item_title": str(group_item_title),
+                    "price_yes": price_yes,
+                    "price_no": price_no,
+                    "pct_yes": pct_yes,
+                    "pct_no": pct_no,
+                    "volume": vol_num,
+                })
+
+            if not sub_markets:
+                continue
+
+            # PENTING: Urutkan sub-markets berdasarkan probabilitas (pct_yes) tertinggi!
+            # Ini memastikan kandidat suhu teratas (misal 51%, 39%) tampil di kartu,
+            # bukan bracket bersuhu rendah yang berpeluang 0%.
+            sub_markets.sort(key=lambda x: (x.get("pct_yes") or 0), reverse=True)
+
+            # Parse total volume event
+            total_volume = 0
+            try:
+                total_volume = float(ev.get("volume", 0) or 0)
+            except (ValueError, TypeError):
+                total_volume = 0
+
+            # Format volume display
+            if total_volume >= 1_000_000:
+                vol_display = f"${total_volume / 1_000_000:.1f}M"
+            elif total_volume >= 1_000:
+                vol_display = f"${total_volume / 1_000:.0f}K"
+            else:
+                vol_display = f"${total_volume:.0f}"
+
+            # Determine if event is new (created within last 48h)
+            created_at = _parse_datetime(ev.get("creationDate") or ev.get("createdAt"))
+            is_new = False
+            if created_at:
+                age_hours = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
+                is_new = age_hours < 48
+
+            # Build Polymarket URL
+            slug = ev.get("slug", "")
+            poly_url = f"https://polymarket.com/event/{slug}" if slug else ""
+
+            all_events.append({
+                "event_id": str(event_id),
+                "title": str(title),
+                "image": ev.get("image") or ev.get("icon") or "",
+                "slug": str(slug),
+                "polymarket_url": poly_url,
+                "volume": total_volume,
+                "volume_display": vol_display,
+                "end_date": end_date_str,
+                "is_new": is_new,
+                "is_active": bool(ev.get("active", True)),
+                "markets": sub_markets,
+            })
+
+    # Sort events: aktif terlebih dahulu, lalu berdasarkan volume terbesar
+    all_events.sort(key=lambda e: (not e["is_active"], -e["volume"], e["end_date"]))
+
+    # Simpan ke cache module
+    _weather_events_cache["timestamp"] = time.time()
+    _weather_events_cache["events"] = all_events
+
+    logger.info("Berhasil mengumpulkan %d weather events dari Polymarket Gamma API.", len(all_events))
+
+    if date_filter:
+        return [e for e in all_events if e.get("end_date") == date_filter]
+
+    return all_events
+
+
 def save_snapshot(market_data: Dict[str, Any], session: Optional[Session] = None) -> MarketSnapshot:
     """
     Menyimpan satu snapshot pasar ke tabel market_snapshots menggunakan model MarketSnapshot.
@@ -346,9 +574,9 @@ def run_collection_cycle(session: Optional[Session] = None) -> int:
 
 def _get_baseline_weather_markets() -> List[Dict[str, Any]]:
     """
-    Koleksi baseline snapshot pasar cuaca Polymarket realistik
+    Koleksi baseline snapshot pasar cuaca SINTETIS (bukan market Polymarket asli)
     yang mencakup semua kategori (Temperature, Precipitation, Wind/Storm, Snow).
-    Digunakan sebagai bootstrap otomatis jika Gamma API terblokir/timeout pada cloud VM baru.
+    Hanya dimuat jika ALLOW_SYNTHETIC_MARKETS=true (demo / development lokal).
     """
     now = datetime.now(timezone.utc)
     return [
@@ -609,7 +837,14 @@ def ensure_initial_market_snapshots(session: Optional[Session] = None) -> int:
             logger.info("Berhasil mengumpulkan %d pasar dari Gamma API.", cycle_count)
             return cycle_count
 
-        logger.warning("Gamma API tidak mengembalikan data. Memuat baseline snapshot pasar cuaca Polymarket...")
+        if not settings.ALLOW_SYNTHETIC_MARKETS:
+            logger.warning(
+                "Gamma API tidak mengembalikan data dan ALLOW_SYNTHETIC_MARKETS=false. "
+                "Tabel market_snapshots dibiarkan kosong sampai collector berhasil mengambil data asli."
+            )
+            return 0
+
+        logger.warning("Gamma API tidak mengembalikan data. Memuat baseline snapshot pasar SINTETIS (demo)...")
         baseline = _get_baseline_weather_markets()
         saved = save_snapshots(baseline, session=session)
         logger.info("Berhasil menginisialisasi %d baseline snapshot pasar cuaca.", len(saved))
@@ -620,3 +855,122 @@ def ensure_initial_market_snapshots(session: Optional[Session] = None) -> int:
     finally:
         if close_session and session is not None:
             session.close()
+
+
+def determine_winning_outcome(raw_market: Dict[str, Any]) -> Optional[str]:
+    """
+    Menentukan outcome pemenang dari market Gamma API yang sudah closed.
+    - Outcome dengan harga final 1 -> pemenang ('YES' / 'NO').
+    - Harga final 50/50 -> 'INVALID' (modal dikembalikan).
+    - Market belum closed / harga belum final -> None (belum bisa di-settle).
+    """
+    if not bool(raw_market.get("closed", False)):
+        return None
+    uma_status = str(raw_market.get("umaResolutionStatus") or "resolved").lower()
+    if uma_status not in ("resolved", "finalized"):
+        return None
+
+    parsed = parse_market_dict({**raw_market, "question": raw_market.get("question") or "-",
+                                "conditionId": raw_market.get("conditionId") or raw_market.get("id") or "-"})
+    if not parsed:
+        return None
+    price_yes, price_no = parsed.get("price_yes"), parsed.get("price_no")
+    if price_yes is None or price_no is None:
+        return None
+    if price_yes >= Decimal("0.99") and price_no <= Decimal("0.01"):
+        return "YES"
+    if price_no >= Decimal("0.99") and price_yes <= Decimal("0.01"):
+        return "NO"
+    if abs(price_yes - Decimal("0.5")) <= Decimal("0.01") and abs(price_no - Decimal("0.5")) <= Decimal("0.01"):
+        return "INVALID"
+    return None
+
+
+def fetch_markets_by_condition_ids(
+    condition_ids: List[str],
+    base_url: Optional[str] = None,
+    chunk_size: int = 20,
+) -> List[Dict[str, Any]]:
+    """
+    Mengambil data market mentah dari Gamma API berdasarkan conditionId, termasuk market
+    yang sudah closed (Gamma secara default menyaring market closed, jadi diquery dua kali).
+    """
+    if base_url is None:
+        base_url = settings.GAMMA_API_BASE_URL.rstrip("/")
+    headers = {"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"}
+
+    found: Dict[str, Dict[str, Any]] = {}
+    ids = [c for c in dict.fromkeys(condition_ids) if c]
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i:i + chunk_size]
+        params = "&".join(f"condition_ids={urllib.parse.quote(c)}" for c in chunk)
+        for closed_param in ("", "&closed=true"):
+            url = f"{base_url}/markets?limit={len(chunk)}&{params}{closed_param}"
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except Exception as err:
+                logger.warning("Gagal fetch market by condition_ids dari Gamma API: %s", err)
+                continue
+            for raw_m in data if isinstance(data, list) else []:
+                cid = raw_m.get("conditionId")
+                if cid:
+                    found[str(cid)] = raw_m
+    return list(found.values())
+
+
+def sync_markets_by_condition_ids(condition_ids: List[str], session: Optional[Session] = None) -> Dict[str, int]:
+    """
+    Menyimpan snapshot terbaru (termasuk market closed) untuk condition id tertentu dan
+    mencatat hasil resolusi ke tabel market_resolutions.
+    """
+    raw_markets = fetch_markets_by_condition_ids(condition_ids)
+    snapshots: List[Dict[str, Any]] = []
+    resolutions: List[Dict[str, Any]] = []
+    for raw_m in raw_markets:
+        parsed = parse_market_dict(raw_m)
+        if not parsed:
+            continue
+        winner = determine_winning_outcome(raw_m)
+        if parsed["is_resolved"] and winner is None:
+            # Market sudah ditutup tapi hasil belum final: tetap tandai belum resolved
+            # agar tidak di-settle dengan harga yang belum pasti.
+            parsed["is_resolved"] = False
+            parsed["status"] = "closed"
+        snapshots.append(parsed)
+        if winner:
+            resolutions.append({"market_id": parsed["market_id"], "market_name": parsed["market_name"],
+                                "winning_outcome": winner})
+
+    close_session = session is None
+    db = session or get_db_session()
+    try:
+        if snapshots:
+            save_snapshots(snapshots, session=db)
+        for r in resolutions:
+            if db.get(MarketResolution, r["market_id"]) is None:
+                db.add(MarketResolution(**r, resolved_at=datetime.now(timezone.utc)))
+                logger.info("Market %s resolved: %s", r["market_id"], r["winning_outcome"])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if close_session:
+            db.close()
+    return {"snapshots": len(snapshots), "resolutions": len(resolutions)}
+
+
+def sync_open_position_markets(session: Optional[Session] = None) -> Dict[str, int]:
+    """Memperbarui harga & status resolusi untuk semua market yang masih punya posisi terbuka."""
+    close_session = session is None
+    db = session or get_db_session()
+    try:
+        market_ids = [row[0] for row in db.query(PaperPosition.market_id).filter(PaperPosition.shares > 0).distinct()]
+    finally:
+        if close_session:
+            db.close()
+    if not market_ids:
+        return {"snapshots": 0, "resolutions": 0}
+    return sync_markets_by_condition_ids(market_ids, session=session)

@@ -94,7 +94,7 @@ newgrp docker
 ### Langkah 5: Clone Repository & Konfigurasi .env di VM
 ```bash
 # Clone repo Anda
-git clone https://github.com/USERNAME/paper-trading.git
+git clone https://github.com/KharismadinaHM/paper-trading.git
 cd paper-trading
 
 # Buat file konfigurasi produksi dari template
@@ -131,21 +131,17 @@ Ada 2 cara yang bisa dipilih:
 Gunakan `docker-compose.prod.yml` yang sudah disediakan di repository:
 
 ```bash
-# Build dan jalankan background container (Postgres, Web Dashboard, & Telegram Bot Daemon)
+# Build dan jalankan background container (Postgres + Web Dashboard)
 docker compose -f docker-compose.prod.yml up -d --build
 
-# Periksa status semua container (harus 3 running: postgres, dashboard, telegram_bot)
+# Periksa status container
 docker compose -f docker-compose.prod.yml ps
 
-# Uji coba koneksi notifikasi Telegram dari container
-docker compose -f docker-compose.prod.yml run --rm dashboard python -m app.paper test-telegram
-
-# Pantau log bot Telegram secara langsung
-docker compose -f docker-compose.prod.yml logs -f telegram_bot
+# Periksa log aplikasi
+docker compose -f docker-compose.prod.yml logs -f
 ```
 
 Dashboard sekarang aktif di: `http://<IP-EKSTERNAL-GCP-VM>:8000`
-Bot Telegram otomatis aktif dan merespon `/start`, `/status`, `/positions`, dll.
 
 ---
 
@@ -208,39 +204,15 @@ Jika menggunakan instance kecil (`e2-micro`), Anda bisa menjalankan database di 
    WantedBy=multi-user.target
    ```
 
-5. **Buat Systemd Service untuk Telegram Bot Interaktif 24/7**:
-   ```bash
-   sudo nano /etc/systemd/system/paper-bot.service
-   ```
-   Isi file:
-   ```ini
-   [Unit]
-   Description=Paper Trading Telegram Bot Listener
-   After=network.target
-   
-   [Service]
-   User=ubuntu
-   WorkingDirectory=/home/ubuntu/paper-trading
-   EnvironmentFile=/home/ubuntu/paper-trading/.env
-   ExecStart=/home/ubuntu/paper-trading/.venv/bin/python -m app.paper bot
-   Restart=always
-   RestartSec=10
-   
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-6. **Aktifkan & Jalankan Service**:
+5. **Aktifkan & Jalankan Service**:
    ```bash
    sudo systemctl daemon-reload
    sudo systemctl enable --now paper-dashboard
    sudo systemctl enable --now paper-engine
-   sudo systemctl enable --now paper-bot
 
-   # Memeriksa status service:
+   # Memeriksa status:
    sudo systemctl status paper-dashboard
    sudo systemctl status paper-engine
-   sudo systemctl status paper-bot
    ```
 
 ---
@@ -369,41 +341,6 @@ jobs:
             cd ~/paper-trading
             git pull origin main
             docker compose -f docker-compose.prod.yml up -d --build
-```
-
----
-
-### 4. Panduan Troubleshooting: Jika Dashboard Tidak Membaca Market di GCP
-
-Jika setelah deploy dashboard menampilkan pesan tidak ada data atau tidak bisa membaca market:
-
-#### A. Penyebab Umum & Solusi Otomatis yang Sudah Diterapkan:
-1. **Perbedaan Jaringan Docker (`localhost` vs `postgres`)**:
-   - Di dalam Docker, `localhost` merujuk ke container itu sendiri, bukan ke database PostgreSQL.
-   - **Solusi**: `docker-compose.prod.yml` kini secara eksplisit menginjeksi `DATABASE_URL=postgresql://...postgres:5432/...` dan `app/core/config.py` memiliki auto-resolver cerdas saat mendeteksi environment Docker.
-2. **Inisialisasi Tabel Database Baru**:
-   - Saat database PostgreSQL pertama kali dibuat di GCP, tabel `market_snapshots` belum ada.
-   - **Solusi**: FastAPI Dashboard kini secara otomatis menjalankan `init_db()` (`Base.metadata.create_all`) saat server pertama kali menyala (*lifespan startup*).
-3. **Konektivitas Gamma API pada IP Cloud VM**:
-   - Beberapa IP datacenter GCP terkadang mengalami timeout atau pembatasan dari Cloudflare Polymarket.
-   - **Solusi**: Sistem dilengkapi mekanisme **Auto-Bootstrap** (`ensure_initial_market_snapshots`). Jika Gamma API belum selesai mengambil data atau terhambat jaringan cloud, sistem langsung mengisi baseline pasar cuaca Polymarket lengkap (Temperature, Precipitation, Wind/Storm, Snow) sehingga dashboard langsung aktif seketika.
-
-#### B. Perintah Diagnostik di Server GCP:
-```bash
-# 1. Pastikan semua container berstatus Up (healthy)
-docker compose -f docker-compose.prod.yml ps
-
-# 2. Periksa log startup dashboard
-docker compose -f docker-compose.prod.yml logs -f --tail=50 dashboard
-
-# 3. Periksa log collector
-docker compose -f docker-compose.prod.yml logs -f --tail=50 collector
-
-# 4. Cek langsung data pasar di PostgreSQL
-docker exec -it paper_trading_postgres psql -U postgres -d paper_trading -c "SELECT count(*), category FROM market_snapshots GROUP BY category;"
-
-# 5. Jalankan satu siklus pengumpulan data manual jika diperlukan
-docker exec -it paper_trading_dashboard python -m app.market_collector.run --once
 ```
 
 ---

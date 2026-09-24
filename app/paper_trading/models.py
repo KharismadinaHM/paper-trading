@@ -29,6 +29,8 @@ class PaperTradeStatus(str, enum.Enum):
     WON = "WON"
     LOST = "LOST"
     CANCELLED = "CANCELLED"
+    # Posisi ditutup manual (Paper Sell) sebelum market resolve
+    CLOSED = "CLOSED"
 
 
 class PaperOrderStatus(str, enum.Enum):
@@ -57,6 +59,7 @@ class PaperAccount(Base):
     positions: Mapped[List["PaperPosition"]] = relationship(back_populates="account", cascade="all, delete-orphan")
     trades: Mapped[List["PaperTrade"]] = relationship(back_populates="account", cascade="all, delete-orphan")
     balance_snapshots: Mapped[List["PaperBalanceSnapshot"]] = relationship(back_populates="account", cascade="all, delete-orphan")
+    cash_movements: Mapped[List["PaperCashMovement"]] = relationship(back_populates="account", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint("initial_balance >= 0", name="chk_accounts_initial_balance"),
@@ -102,6 +105,8 @@ class PaperPosition(Base):
     average_entry_price: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
     position_size: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
     unrealized_pnl: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False, default=Decimal("0.0"))
+    market_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    strategy_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -133,6 +138,7 @@ class PaperTrade(Base):
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     strategy_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    market_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     
     account: Mapped["PaperAccount"] = relationship(back_populates="trades")
     
@@ -187,5 +193,34 @@ class MarketSnapshot(Base):
         Index("idx_market_snapshots_timestamp", "timestamp"),
         Index("idx_market_snapshots_status", "status"),
         Index("idx_market_snapshots_category", "category"),
+        Index("idx_market_snapshots_market_ts", "market_id", "timestamp"),
     )
+
+
+class PaperCashMovement(Base):
+    """Ledger setoran/penarikan modal. Dipakai sebagai basis ROI (total modal disetor)."""
+    __tablename__ = "paper_cash_movements"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper_accounts.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # DEPOSIT
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    account: Mapped["PaperAccount"] = relationship(back_populates="cash_movements")
+
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="chk_cash_movements_amount"),
+        Index("idx_cash_movements_account_id", "account_id"),
+    )
+
+
+class MarketResolution(Base):
+    """Hasil akhir market yang sudah resolve (sumber kebenaran untuk settlement)."""
+    __tablename__ = "market_resolutions"
+
+    market_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    market_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    winning_outcome: Mapped[str] = mapped_column(String(20), nullable=False)  # YES / NO / INVALID
+    resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
