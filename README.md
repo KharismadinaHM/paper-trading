@@ -1,4 +1,4 @@
-# 📈 Polymarket Weather Paper Trading System
+# 📈 Polymarket Paper Trading System (Weather & Elon Musk Tweets)
 
 Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cuaca di Polymarket. Dirancang sebagai jembatan validasi antara fase *backtest* dan penggunaan modal nyata (*real-money trading*), memungkinkan evaluasi performa strategi dengan data pasar aktual tanpa risiko finansial.
 
@@ -15,7 +15,12 @@ Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cua
   - Order ditolak jika market sudah melewati waktu resolusi atau data harga stale.
   - Pemodelan slippage dan spread pasar yang realistis (`apply_slippage_and_spread`).
   - Validasi atomik: order yang ditolak oleh risk engine langsung dihentikan tanpa *partial write* ke database.
-- **🛰️ Polymarket Weather Market Collector**:
+- **🗂️ Kategori Market (registry)** — `app/market_collector/categories.py`:
+  - **Cuaca** (`weather`): suhu tertinggi/terendah, hujan, salju, angin/badai.
+  - **Elon Musk Tweets** (`elon_tweets`): jumlah tweet Elon per periode (event dengan banyak bracket Yes/No) dari tag *Tweet Markets*, difilter ke event berjudul "Elon".
+  - Aktifkan/nonaktifkan lewat `ENABLED_MARKET_CATEGORIES`. Kategori baru cukup ditambahkan sebagai satu entri registry (tag, query, filter judul, label).
+  - Outcome `Up`/`Down` (market kripto "Up or Down") dipetakan ke sisi YES/NO; label aslinya disimpan dan ditampilkan.
+- **🛰️ Polymarket Market Collector**:
   - Pengumpulan data otomatis dari publik Gamma API Polymarket (`https://gamma-api.polymarket.com`).
   - Pencarian pasar cuaca (suhu, curah hujan, salju, badai/angin) via search queries dan general markets.
   - **Pencocokan eksplisit outcome Yes/No** (tidak pernah mengasumsikan index 0 selalu 'Yes').
@@ -299,6 +304,8 @@ Jika `DASHBOARD_PASSWORD` diisi, seluruh halaman dan endpoint (kecuali `/healthz
 | `GET` | `/api/positions` | Mengambil daftar posisi terbuka dengan valuasi dynamic Mark-to-Market & `polymarket_url` |
 | `GET` | `/api/trades` | Mengambil riwayat transaksi selesai |
 | `GET` | `/api/summary` | Ringkasan saldo, portofolio, dan performa akun |
+| `GET` | `/api/markets/categories` | Daftar kategori market yang aktif |
+| `GET` | `/api/markets/events?category=elon_tweets` | Event berkelompok per kategori (bracket + probabilitas); `weather-events` tetap tersedia sebagai alias |
 | `GET` | `/healthz` | Healthcheck publik: koneksi database & umur snapshot pasar terbaru |
 
 ---
@@ -323,7 +330,7 @@ pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **157/157 unit test** berada dalam status **PASS**.
+Saat ini seluruh **175/175 unit test** berada dalam status **PASS**. Test tidak pernah mengakses jaringan sungguhan (diblokir di `tests/conftest.py`).
 
 Setiap push ke `main` dan setiap pull request dijalankan otomatis oleh GitHub Actions (`.github/workflows/ci.yml`): migrasi Alembic di PostgreSQL + `alembic check`, seluruh test suite, test konkurensi di PostgreSQL, dan build image Docker.
 

@@ -252,7 +252,7 @@ class TestSnapshotPersistence:
         total_rows = in_memory_session.query(MarketSnapshot).count()
         assert total_rows == 5
 
-    @patch("app.market_collector.collector.fetch_weather_markets")
+    @patch("app.market_collector.collector.fetch_all_markets")
     def test_run_collection_cycle(self, mock_fetch, in_memory_session):
         """Pengujian eksekusi run_collection_cycle dari fetch hingga persistensi."""
         mock_fetch.return_value = [
@@ -272,7 +272,7 @@ class TestSnapshotPersistence:
         assert db_row is not None
         assert db_row.market_name == "Cycle Market"
 
-    @patch("app.market_collector.collector.fetch_weather_markets")
+    @patch("app.market_collector.collector.fetch_all_markets")
     def test_ensure_initial_market_snapshots_empty_db_fallback(self, mock_fetch, in_memory_session, monkeypatch):
         """Jika DB kosong, Gamma API gagal, dan ALLOW_SYNTHETIC_MARKETS=true, baseline demo di-bootstrap."""
         from app.core.config import settings
@@ -285,7 +285,7 @@ class TestSnapshotPersistence:
         total = in_memory_session.query(MarketSnapshot).count()
         assert total == count
 
-    @patch("app.market_collector.collector.fetch_weather_markets")
+    @patch("app.market_collector.collector.fetch_all_markets")
     def test_ensure_initial_market_snapshots_never_seeds_synthetic_by_default(self, mock_fetch, in_memory_session):
         """Default produksi: market sintetis TIDAK pernah dimasukkan ke database."""
         from app.market_collector.collector import ensure_initial_market_snapshots

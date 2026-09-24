@@ -20,6 +20,12 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
+from app.market_collector.categories import (
+    WEATHER_SEARCH_QUERIES,
+    MarketCategory,
+    enabled_categories,
+    get_category,
+)
 from app.paper_trading.models import (
     MARKET_DATA_FIELDS,
     MarketLatest,
@@ -31,10 +37,15 @@ from app.paper_trading.models import (
 
 logger = get_logger("market_collector")
 
-# In-memory cache for weather events (TTL 60 seconds)
-_weather_events_cache: Dict[str, Any] = {"timestamp": 0.0, "events": []}
+# In-memory cache event berkelompok per kategori (TTL 60 detik)
+_events_cache: Dict[str, Dict[str, Any]] = {}
 
-DEFAULT_WEATHER_QUERIES = ["weather", "temperature", "rain", "snow", "hurricane"]
+DEFAULT_WEATHER_QUERIES = list(WEATHER_SEARCH_QUERIES)
+
+# Nama outcome yang dipetakan ke sisi YES / NO. Market biner "Up or Down" (kripto)
+# memakai Up/Down; sisi pertama (Up) diperlakukan sebagai YES.
+YES_OUTCOME_ALIASES = {"yes", "up"}
+NO_OUTCOME_ALIASES = {"no", "down"}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -117,6 +128,8 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # Pencocokan eksplisit index outcome Yes dan No
     price_yes: Optional[Decimal] = None
     price_no: Optional[Decimal] = None
+    yes_label: Optional[str] = None
+    no_label: Optional[str] = None
 
     for idx, outcome in enumerate(outcomes):
         if idx >= len(prices):
@@ -130,10 +143,12 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             continue
 
         outcome_name = str(outcome).strip().lower()
-        if outcome_name == "yes":
+        if outcome_name in YES_OUTCOME_ALIASES:
             price_yes = price_dec
-        elif outcome_name == "no":
+            yes_label = str(outcome).strip()
+        elif outcome_name in NO_OUTCOME_ALIASES:
             price_no = price_dec
+            no_label = str(outcome).strip()
 
     closed = bool(m.get("closed", False))
     status = "resolved" if closed else "open"
@@ -156,8 +171,95 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "price_yes": price_yes,
         "price_no": price_no,
         "current_price": current_price,
+        "outcome_yes_label": yes_label,
+        "outcome_no_label": no_label,
         "timestamp": datetime.now(timezone.utc),
     }
+
+
+def _fetch_json(url: str, headers: Dict[str, str], timeout: int = 15) -> Any:
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def fetch_category_markets(
+    category: MarketCategory,
+    queries: Optional[List[str]] = None,
+    limit: int = 100,
+    active_only: bool = True,
+    base_url: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Mengumpulkan market untuk satu kategori dari Polymarket Gamma API.
+    - /public-search?q=... untuk setiap query kategori.
+    - Paginasi /events?tag_id=...&offset=... untuk setiap tag kategori (limit=100 per halaman),
+      berhenti pada halaman tidak penuh atau setelah COLLECTOR_MAX_PAGES halaman.
+    - Event difilter berdasarkan judul (category.title_keywords) jika didefinisikan.
+    - Network failure dan parsing error per market ditangani secara aman.
+    """
+    if base_url is None:
+        base_url = settings.GAMMA_API_BASE_URL.rstrip("/")
+    if queries is None:
+        queries = list(category.search_queries)
+
+    headers = {"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"}
+    seen_ids = set()
+    collected_markets: List[Dict[str, Any]] = []
+
+    def _collect(events: List[Dict[str, Any]]) -> None:
+        for ev in events:
+            if not category.matches_title(ev.get("title")):
+                continue
+            for raw_m in ev.get("markets", []) or []:
+                try:
+                    parsed = parse_market_dict(raw_m)
+                    if not parsed or (active_only and parsed["is_resolved"]):
+                        continue
+                    if category.fixed_category:
+                        parsed["category"] = category.fixed_category
+                    if parsed["market_id"] not in seen_ids:
+                        seen_ids.add(parsed["market_id"])
+                        collected_markets.append(parsed)
+                except Exception as parse_err:
+                    logger.warning("Gagal mem-parse market dari event '%s': %s", ev.get("title"), parse_err)
+
+    # 1. Query melalui endpoint /public-search?q={query}
+    for q in queries:
+        url = f"{base_url}/public-search?q={urllib.parse.quote(q)}"
+        try:
+            data = _fetch_json(url, headers)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as net_err:
+            logger.warning("Gagal fetch public-search q='%s' dari Gamma API: %s", q, str(net_err))
+            continue
+        except Exception as err:
+            logger.error("Error tak terduga saat request public-search q='%s': %s", q, str(err))
+            continue
+        _collect(data.get("events", []) if isinstance(data, dict) else [])
+
+    # 2. Paginasi event per tag agar cakupan tidak terbatas pada 100 hasil pertama
+    page_size = max(1, min(limit, 100))
+    for tag_id in category.tag_ids:
+        for page in range(max(1, settings.COLLECTOR_MAX_PAGES)):
+            events_url = (
+                f"{base_url}/events?limit={page_size}&offset={page * page_size}"
+                f"&active=true&closed=false&tag_id={urllib.parse.quote(tag_id)}"
+            )
+            try:
+                data = _fetch_json(events_url, headers)
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as net_err:
+                logger.warning("Gagal fetch events tag_id=%s offset=%d: %s", tag_id, page * page_size, net_err)
+                break
+            except Exception as err:
+                logger.error("Error tak terduga saat fetch events tag_id=%s: %s", tag_id, err)
+                break
+            events = data if isinstance(data, list) else []
+            _collect(events)
+            if len(events) < page_size:
+                break
+
+    logger.info("Berhasil mengumpulkan %d market unik kategori '%s' dari Gamma API.", len(collected_markets), category.key)
+    return collected_markets
 
 
 def fetch_weather_markets(
@@ -166,118 +268,55 @@ def fetch_weather_markets(
     active_only: bool = True,
     base_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Memanggil Polymarket Gamma API publik untuk mengumpulkan market cuaca.
-    - Menggunakan endpoint public-search dan /events per tag cuaca (paginasi, limit=100 per halaman).
-    - Menangani network failure dan parsing error per market secara aman.
-    """
-    if base_url is None:
-        base_url = settings.GAMMA_API_BASE_URL.rstrip("/")
+    """Mengumpulkan market cuaca (kategori 'weather')."""
+    return fetch_category_markets(get_category("weather"), queries=queries, limit=limit,
+                                  active_only=active_only, base_url=base_url)
 
-    if queries is None:
-        queries = DEFAULT_WEATHER_QUERIES
 
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "Accept": "application/json",
-    }
-
-    seen_ids = set()
-    collected_markets: List[Dict[str, Any]] = []
-
-    # 1. Query melalui endpoint /public-search?q={query}
-    for q in queries:
-        url = f"{base_url}/public-search?q={urllib.parse.quote(q)}"
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as net_err:
-            logger.warning("Gagal fetch public-search q='%s' dari Gamma API: %s", q, str(net_err))
-            continue
-        except Exception as err:
-            logger.error("Error tak terduga saat request public-search q='%s': %s", q, str(err))
-            continue
-
-        events = data.get("events", []) if isinstance(data, dict) else []
-        for ev in events:
-            raw_markets = ev.get("markets", [])
-            for raw_m in raw_markets:
-                try:
-                    parsed = parse_market_dict(raw_m)
-                    if not parsed:
-                        continue
-                    if active_only and parsed["is_resolved"]:
-                        continue
-                    m_id = parsed["market_id"]
-                    if m_id not in seen_ids:
-                        seen_ids.add(m_id)
-                        collected_markets.append(parsed)
-                except Exception as parse_err:
-                    logger.warning("Gagal mem-parse market dari event '%s': %s", ev.get("title"), str(parse_err))
-                    continue
-
-    # 2. Paginasi event bertag cuaca (/events?tag_id=...&offset=...) agar cakupan tidak
-    #    terbatas pada 100 hasil pertama
-    page_size = max(1, min(limit, 100))
-    tag_ids = [t.strip() for t in str(settings.WEATHER_TAG_IDS).split(",") if t.strip()]
-    for tag_id in tag_ids:
-        for page in range(max(1, settings.COLLECTOR_MAX_PAGES)):
-            events_url = (
-                f"{base_url}/events?limit={page_size}&offset={page * page_size}"
-                f"&active=true&closed=false&tag_id={urllib.parse.quote(tag_id)}"
-            )
-            try:
-                req = urllib.request.Request(events_url, headers=headers)
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as net_err:
-                logger.warning("Gagal fetch events tag_id=%s offset=%d: %s", tag_id, page * page_size, net_err)
-                break
-            except Exception as err:
-                logger.error("Error tak terduga saat fetch events tag_id=%s: %s", tag_id, err)
-                break
-
-            events = data if isinstance(data, list) else []
-            for ev in events:
-                for raw_m in ev.get("markets", []) or []:
-                    try:
-                        parsed = parse_market_dict(raw_m)
-                        if not parsed or (active_only and parsed["is_resolved"]):
-                            continue
-                        if parsed["market_id"] not in seen_ids:
-                            seen_ids.add(parsed["market_id"])
-                            collected_markets.append(parsed)
-                    except Exception as parse_err:
-                        logger.warning("Gagal mem-parse market dari event '%s': %s", ev.get("title"), parse_err)
-            if len(events) < page_size:
-                break
-
-    logger.info("Berhasil mengumpulkan %d market cuaca unik dari Polymarket Gamma API.", len(collected_markets))
-    return collected_markets
+def fetch_all_markets(active_only: bool = True) -> List[Dict[str, Any]]:
+    """Mengumpulkan market dari seluruh kategori aktif (ENABLED_MARKET_CATEGORIES), tanpa duplikat."""
+    seen = set()
+    markets: List[Dict[str, Any]] = []
+    for category in enabled_categories():
+        for m in fetch_category_markets(category, active_only=active_only):
+            if m["market_id"] not in seen:
+                seen.add(m["market_id"])
+                markets.append(m)
+    return markets
 
 
 def fetch_weather_events(
     date_filter: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    """Event cuaca "Highest/Lowest Temperature" dalam format grouped-by-event."""
+    return fetch_category_events("weather", date_filter=date_filter, base_url=base_url)
+
+
+def fetch_category_events(
+    category_key: str = "weather",
+    date_filter: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """
-    Mengambil data event cuaca "Highest/Lowest Temperature" dari Polymarket Gamma API
-    dalam format grouped-by-event (per kota + tanggal).
-    
+    Mengambil event satu kategori dari Polymarket Gamma API dalam format grouped-by-event
+    (misal: suhu per kota + tanggal, atau jumlah tweet Elon per periode) beserta sub-market
+    bracket-nya.
+
     Fitur:
-    - Multi-endpoint parallel fetch (tag Weather, Daily Temperature, Highest Temperature)
-    - Caching in-memory (TTL 60 detik) untuk performa responsif
-    - Ekstraksi harga/probabilitas akurat dari lastTradePrice & outcomePrices
+    - Multi-endpoint parallel fetch (tag kategori + query pencarian event)
+    - Caching in-memory per kategori (TTL 60 detik) untuk performa responsif
+    - Harga dari outcomePrices (sumber yang sama dengan eksekusi order), fallback lastTradePrice
     - Sub-markets diurutkan berdasarkan probabilitas (pct_yes) tertinggi (menyerupai kartu Polymarket)
     - Support filter by date (format YYYY-MM-DD)
     """
+    category = get_category(category_key)
+
     # 1. Cek cache in-memory jika masih valid (TTL 60 detik)
     now_ts = time.time()
-    cached_events = _weather_events_cache.get("events", [])
-    cache_ts = _weather_events_cache.get("timestamp", 0.0)
-
-    if cached_events and (now_ts - cache_ts < 60):
+    cache = _events_cache.get(category.key, {})
+    cached_events = cache.get("events", [])
+    if cached_events and (now_ts - cache.get("timestamp", 0.0) < 60):
         if date_filter:
             return [e for e in cached_events if e.get("end_date") == date_filter]
         return cached_events
@@ -290,15 +329,14 @@ def fetch_weather_events(
         "Accept": "application/json",
     }
 
-    # Endpoint multi-tag untuk menjaring semua event cuaca (hari ini, besok, lusa)
+    # Endpoint multi-tag (urut volume & terbaru) + pencarian event kategori
     endpoints = [
-        f"{base_url}/events?limit=100&active=true&closed=false&tag_id=84&order=volume24hr&ascending=false",
-        f"{base_url}/events?limit=100&active=true&closed=false&tag_id=103040&order=startDate&ascending=false",
-        f"{base_url}/events?limit=100&active=true&closed=false&tag_id=103040&order=volume24hr&ascending=false",
-        f"{base_url}/events?limit=100&active=true&closed=false&tag_id=104596&order=startDate&ascending=false",
-        f"{base_url}/public-search?q=Highest+temperature",
-        f"{base_url}/public-search?q=Lowest+temperature",
+        f"{base_url}/events?limit=100&active=true&closed=false"
+        f"&tag_id={urllib.parse.quote(tag_id)}&order={order}&ascending=false"
+        for tag_id, order in category.event_sources()
     ]
+    for q in category.event_search_queries:
+        endpoints.append(f"{base_url}/public-search?q={urllib.parse.quote_plus(q)}")
 
     def _fetch_url(target_url: str) -> List[Dict[str, Any]]:
         try:
@@ -314,7 +352,10 @@ def fetch_weather_events(
         return []
 
     # Eksekusi parallel fetch
-    with ThreadPoolExecutor(max_workers=min(len(endpoints), 6)) as executor:
+    if not endpoints:
+        return []
+    # Semua endpoint paralel dalam satu gelombang (request lambat & besar, bukan CPU-bound)
+    with ThreadPoolExecutor(max_workers=len(endpoints)) as executor:
         responses = list(executor.map(_fetch_url, endpoints))
 
     seen_event_ids = set()
@@ -327,8 +368,7 @@ def fetch_weather_events(
                 continue
 
             title = ev.get("title", "")
-            title_lower = title.lower()
-            if "temperature" not in title_lower:
+            if not category.matches_title(title, category.event_title_keywords):
                 continue
 
             # Skip jika event closed dan tidak aktif
@@ -407,6 +447,8 @@ def fetch_weather_events(
 
                 sub_markets.append({
                     "condition_id": str(condition_id),
+                    "outcome_yes_label": (parsed_prices or {}).get("outcome_yes_label") or "Yes",
+                    "outcome_no_label": (parsed_prices or {}).get("outcome_no_label") or "No",
                     "question": str(question),
                     "group_item_title": str(group_item_title),
                     "price_yes": price_yes,
@@ -461,17 +503,17 @@ def fetch_weather_events(
                 "end_date": end_date_str,
                 "is_new": is_new,
                 "is_active": bool(ev.get("active", True)),
+                "category": category.key,
                 "markets": sub_markets,
             })
 
     # Sort events: aktif terlebih dahulu, lalu berdasarkan volume terbesar
     all_events.sort(key=lambda e: (not e["is_active"], -e["volume"], e["end_date"]))
 
-    # Simpan ke cache module
-    _weather_events_cache["timestamp"] = time.time()
-    _weather_events_cache["events"] = all_events
+    # Simpan ke cache module (per kategori)
+    _events_cache[category.key] = {"timestamp": time.time(), "events": all_events}
 
-    logger.info("Berhasil mengumpulkan %d weather events dari Polymarket Gamma API.", len(all_events))
+    logger.info("Berhasil mengumpulkan %d event kategori '%s' dari Gamma API.", len(all_events), category.key)
 
     if date_filter:
         return [e for e in all_events if e.get("end_date") == date_filter]
@@ -496,6 +538,8 @@ def save_snapshot(market_data: Dict[str, Any], session: Optional[Session] = None
         price_no=market_data.get("price_no"),
         current_price=market_data.get("current_price"),
         category=market_data.get("category", "Weather"),
+        outcome_yes_label=market_data.get("outcome_yes_label"),
+        outcome_no_label=market_data.get("outcome_no_label"),
         timestamp=market_data.get("timestamp") or datetime.now(timezone.utc),
     )
 
@@ -539,6 +583,8 @@ def save_snapshots(market_data_list: List[Dict[str, Any]], session: Optional[Ses
             price_no=d.get("price_no"),
             current_price=d.get("current_price"),
             category=d.get("category", "Weather"),
+            outcome_yes_label=d.get("outcome_yes_label"),
+            outcome_no_label=d.get("outcome_no_label"),
             timestamp=d.get("timestamp") or datetime.now(timezone.utc),
         )
         for d in market_data_list
@@ -566,7 +612,10 @@ def save_snapshots(market_data_list: List[Dict[str, Any]], session: Optional[Ses
 
 
 # Field yang menentukan apakah observasi baru perlu dicatat sebagai baris histori
-_CHANGE_FIELDS = ("market_name", "status", "is_resolved", "resolution_time", "price_yes", "price_no", "category")
+_CHANGE_FIELDS = (
+    "market_name", "status", "is_resolved", "resolution_time", "price_yes", "price_no", "category",
+    "outcome_yes_label", "outcome_no_label",
+)
 
 
 def _differs(a: Any, b: Any) -> bool:
@@ -639,15 +688,15 @@ def run_collection_cycle(session: Optional[Session] = None, now: Optional[dateti
     Mengembalikan jumlah market yang berhasil diamati.
     """
     now = now or datetime.now(timezone.utc)
-    logger.info("Menjalankan siklus Market Collector untuk Polymarket Weather...")
+    logger.info("Menjalankan siklus Market Collector (kategori: %s)...", settings.ENABLED_MARKET_CATEGORIES)
     try:
-        markets = fetch_weather_markets()
+        markets = fetch_all_markets()
         markets = [
             m for m in markets
             if m.get("resolution_time") is None or m["resolution_time"] > now
         ]
         if not markets:
-            logger.warning("Tidak ada market cuaca yang ditemukan pada siklus ini.")
+            logger.warning("Tidak ada market yang ditemukan pada siklus ini.")
             return 0
 
         result = record_market_observations(markets, session=session, now=now)

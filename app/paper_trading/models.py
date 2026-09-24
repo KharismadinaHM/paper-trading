@@ -187,6 +187,9 @@ class MarketSnapshot(Base):
     price_no: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
     current_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="Weather")
+    # Nama asli outcome yang dipetakan ke sisi YES / NO (mis. "Yes"/"No" atau "Up"/"Down")
+    outcome_yes_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    outcome_no_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
@@ -201,7 +204,8 @@ class MarketSnapshot(Base):
 # Kolom data market yang sama di market_snapshots (histori) dan market_latest (harga terkini)
 MARKET_DATA_FIELDS = (
     "market_id", "market_name", "status", "is_resolved", "resolution_time", "end_date",
-    "price_yes", "price_no", "current_price", "category", "timestamp",
+    "price_yes", "price_no", "current_price", "category", "outcome_yes_label", "outcome_no_label",
+    "timestamp",
 )
 
 
@@ -224,6 +228,8 @@ class MarketLatest(Base):
     price_no: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
     current_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="Weather")
+    outcome_yes_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    outcome_no_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_snapshot_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

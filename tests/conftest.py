@@ -2,6 +2,8 @@
 Fixture global: setiap test memakai database SQLite in-memory yang terisolasi
 dan notifikasi Telegram dinonaktifkan (tidak pernah mengirim pesan sungguhan).
 """
+import urllib.error
+import urllib.request
 from decimal import Decimal
 
 import pytest
@@ -26,6 +28,15 @@ def isolated_database(monkeypatch):
     database.init_db(bind=engine)
     yield engine
     engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def block_real_network(monkeypatch):
+    """Test tidak boleh mengakses Gamma API sungguhan; test yang butuh data harus mem-patch urlopen."""
+    def _blocked(*args, **kwargs):
+        raise urllib.error.URLError("Akses jaringan diblokir di test (patch urllib.request.urlopen)")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _blocked)
 
 
 @pytest.fixture(autouse=True)
