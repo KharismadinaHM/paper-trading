@@ -138,3 +138,107 @@ class TestProductionValidation:
         validate_production_settings(self._settings(
             APP_ENV="development", DATABASE_URL="postgresql://postgres:postgres@localhost/x", DASHBOARD_PASSWORD=None,
         ))
+
+
+class TestMarketLatestAndHistory:
+
+    # Waktu resolusi tetap (tidak ikut bergeser dengan waktu observasi)
+    BASE = datetime.now(timezone.utc).replace(microsecond=0)
+
+    def _market(self, market_id="0xm", price="0.40", hours=5, now=None):
+        now = now or datetime.now(timezone.utc)
+        return {
+            "market_id": market_id, "market_name": f"Market {market_id}", "category": "Temperature",
+            "status": "open", "is_resolved": False, "resolution_time": self.BASE + timedelta(hours=hours),
+            "end_date": self.BASE + timedelta(hours=hours), "price_yes": Decimal(price),
+            "price_no": Decimal("1") - Decimal(price), "current_price": Decimal(price), "timestamp": now,
+        }
+
+    def _counts(self):
+        from app.paper_trading.models import MarketLatest
+        db = get_db_session()
+        try:
+            return db.query(MarketSnapshot).count(), db.query(MarketLatest).count()
+        finally:
+            db.close()
+
+    def test_unchanged_price_refreshes_latest_without_new_history(self):
+        from app.market_collector.collector import record_market_observations
+        from app.paper_service import get_market_by_id
+        t0 = datetime.now(timezone.utc) - timedelta(minutes=20)
+        assert record_market_observations([self._market(now=t0)], now=t0)["history_rows"] == 1
+        t1 = t0 + timedelta(minutes=5)
+        assert record_market_observations([self._market(now=t1)], now=t1)["history_rows"] == 0
+        assert self._counts() == (1, 1)
+        # waktu observasi terbaru tetap dipakai untuk cek stale
+        assert get_market_by_id("0xm")["timestamp"].replace(tzinfo=timezone.utc) == t1
+
+    def test_price_change_writes_history(self):
+        from app.market_collector.collector import record_market_observations
+        from app.paper_service import get_market_by_id
+        t0 = datetime.now(timezone.utc)
+        record_market_observations([self._market(now=t0)], now=t0)
+        t1 = t0 + timedelta(minutes=5)
+        assert record_market_observations([self._market(price="0.45", now=t1)], now=t1)["history_rows"] == 1
+        assert self._counts() == (2, 1)
+        assert get_market_by_id("0xm")["price_yes"] == Decimal("0.45")
+
+    def test_heartbeat_writes_history_for_unchanged_price(self, monkeypatch):
+        from app.market_collector.collector import record_market_observations
+        monkeypatch.setattr(settings, "SNAPSHOT_HEARTBEAT_SECONDS", 3600)
+        t0 = datetime.now(timezone.utc) - timedelta(hours=2)
+        record_market_observations([self._market(now=t0)], now=t0)
+        t1 = t0 + timedelta(minutes=61)
+        assert record_market_observations([self._market(now=t1)], now=t1)["history_rows"] == 1
+
+    def test_collection_cycle_skips_markets_past_resolution(self):
+        from app.market_collector.collector import run_collection_cycle
+        now = datetime.now(timezone.utc)
+        markets = [self._market("0xfuture", now=now), self._market("0xpast", hours=-2, now=now)]
+        with patch("app.market_collector.collector.fetch_weather_markets", return_value=markets):
+            assert run_collection_cycle(now=now) == 1
+        from app.paper_service import get_market_by_id
+        assert get_market_by_id("0xpast") is None
+
+    def test_latest_ignores_older_out_of_order_snapshot(self):
+        from app.paper_service import get_market_by_id
+        now = datetime.now(timezone.utc)
+        db = get_db_session()
+        for age, price in ((0, "0.70"), (10, "0.50")):  # insert terbaru dulu, lalu yang lebih tua
+            db.add(MarketSnapshot(id=uuid.uuid4(), market_id="0xo", market_name="O", status="open",
+                                  is_resolved=False, price_yes=Decimal(price), price_no=1 - Decimal(price),
+                                  timestamp=now - timedelta(minutes=age)))
+            db.commit()
+        db.close()
+        assert get_market_by_id("0xo")["price_yes"] == Decimal("0.70")
+
+    def test_init_db_backfills_latest_from_existing_history(self, isolated_database):
+        from app.core.database import init_db
+        from app.paper_trading.models import MarketLatest
+        now = datetime.now(timezone.utc)
+        with isolated_database.begin() as conn:  # histori lama tanpa market_latest (sebelum upgrade)
+            for age, price in ((30, 0.40), (5, 0.55)):
+                conn.execute(MarketSnapshot.__table__.insert().values(
+                    id=uuid.uuid4(), market_id="0xold", market_name="Old", status="open", is_resolved=False,
+                    price_yes=price, price_no=1 - price, timestamp=now - timedelta(minutes=age)))
+            conn.execute(MarketLatest.__table__.delete())
+        init_db(bind=isolated_database)
+        db = get_db_session()
+        try:
+            row = db.get(MarketLatest, "0xold")
+            assert row is not None and row.price_yes == Decimal("0.55")
+        finally:
+            db.close()
+
+    def test_prune_removes_long_unseen_latest_rows_without_positions(self):
+        from app.market_collector.collector import record_market_observations
+        from app.paper_trading.models import MarketLatest
+        old = datetime.now(timezone.utc) - timedelta(days=40)
+        record_market_observations([self._market("0xgone", now=old)], now=old)
+        record_market_observations([self._market("0xfresh")])
+        prune_market_snapshots(retention_days=30)
+        db = get_db_session()
+        try:
+            assert {r.market_id for r in db.query(MarketLatest)} == {"0xfresh"}
+        finally:
+            db.close()

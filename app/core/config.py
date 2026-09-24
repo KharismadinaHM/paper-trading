@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     COLLECTOR_MAX_PAGES: int = 10
     # Hapus snapshot lebih tua dari N hari (snapshot terbaru tiap market selalu disimpan). 0 = nonaktif
     SNAPSHOT_RETENTION_DAYS: int = 30
+    # Baris histori market_snapshots ditulis saat harga/status berubah, atau minimal setiap N detik
+    SNAPSHOT_HEARTBEAT_SECONDS: int = 3600
     # Market baseline sintetis hanya boleh dimuat secara eksplisit (untuk demo/dev lokal)
     ALLOW_SYNTHETIC_MARKETS: bool = False
 

@@ -98,12 +98,12 @@ def healthz():
     Mengembalikan 503 jika database tidak dapat diakses.
     """
     from app.core.database import get_db_session
-    from app.paper_trading.models import MarketSnapshot
+    from app.paper_trading.models import MarketLatest
 
     db = get_db_session()
     try:
         db.execute(text("SELECT 1"))
-        latest = db.query(func.max(MarketSnapshot.timestamp)).scalar()
+        latest = db.query(func.max(MarketLatest.timestamp)).scalar()
     except Exception as err:
         return JSONResponse(status_code=503, content={"status": "error", "database": str(err)})
     finally:

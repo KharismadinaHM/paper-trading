@@ -20,7 +20,14 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
-from app.paper_trading.models import MarketResolution, MarketSnapshot, PaperPosition
+from app.paper_trading.models import (
+    MARKET_DATA_FIELDS,
+    MarketLatest,
+    MarketResolution,
+    MarketSnapshot,
+    PaperPosition,
+    upsert_market_latest,
+)
 
 logger = get_logger("market_collector")
 
@@ -558,21 +565,97 @@ def save_snapshots(market_data_list: List[Dict[str, Any]], session: Optional[Ses
             db.close()
 
 
-def run_collection_cycle(session: Optional[Session] = None) -> int:
+# Field yang menentukan apakah observasi baru perlu dicatat sebagai baris histori
+_CHANGE_FIELDS = ("market_name", "status", "is_resolved", "resolution_time", "price_yes", "price_no", "category")
+
+
+def _differs(a: Any, b: Any) -> bool:
+    if isinstance(a, datetime) and isinstance(b, datetime):
+        a = a if a.tzinfo else a.replace(tzinfo=timezone.utc)
+        b = b if b.tzinfo else b.replace(tzinfo=timezone.utc)
+    if isinstance(a, bool) or isinstance(b, bool):
+        return bool(a) != bool(b)
+    if isinstance(a, (Decimal, int, float)) and isinstance(b, (Decimal, int, float)):
+        return Decimal(str(a)) != Decimal(str(b))
+    return a != b
+
+
+def record_market_observations(
+    markets: List[Dict[str, Any]],
+    session: Optional[Session] = None,
+    now: Optional[datetime] = None,
+) -> Dict[str, int]:
     """
-    Menjalankan 1 siklus pengumpulan data lengkap: fetch -> save snapshots.
-    Mengembalikan jumlah baris snapshot yang berhasil disimpan ke database.
+    Mencatat hasil satu siklus collector secara hemat:
+    - market_latest SELALU diperbarui (harga & waktu observasi terbaru → cek stale tetap akurat).
+    - Baris histori baru di market_snapshots hanya ditulis jika harga/status berubah, atau
+      heartbeat SNAPSHOT_HEARTBEAT_SECONDS sudah lewat sejak baris histori terakhir.
     """
+    now = now or datetime.now(timezone.utc)
+    heartbeat = timedelta(seconds=max(0, settings.SNAPSHOT_HEARTBEAT_SECONDS))
+    close_session = session is None
+    db = session or get_db_session()
+    try:
+        ids = [m["market_id"] for m in markets]
+        existing: Dict[str, MarketLatest] = {}
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            existing.update({r.market_id: r for r in db.query(MarketLatest).filter(MarketLatest.market_id.in_(chunk))})
+
+        history_rows: List[Dict[str, Any]] = []
+        refresh_rows: List[Dict[str, Any]] = []
+        for m in markets:
+            m = {**m, "timestamp": m.get("timestamp") or now}
+            prev = existing.get(m["market_id"])
+            last_hist = prev.last_snapshot_at if prev is not None else None
+            if last_hist is not None and last_hist.tzinfo is None:
+                last_hist = last_hist.replace(tzinfo=timezone.utc)
+            changed = prev is None or any(_differs(m.get(f), getattr(prev, f)) for f in _CHANGE_FIELDS)
+            if changed or last_hist is None or m["timestamp"] - last_hist >= heartbeat:
+                history_rows.append(m)
+            else:
+                refresh_rows.append({f: m.get(f) for f in MARKET_DATA_FIELDS})
+
+        if history_rows:
+            save_snapshots(history_rows, session=db)  # market_latest ikut diperbarui oleh listener
+        if refresh_rows:
+            for i in range(0, len(refresh_rows), 500):
+                upsert_market_latest(db.connection(), refresh_rows[i:i + 500], history_written=False)
+            db.commit()
+        return {"observed": len(markets), "history_rows": len(history_rows)}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if close_session:
+            db.close()
+
+
+def run_collection_cycle(session: Optional[Session] = None, now: Optional[datetime] = None) -> int:
+    """
+    Menjalankan 1 siklus pengumpulan data lengkap: fetch -> catat observasi.
+    Market yang waktu resolusinya sudah lewat dilewati (tidak bisa di-trade); posisi terbuka
+    pada market tersebut tetap diperbarui oleh settlement worker.
+    Mengembalikan jumlah market yang berhasil diamati.
+    """
+    now = now or datetime.now(timezone.utc)
     logger.info("Menjalankan siklus Market Collector untuk Polymarket Weather...")
     try:
         markets = fetch_weather_markets()
+        markets = [
+            m for m in markets
+            if m.get("resolution_time") is None or m["resolution_time"] > now
+        ]
         if not markets:
             logger.warning("Tidak ada market cuaca yang ditemukan pada siklus ini.")
             return 0
 
-        saved = save_snapshots(markets, session=session)
-        logger.info("Siklus selesai: %d snapshot berhasil disimpan ke database.", len(saved))
-        return len(saved)
+        result = record_market_observations(markets, session=session, now=now)
+        logger.info(
+            "Siklus selesai: %d market diamati, %d baris histori baru.",
+            result["observed"], result["history_rows"],
+        )
+        return result["observed"]
     except Exception as e:
         logger.error("Error pada siklus Market Collector: %s", str(e), exc_info=True)
         return 0
@@ -1017,6 +1100,11 @@ def prune_market_snapshots(
             .filter(MarketSnapshot.timestamp < cutoff, MarketSnapshot.id.not_in(keep_ids))
             .delete(synchronize_session=False)
         )
+        # market_latest: buang market yang sudah lama tidak diamati dan tidak punya posisi terbuka
+        open_ids = db.query(PaperPosition.market_id).filter(PaperPosition.shares > 0)
+        db.query(MarketLatest).filter(
+            MarketLatest.timestamp < cutoff, MarketLatest.market_id.not_in(open_ids)
+        ).delete(synchronize_session=False)
         db.commit()
         if deleted:
             logger.info("Retensi snapshot: %d baris lebih tua dari %d hari dihapus.", deleted, days)

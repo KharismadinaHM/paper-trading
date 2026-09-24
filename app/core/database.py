@@ -75,6 +75,31 @@ def _ensure_enum_values(bind: Engine) -> None:
             conn.execute(text(f"ALTER TYPE paper_trade_status ADD VALUE IF NOT EXISTS '{status.value}'"))
 
 
+BACKFILL_MARKET_LATEST_SQL = """
+INSERT INTO market_latest (
+    market_id, market_name, status, is_resolved, resolution_time, end_date,
+    price_yes, price_no, current_price, category, timestamp, last_snapshot_at
+)
+SELECT market_id, market_name, status, is_resolved, resolution_time, end_date,
+       price_yes, price_no, current_price, category, timestamp, timestamp
+FROM (
+    SELECT s.*, ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY timestamp DESC) AS rn
+    FROM market_snapshots s
+) latest
+WHERE rn = 1
+"""
+
+
+def _backfill_market_latest(bind: Engine) -> None:
+    """Mengisi market_latest dari histori market_snapshots jika tabelnya masih kosong."""
+    with bind.begin() as conn:
+        if conn.execute(text("SELECT 1 FROM market_latest LIMIT 1")).first() is not None:
+            return
+        if conn.execute(text("SELECT 1 FROM market_snapshots LIMIT 1")).first() is None:
+            return
+        conn.execute(text(BACKFILL_MARKET_LATEST_SQL))
+
+
 def init_db(bind: Engine = None) -> None:
     """
     Membuat seluruh tabel database jika belum ada (paper_accounts, paper_positions,
@@ -91,3 +116,4 @@ def init_db(bind: Engine = None) -> None:
     for table in Base.metadata.sorted_tables:
         for index in table.indexes:
             index.create(bind=bind, checkfirst=True)
+    _backfill_market_latest(bind)

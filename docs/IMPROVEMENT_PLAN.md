@@ -12,10 +12,10 @@ Dokumen ini adalah rencana perbaikan berdasarkan hasil QA (review kode, 107 unit
 | 1 | 1.1 Alembic baseline + `alembic check` di CI (PR #2), 1.2–1.10: seluruh state di DB, row lock saldo, akun default dari `INITIAL_BALANCE`, data demo & angka hardcoded dihapus, equity curve dari `paper_balance_snapshots`, metrik satu sumber, ledger deposit (`paper_cash_movements`) sebagai basis ROI, bot & CLI memakai DB yang sama | 1.11 pemisahan `action` vs `outcome` |
 | 2 | 2.1–2.7: sinkronisasi market posisi terbuka (termasuk closed), tabel `market_resolutions`, settlement worker idempotent di loop collector, notifikasi Telegram buy & settled, INVALID → refund, status `CLOSED` untuk jual manual | — |
 | 3 | 3.1 limit eksposur per market & total, 3.2 tolak harga stale (`REJECT_STALE_ORDERS`), 3.3 slippage sisi jual, 3.4 sell ditolak tanpa harga live, 3.6 minimum notional, 3.7 sumber harga kartu = harga eksekusi, 3.8 fetch market on-demand by `conditionId` | 3.5 API request/response masih `float` (kalkulasi internal sudah `Decimal`) |
-| 4 | 4.3 retensi snapshot & 4.6 paginasi event bertag cuaca (PR #2), 4.1 index `(market_id, timestamp)`, 4.4 harga posisi dalam satu query, 4.5 market sintetis hanya jika `ALLOW_SYNTHETIC_MARKETS=true`, 4.7 `/healthz` + healthcheck compose | 4.2 tabel `market_latest`, 4.8 logging JSON |
+| 4 | 4.2 tabel `market_latest` + histori hanya saat berubah, 4.3 retensi snapshot & 4.6 paginasi event bertag cuaca (PR #2), 4.1 index `(market_id, timestamp)`, 4.4 harga posisi dalam satu query, 4.5 market sintetis hanya jika `ALLOW_SYNTHETIC_MARKETS=true`, 4.7 `/healthz` + healthcheck compose | 4.8 logging JSON |
 | 5 | 5.5–5.6 CI GitHub Actions dengan PostgreSQL + build Docker (PR #2), 5.1 import fallback dihapus di file yang disentuh, 5.2 pool hanya untuk PostgreSQL, 5.7 README diperbarui | 5.3–5.4 refactor file besar |
 
-Seluruh 15 item checklist Definition of Done di bagian 4 sudah memiliki test otomatis (150 test lulus setelah PR #2).
+Seluruh 15 item checklist Definition of Done di bagian 4 sudah memiliki test otomatis (157 test lulus setelah PR #2).
 Konkurensi juga diverifikasi di PostgreSQL: 4 proses paralel × 6 order $1 dengan saldo $20 → tepat 20 order tereksekusi, saldo akhir $0.
 
 ---
