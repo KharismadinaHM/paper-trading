@@ -12,10 +12,14 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from app.core.config import settings
+from app.core.config import settings, validate_production_settings
 from app.core.database import init_db
 from app.core.logging import get_logger
-from app.market_collector.collector import ensure_initial_market_snapshots, run_collection_cycle
+from app.market_collector.collector import (
+    ensure_initial_market_snapshots,
+    prune_market_snapshots,
+    run_collection_cycle,
+)
 from app.paper_trading.settlement_worker import run_settlement_cycle
 
 logger = get_logger("market_collector_runner")
@@ -44,6 +48,7 @@ def main():
         help="Interval perulangan dalam detik (default dari COLLECTOR_INTERVAL_SECONDS)",
     )
     args = parser.parse_args()
+    validate_production_settings(settings)
 
     # Registrasi signal handler
     signal.signal(signal.SIGINT, _handle_signal)
@@ -82,6 +87,7 @@ def main():
             count = run_collection_cycle()
             logger.info("Siklus berhasil, %d market tersimpan pada %s", count, start_time.isoformat())
             run_settlement_cycle()
+            prune_market_snapshots()
         except Exception as loop_err:
             logger.error("Error tak tertangani pada runner loop: %s", str(loop_err), exc_info=True)
 

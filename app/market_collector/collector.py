@@ -161,7 +161,7 @@ def fetch_weather_markets(
 ) -> List[Dict[str, Any]]:
     """
     Memanggil Polymarket Gamma API publik untuk mengumpulkan market cuaca.
-    - Menggunakan endpoint public-search dan /markets (dengan limit=100 per request).
+    - Menggunakan endpoint public-search dan /events per tag cuaca (paginasi, limit=100 per halaman).
     - Menangani network failure dan parsing error per market secara aman.
     """
     if base_url is None:
@@ -210,35 +210,41 @@ def fetch_weather_markets(
                     logger.warning("Gagal mem-parse market dari event '%s': %s", ev.get("title"), str(parse_err))
                     continue
 
-    # 2. Query melalui endpoint /markets?limit=100&active=true&closed=false (hanya jika ada kata kunci cuaca)
-    try:
-        markets_url = f"{base_url}/markets?limit={min(limit, 100)}&active=true&closed=false"
-        req = urllib.request.Request(markets_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+    # 2. Paginasi event bertag cuaca (/events?tag_id=...&offset=...) agar cakupan tidak
+    #    terbatas pada 100 hasil pertama
+    page_size = max(1, min(limit, 100))
+    tag_ids = [t.strip() for t in str(settings.WEATHER_TAG_IDS).split(",") if t.strip()]
+    for tag_id in tag_ids:
+        for page in range(max(1, settings.COLLECTOR_MAX_PAGES)):
+            events_url = (
+                f"{base_url}/events?limit={page_size}&offset={page * page_size}"
+                f"&active=true&closed=false&tag_id={urllib.parse.quote(tag_id)}"
+            )
+            try:
+                req = urllib.request.Request(events_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as net_err:
+                logger.warning("Gagal fetch events tag_id=%s offset=%d: %s", tag_id, page * page_size, net_err)
+                break
+            except Exception as err:
+                logger.error("Error tak terduga saat fetch events tag_id=%s: %s", tag_id, err)
+                break
 
-        if isinstance(data, list):
-            weather_terms = ("weather", "temperature", "rain", "snow", "hurricane", "degree", "climate", "celsius", "fahrenheit")
-            for raw_m in data:
-                try:
-                    q_text = str(raw_m.get("question", "")).lower()
-                    if any(term in q_text for term in weather_terms):
+            events = data if isinstance(data, list) else []
+            for ev in events:
+                for raw_m in ev.get("markets", []) or []:
+                    try:
                         parsed = parse_market_dict(raw_m)
-                        if not parsed:
+                        if not parsed or (active_only and parsed["is_resolved"]):
                             continue
-                        if active_only and parsed["is_resolved"]:
-                            continue
-                        m_id = parsed["market_id"]
-                        if m_id not in seen_ids:
-                            seen_ids.add(m_id)
+                        if parsed["market_id"] not in seen_ids:
+                            seen_ids.add(parsed["market_id"])
                             collected_markets.append(parsed)
-                except Exception as parse_err:
-                    logger.warning("Gagal mem-parse market langsung: %s", str(parse_err))
-                    continue
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as net_err:
-        logger.warning("Gagal fetch /markets dari Gamma API: %s", str(net_err))
-    except Exception as err:
-        logger.error("Error tak terduga saat fetch /markets: %s", str(err))
+                    except Exception as parse_err:
+                        logger.warning("Gagal mem-parse market dari event '%s': %s", ev.get("title"), parse_err)
+            if len(events) < page_size:
+                break
 
     logger.info("Berhasil mengumpulkan %d market cuaca unik dari Polymarket Gamma API.", len(collected_markets))
     return collected_markets
@@ -974,3 +980,50 @@ def sync_open_position_markets(session: Optional[Session] = None) -> Dict[str, i
     if not market_ids:
         return {"snapshots": 0, "resolutions": 0}
     return sync_markets_by_condition_ids(market_ids, session=session)
+
+
+def prune_market_snapshots(
+    retention_days: Optional[int] = None,
+    session: Optional[Session] = None,
+    now: Optional[datetime] = None,
+) -> int:
+    """
+    Retensi time-series: menghapus snapshot yang lebih tua dari `retention_days` hari,
+    KECUALI snapshot terbaru setiap market (tetap dibutuhkan untuk harga & histori posisi).
+    Mengembalikan jumlah baris yang dihapus.
+    """
+    from sqlalchemy import func
+
+    days = settings.SNAPSHOT_RETENTION_DAYS if retention_days is None else retention_days
+    if not days or days <= 0:
+        return 0
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=days)
+
+    close_session = session is None
+    db = session or get_db_session()
+    try:
+        latest = (
+            db.query(MarketSnapshot.market_id, func.max(MarketSnapshot.timestamp).label("max_ts"))
+            .group_by(MarketSnapshot.market_id)
+            .subquery()
+        )
+        keep_ids = (
+            db.query(MarketSnapshot.id)
+            .join(latest, (MarketSnapshot.market_id == latest.c.market_id)
+                  & (MarketSnapshot.timestamp == latest.c.max_ts))
+        )
+        deleted = (
+            db.query(MarketSnapshot)
+            .filter(MarketSnapshot.timestamp < cutoff, MarketSnapshot.id.not_in(keep_ids))
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        if deleted:
+            logger.info("Retensi snapshot: %d baris lebih tua dari %d hari dihapus.", deleted, days)
+        return deleted
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if close_session:
+            db.close()

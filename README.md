@@ -165,6 +165,25 @@ docker compose up -d
 
 ---
 
+### 5. Migrasi Skema Database (Alembic)
+Skema dikelola dengan Alembic (`migrations/`). `init_db()` tetap dijalankan saat startup sebagai pengaman, tetapi perubahan skema baru **wajib** dibuat sebagai migrasi.
+
+```bash
+# Database baru
+alembic upgrade head
+
+# Database lama yang tabelnya sudah dibuat oleh init_db() — cukup tandai sekali
+alembic stamp 0001_baseline
+
+# Setelah mengubah app/paper_trading/models.py
+alembic revision --autogenerate -m "deskripsi perubahan"
+alembic upgrade head
+```
+
+CI menjalankan `alembic check` untuk memastikan model dan migrasi selalu sinkron.
+
+---
+
 ## 🖥️ Penggunaan Sistem
 
 ### 1. Menggunakan CLI (Command Line Interface)
@@ -220,6 +239,10 @@ Setiap siklus collector juga menjalankan **settlement worker** (`app/paper_tradi
 3. Menutup posisi secara otomatis: menang dibayar $1/share (dikurangi `FEE_RATE_BPS` dari profit), kalah $0, market invalid dikembalikan modalnya. Notifikasi dikirim ke Telegram.
 
 Settlement bersifat idempotent — menjalankan ulang tidak akan membayar dua kali.
+
+Collector juga:
+- Mem-paginasi event bertag cuaca (`WEATHER_TAG_IDS`, maks. `COLLECTOR_MAX_PAGES` × 100 event per tag), sehingga tidak terbatas pada 100 hasil pertama.
+- Menjalankan retensi: snapshot lebih tua dari `SNAPSHOT_RETENTION_DAYS` hari dihapus, kecuali snapshot terbaru tiap market.
 
 ---
 
@@ -297,7 +320,9 @@ pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **141/141 unit test** berada dalam status **PASS**.
+Saat ini seluruh **150/150 unit test** berada dalam status **PASS**.
+
+Setiap push ke `main` dan setiap pull request dijalankan otomatis oleh GitHub Actions (`.github/workflows/ci.yml`): migrasi Alembic di PostgreSQL + `alembic check`, seluruh test suite, test konkurensi di PostgreSQL, dan build image Docker.
 
 ---
 
@@ -309,6 +334,8 @@ Untuk deployment terpadu menggunakan Docker Compose multi-service di server prod
 # Menjalankan seluruh stack: PostgreSQL, Web Dashboard, Telegram Bot, dan Market Collector
 docker compose -f docker-compose.prod.yml up -d --build
 ```
+
+`docker-compose.prod.yml` menjalankan service dengan `APP_ENV=production`: dashboard, bot, dan collector **menolak start** jika `POSTGRES_PASSWORD` masih default (`postgres`) atau `DASHBOARD_PASSWORD` kosong. Isi keduanya di `.env` server sebelum deploy.
 
 Lihat petunjuk lengkap deployment cloud dan alur kerja pembaruan fitur di:
 - 📖 **[Panduan Lengkap Deployment GCP & Skema Workflow](docs/GCP_DEPLOYMENT_WORKFLOW.md)**

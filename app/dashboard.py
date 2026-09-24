@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import func, text
 
-from app.core.config import settings
+from app.core.config import settings, validate_production_settings
 from app.core.logging import get_logger
 from app.paper_service import (
     create_paper_order,
@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
     """
     Inisialisasi tabel database otomatis, akun paper default, dan data awal snapshot pasar.
     """
+    validate_production_settings(settings)
     if not settings.DASHBOARD_PASSWORD:
         logger.warning(
             "DASHBOARD_PASSWORD belum diatur: dashboard & API dapat diakses TANPA autentikasi. "
