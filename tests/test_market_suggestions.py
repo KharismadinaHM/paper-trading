@@ -1,4 +1,3 @@
-import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -326,22 +325,26 @@ class TestMarketSuggestionsFilter(unittest.TestCase):
         self.assertEqual(format_time_remaining(-50), "0h 00m")
 
     def test_fastapi_endpoint_execution(self):
-        """Endpoint GET /api/markets/suggestions memakai rekomendasi berbasis jam puncak lokal."""
+        """Endpoint GET /api/markets/suggestions: event suhu di jendela menjelang puncak lokal kota."""
+        from datetime import date
+        from app.paper_trading.weather_peaks import recommendation_window
         hk = {
             "market_id": "mkt-hk", "status": "open", "is_resolved": False,
             "market_name": "Will the highest temperature in Hong Kong be 31°C or higher on September 26?",
             "end_date": datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc),
-            "price_yes": Decimal("0.73"), "price_no": Decimal("0.27"),
+            "price_yes": Decimal("0.20"), "price_no": Decimal("0.80"),
         }
-        in_window = datetime(2026, 9, 26, 4, 30, tzinfo=timezone.utc)  # 12:30 HKT
+        window = recommendation_window("Hong Kong", "highest", date(2026, 9, 26))
+        in_window = window.start.astimezone(timezone.utc) + timedelta(minutes=10)
         with patch("app.paper_service.get_market_snapshots", return_value=[hk] + self.mock_markets), \
              patch("app.paper_trading.weather_peaks._utcnow", return_value=in_window):
-            endpoint_res = get_market_suggestions_api(min_price=0.70, max_price=0.75)
-        self.assertEqual([r["market_id"] for r in endpoint_res], ["mkt-hk"])
-        first = endpoint_res[0]
-        for key in ("market_id", "market_name", "current_price", "resolution_time", "time_remaining",
-                    "city", "kind", "window_label"):
+            events = get_market_suggestions_api()
+        self.assertEqual([e["city"] for e in events], ["Hong Kong"])
+        first = events[0]
+        for key in ("city", "kind", "window_label", "time_remaining", "local_time", "markets", "market_count"):
             self.assertIn(key, first)
+        self.assertEqual(first["markets"][0]["market_id"], "mkt-hk")
+        self.assertEqual(first["markets"][0]["bracket"], "31°C or higher")
 
     def test_fastapi_endpoint_non_temperature_markets_not_recommended(self):
         """Market non-suhu (tanpa kota & jam puncak) tidak masuk rekomendasi."""

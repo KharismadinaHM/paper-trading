@@ -30,12 +30,11 @@ Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cua
   - Peringatan divergensi harga jika harga pasar bergerak $> 5\%$ dari saat user melihat tombol buy.
   - Deteksi snapshot kadaluarsa (`is_stale: bool`) jika snapshot lebih tua dari threshold 15 menit (3x siklus collector).
 - **🔍 Rekomendasi Menjelang Puncak Suhu & Live Search**:
-  - **Suggested Markets**: market *Highest/Lowest temperature* di **semua kota** (51 kota saat ini) direkomendasikan hanya pada jendela menjelang jam puncak suhu **waktu setempat** kota tersebut, untuk market bertanggal hari itu:
-    - Suhu tertinggi: puncak 14:00–15:00 → rekomendasi **12:00–13:00** (mis. Hong Kong 12:00 HKT).
-    - Suhu terendah: puncak 05:00–06:00 → rekomendasi **03:00–04:00**.
-    - Harga YES atau NO di rentang `RECOMMENDATION_MIN_PRICE`–`RECOMMENDATION_MAX_PRICE` (default 0.70–0.75).
-    - Jam puncak, jarak (lead), dan lebar jendela dapat diatur; per kota lewat `TEMP_PEAK_HOUR_OVERRIDES`. Zona waktu (termasuk DST) memakai database IANA; kota baru lewat `CITY_TIMEZONE_OVERRIDES`.
-    - Jika belum ada yang cocok, dashboard menampilkan **jadwal jendela berikutnya** per kota.
+  - **Suggested Markets**: event *Highest/Lowest temperature* di **semua kota** (51 kota saat ini) direkomendasikan menjelang **jam puncak suhu waktu setempat** kota tersebut, khusus market bertanggal hari itu — **tanpa filter harga**, dikelompokkan per kota dengan semua bracket-nya.
+    - Jam puncak **berbeda per kota**, hasil riset data suhu per jam historis (ERA5 via Open-Meteo): suhu tertinggi = *solar noon* + lag tipikal kota, suhu terendah = matahari terbit + lag tipikal kota. Contoh: Los Angeles ±11:15–12:15, Hong Kong ±13:15–14:15, NYC ±14:15–15:15, Madrid/Paris ±16:15–17:15. Detail & tabel lengkap: [docs/PEAK_HOURS_RESEARCH.md](docs/PEAK_HOURS_RESEARCH.md).
+    - Rekomendasi muncul **2 s/d 1 jam sebelum awal puncak** (dapat diatur). Musim & DST ikut terhitung karena berbasis posisi matahari.
+    - Riset bisa diulang (`python scripts/research_peak_hours.py`) dan dikoreksi per kota lewat `TEMP_PEAK_HOUR_OVERRIDES`.
+    - Jika belum ada kota di jendela, dashboard menampilkan **jadwal jendela berikutnya**.
   - **Live Search**: Pencarian multi-kriteria berdasarkan kata kunci, kategori, dan rentang harga.
   - Terintegrasi langsung dengan modal "Paper Buy" di antarmuka Web Dashboard.
 - **📊 Metrik Kinerja Portofolio**:
@@ -300,7 +299,7 @@ Jika `DASHBOARD_PASSWORD` diisi, seluruh halaman dan endpoint (kecuali `/healthz
 
 | Method | Endpoint | Deskripsi |
 |---|---|---|
-| `GET` | `/api/markets/suggestions` | Rekomendasi market suhu yang sedang berada di jendela menjelang jam puncak lokal (param opsional `min_price`, `max_price`) |
+| `GET` | `/api/markets/suggestions` | Event suhu (per kota) yang sedang berada di jendela menjelang jam puncak lokal, lengkap dengan bracket-nya (filter harga opsional `min_price`, `max_price`) |
 | `GET` | `/api/markets/suggestions/schedule` | Jadwal jendela rekomendasi berikutnya per kota & jenis (highest/lowest) |
 | `GET` | `/api/markets/search` | Pencarian pasar cuaca dengan filter kata kunci, kategori, harga, sisa waktu, dan `polymarket_url` |
 | `POST` | `/api/orders` | Membuat paper order manual dengan proteksi Anti-Stale Price |
@@ -336,7 +335,7 @@ pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **207/207 unit test** berada dalam status **PASS**. Test tidak pernah mengakses jaringan sungguhan (diblokir di `tests/conftest.py`).
+Saat ini seluruh **219/219 unit test** berada dalam status **PASS**. Test tidak pernah mengakses jaringan sungguhan (diblokir di `tests/conftest.py`).
 
 Setiap push ke `main` dan setiap pull request dijalankan otomatis oleh GitHub Actions (`.github/workflows/ci.yml`): migrasi Alembic di PostgreSQL + `alembic check`, seluruh test suite, test konkurensi di PostgreSQL, dan build image Docker.
 

@@ -974,81 +974,24 @@
                         <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Suggested Markets · Menjelang Puncak Suhu
                     </h5>
                     <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="suggestionsCount">
-                        {{ suggested_markets|length if suggested_markets is defined else 0 }} available
+                        {{ suggested_markets|length if suggested_markets is defined else 0 }} kota
                     </span>
                 </div>
                 <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchSuggestedMarkets()">
                     <i class="bi bi-arrow-repeat"></i> Refresh
                 </button>
             </div>
+            <div class="small text-muted-poly mb-3">
+                Muncul menjelang jam puncak suhu tertinggi/terendah <b>waktu setempat</b> tiap kota
+                (jam puncak dari riset data historis per kota), khusus market bertanggal hari itu.
+            </div>
             <div class="row g-3" id="suggestedMarketsContainer">
-                {% if suggested_markets %}
-                    {% for sm in suggested_markets %}
-                        {% set side = sm.side|default('YES') %}
-                        <div class="col-md-6 col-lg-4">
-                            <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
-                                <div>
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
-                                        {% if side == 'YES' %}
-                                            <span class="badge-outcome-yes">YES</span>
-                                        {% else %}
-                                            <span class="badge-outcome-no">NO</span>
-                                        {% endif %}
-                                        <span class="badge bg-dark text-warning border border-warning-subtle small" title="Sisa waktu jendela rekomendasi">
-                                            <i class="bi bi-clock me-1"></i>sisa {{ sm.time_remaining }}
-                                        </span>
-                                    </div>
-                                    <div class="small text-muted-poly mb-2">
-                                        <i class="bi bi-geo-alt me-1"></i>{{ sm.city }} · {{ 'Suhu tertinggi' if sm.kind == 'highest' else 'Suhu terendah' }}
-                                        <div><i class="bi bi-alarm me-1"></i>{{ sm.window_label }}</div>
-                                    </div>
-                                    <h6 class="fw-bold mb-3" style="min-height: 44px;" title="{{ sm.market_name }}">
-                                        <a href="{{ sm.polymarket_url|default('https://polymarket.com/markets?_q=' ~ sm.market_name|urlencode) }}"
-                                           target="_blank"
-                                           rel="noopener noreferrer"
-                                           class="market-title-link text-white text-decoration-none"
-                                           title="Buka {{ sm.market_name }} di Polymarket (Tab Baru)">
-                                            {{ sm.market_name }}
-                                            <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
-                                        </a>
-                                    </h6>
-                                </div>
-                                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
-                                    <div>
-                                        <span class="text-muted-poly small">Price:</span>
-                                        <span class="fw-bold text-white fs-6 ms-1">${{ "%.2f"|format(sm.current_price|float) }}</span>
-                                    </div>
-                                    <button class="btn btn-sm btn-success px-3 fw-medium"
-                                            data-market-id="{{ sm.market_id }}"
-                                            data-market-name="{{ sm.market_name|e }}"
-                                            data-price="{{ sm.current_price }}"
-                                            data-side="{{ side }}"
-                                            onclick="openPaperBuyModalFromBtn(this)">
-                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    {% endfor %}
-                {% else %}
-                    <div class="col-12 text-muted-poly py-3">
-                        <div class="text-center mb-3">
-                            <i class="bi bi-inbox fs-3 d-block mb-2"></i>
-                            Belum ada kota yang sedang berada di jendela rekomendasi (dengan harga di rentang target).
-                        </div>
-                        {% if recommendation_schedule %}
-                            <div class="small fw-semibold text-white mb-2"><i class="bi bi-calendar-event me-1"></i>Jendela berikutnya</div>
-                            <ul class="list-unstyled small mb-0">
-                                {% for w in recommendation_schedule %}
-                                    <li class="mb-1">
-                                        <span class="text-white">{{ w.city }}</span> · {{ 'tertinggi' if w.kind == 'highest' else 'terendah' }}
-                                        · {{ w.window_label }} <span class="text-warning">({{ w.starts_in }})</span>
-                                    </li>
-                                {% endfor %}
-                            </ul>
-                        {% endif %}
+                <div class="col-12">
+                    <div class="weather-loading">
+                        <div class="weather-loading-spinner"></div>
+                        <span class="text-muted-poly small">Memuat rekomendasi...</span>
                     </div>
-                {% endif %}
+                </div>
             </div>
         </div>
 
@@ -1929,6 +1872,56 @@
         }
 
         // --- 14. SUGGESTIONS FETCH HANDLER ---
+        function buildSuggestionCardsHtml(events) {
+            return events.map(ev => {
+                const isHigh = ev.kind === 'highest';
+                const top = ev.markets.slice(0, 4);
+                const rows = top.map(m => {
+                    const pYes = m.price_yes !== null && m.price_yes !== undefined ? safeNumber(m.price_yes) : null;
+                    const pNo = m.price_no !== null && m.price_no !== undefined ? safeNumber(m.price_no) : null;
+                    const name = escapeHtml(m.market_name);
+                    const id = escapeHtml(m.market_id);
+                    return `
+                        <div class="weather-outcome-row">
+                            <span class="weather-outcome-temp">${escapeHtml(m.bracket)}</span>
+                            <span class="weather-outcome-pct">${pYes !== null ? Math.round(pYes * 100) + '%' : '-'}</span>
+                            <div class="weather-outcome-btns">
+                                <button class="weather-btn-yes" data-market-id="${id}" data-market-name="${name}"
+                                    data-price="${pYes ?? 0.5}" data-side="YES" onclick="openPaperBuyModalFromBtn(this)"
+                                    title="Beli ${escapeHtml(m.outcome_yes_label)}">${escapeHtml(m.outcome_yes_label)} ${pYes !== null ? (pYes * 100).toFixed(1) + '¢' : ''}</button>
+                                <button class="weather-btn-no" data-market-id="${id}" data-market-name="${name}"
+                                    data-price="${pNo ?? 0.5}" data-side="NO" onclick="openPaperBuyModalFromBtn(this)"
+                                    title="Beli ${escapeHtml(m.outcome_no_label)}">${escapeHtml(m.outcome_no_label)} ${pNo !== null ? (pNo * 100).toFixed(1) + '¢' : ''}</button>
+                            </div>
+                        </div>`;
+                }).join('');
+                const more = ev.market_count > top.length
+                    ? `<div class="small text-muted-poly mt-2">+${ev.market_count - top.length} bracket lainnya</div>` : '';
+                const source = ev.peak_source === 'data' ? 'jam puncak dari data historis kota'
+                    : (ev.peak_source === 'override' ? 'jam puncak dari konfigurasi' : 'jam puncak perkiraan model');
+                return `
+                    <div class="col-md-6">
+                        <div class="weather-event-card">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <h6 class="weather-event-title mb-0">
+                                    <i class="bi ${isHigh ? 'bi-thermometer-sun text-warning' : 'bi-thermometer-snow text-info'} me-1"></i>
+                                    ${escapeHtml(ev.city)} · ${isHigh ? 'Suhu tertinggi' : 'Suhu terendah'}
+                                </h6>
+                                <span class="badge bg-dark text-warning border border-warning-subtle small" title="Sisa waktu jendela rekomendasi">
+                                    <i class="bi bi-clock me-1"></i>sisa ${escapeHtml(ev.time_remaining)}
+                                </span>
+                            </div>
+                            <div class="small text-muted-poly mb-2">
+                                <i class="bi bi-alarm me-1"></i>${escapeHtml(ev.window_label)}
+                                <span class="ms-1" title="${escapeHtml(source)}">· sekarang ${escapeHtml(ev.local_time)}</span>
+                            </div>
+                            <div class="weather-outcomes-list">${rows}</div>
+                            ${more}
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
         async function fetchSuggestedMarkets() {
             const container = document.getElementById('suggestedMarketsContainer');
             const badge = document.getElementById('suggestionsCount');
@@ -1936,70 +1929,26 @@
             try {
                 const res = await fetch('/api/markets/suggestions');
                 if (!res.ok) throw new Error('Failed');
-                const list = await res.json();
-                if (badge) badge.textContent = `${list.length} available`;
-                if (!list.length) {
-                    let scheduleHtml = '';
-                    try {
-                        const sched = await fetch('/api/markets/suggestions/schedule?limit=6').then(r => r.ok ? r.json() : []);
-                        if (sched.length) {
-                            scheduleHtml = `<div class="small fw-semibold text-white mb-2"><i class="bi bi-calendar-event me-1"></i>Jendela berikutnya</div><ul class="list-unstyled small mb-0">` +
-                                sched.map(w => `<li class="mb-1"><span class="text-white">${escapeHtml(w.city)}</span> · ${w.kind === 'highest' ? 'tertinggi' : 'terendah'} · ${escapeHtml(w.window_label)} <span class="text-warning">(${escapeHtml(w.starts_in)})</span></li>`).join('') +
-                                `</ul>`;
-                        }
-                    } catch (e) { console.error(e); }
-                    container.innerHTML = `<div class="col-12 text-muted-poly py-3"><div class="text-center mb-3"><i class="bi bi-inbox fs-3 d-block mb-2"></i>Belum ada kota yang sedang berada di jendela rekomendasi (dengan harga di rentang target).</div>${scheduleHtml}</div>`;
+                const events = await res.json();
+                if (badge) badge.textContent = `${events.length} kota`;
+                if (events.length) {
+                    container.innerHTML = buildSuggestionCardsHtml(events);
                     return;
                 }
-                let html = '';
-                list.forEach(sm => {
-                    const side = (sm.side === 'NO') ? 'NO' : 'YES';
-                    const isYes = (side === 'YES');
-                    const badgeClass = isYes ? 'badge-outcome-yes' : 'badge-outcome-no';
-                    const name = escapeHtml(sm.market_name);
-                    const polyUrl = safeUrl(sm.polymarket_url || `https://polymarket.com/markets?_q=${encodeURIComponent(sm.market_name || '')}`);
-                    html += `
-                        <div class="col-md-6 col-lg-4">
-                            <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
-                                <div>
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
-                                        <span class="${badgeClass}">${side}</span>
-                                        <span class="badge bg-dark text-warning border border-warning-subtle small" title="Sisa waktu jendela rekomendasi">
-                                            <i class="bi bi-clock me-1"></i>sisa ${escapeHtml(sm.time_remaining)}
-                                        </span>
-                                    </div>
-                                    <div class="small text-muted-poly mb-2">
-                                        <i class="bi bi-geo-alt me-1"></i>${escapeHtml(sm.city)} · ${sm.kind === 'highest' ? 'Suhu tertinggi' : 'Suhu terendah'}
-                                        <div><i class="bi bi-alarm me-1"></i>${escapeHtml(sm.window_label)}</div>
-                                    </div>
-                                    <h6 class="fw-bold mb-3" style="min-height: 44px;">
-                                        <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="market-title-link text-white text-decoration-none" title="Buka di Polymarket (Tab Baru)">
-                                            ${name}
-                                            <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
-                                        </a>
-                                    </h6>
-                                </div>
-                                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
-                                    <div>
-                                        <span class="text-muted-poly small">Price:</span>
-                                        <span class="fw-bold text-white fs-6 ms-1">$${safeNumber(sm.current_price).toFixed(2)}</span>
-                                    </div>
-                                    <button class="btn btn-sm btn-success px-3 fw-medium"
-                                            data-market-id="${escapeHtml(sm.market_id)}"
-                                            data-market-name="${name}"
-                                            data-price="${safeNumber(sm.current_price)}"
-                                            data-side="${side}"
-                                            onclick="openPaperBuyModalFromBtn(this)">
-                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                });
-                container.innerHTML = html;
+                let scheduleHtml = '';
+                try {
+                    const sched = await fetch('/api/markets/suggestions/schedule?limit=8').then(r => r.ok ? r.json() : []);
+                    if (sched.length) {
+                        scheduleHtml = `<div class="small fw-semibold text-white mb-2"><i class="bi bi-calendar-event me-1"></i>Jendela berikutnya</div><ul class="list-unstyled small mb-0">` +
+                            sched.map(w => `<li class="mb-1"><span class="text-white">${escapeHtml(w.city)}</span> · ${w.kind === 'highest' ? 'tertinggi' : 'terendah'} · ${escapeHtml(w.window_label)} <span class="text-warning">(${escapeHtml(w.starts_in)})</span></li>`).join('') +
+                            `</ul>`;
+                    }
+                } catch (e) { console.error(e); }
+                container.innerHTML = `<div class="col-12 text-muted-poly py-3"><div class="text-center mb-3"><i class="bi bi-inbox fs-3 d-block mb-2"></i>Belum ada kota yang sedang berada di jendela rekomendasi.</div>${scheduleHtml}</div>`;
             } catch (err) {
                 console.error(err);
+                if (badge) badge.textContent = 'Error';
+                container.innerHTML = `<div class="col-12 text-center text-muted-poly py-4">Gagal memuat rekomendasi. <button class="poly-btn-secondary ms-2 px-3 py-1" onclick="fetchSuggestedMarkets()">Coba lagi</button></div>`;
             }
         }
 
@@ -2042,6 +1991,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             fetchWeatherEvents();
             fetchElonEvents();
+            fetchSuggestedMarkets();
         });
     </script>
 

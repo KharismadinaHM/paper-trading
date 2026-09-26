@@ -56,15 +56,15 @@ class Settings(BaseSettings):
     REJECT_STALE_ORDERS: bool = True
 
     # Rekomendasi market suhu berbasis jam puncak lokal (lihat app/paper_trading/weather_peaks.py)
-    # Jendela rekomendasi = [puncak - LEAD - WINDOW, puncak - LEAD) waktu setempat
-    TEMP_HIGH_PEAK_HOUR: float = 14.0
-    TEMP_LOW_PEAK_HOUR: float = 5.0
+    # Jam puncak per kota dihitung dari posisi matahari + kalibrasi riset (peak_calibration.json).
+    # Jendela rekomendasi = [awal puncak - LEAD - WINDOW, awal puncak - LEAD) waktu setempat
     TEMP_PEAK_DURATION_HOURS: float = 1.0
     RECOMMENDATION_LEAD_HOURS: float = 1.0
     RECOMMENDATION_WINDOW_HOURS: float = 1.0
-    RECOMMENDATION_MIN_PRICE: Decimal = Decimal("0.70")
-    RECOMMENDATION_MAX_PRICE: Decimal = Decimal("0.75")
-    # JSON opsional, mis. {"Hong Kong": {"highest": 15, "lowest": 6}}
+    # Jam puncak cadangan untuk kota tanpa koordinat (hanya ditambahkan lewat CITY_TIMEZONE_OVERRIDES)
+    TEMP_HIGH_PEAK_HOUR: float = 14.0
+    TEMP_LOW_PEAK_HOUR: float = 5.0
+    # JSON opsional, AWAL jam puncak lokal per kota, mis. {"Hong Kong": {"highest": 14, "lowest": 6}}
     TEMP_PEAK_HOUR_OVERRIDES: str = ""
     # JSON opsional untuk kota baru / koreksi, mis. {"Lima": "America/Lima"}
     CITY_TIMEZONE_OVERRIDES: str = ""

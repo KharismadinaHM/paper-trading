@@ -619,16 +619,11 @@ def get_market_suggestions(
     now: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Rekomendasi market suhu (highest/lowest) yang sedang berada di jendela menjelang jam
-    puncak suhu lokal kotanya, dengan harga YES/NO di rentang [min_price, max_price].
+    Rekomendasi per event suhu (kota + highest/lowest + tanggal) yang sedang berada di jendela
+    menjelang jam puncak suhu lokal kotanya. Tanpa filter harga kecuali min/max diberikan.
     """
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
-    return filter_peak_time_suggestions(
-        markets=raw_markets,
-        min_price=float(settings.RECOMMENDATION_MIN_PRICE if min_price is None else min_price),
-        max_price=float(settings.RECOMMENDATION_MAX_PRICE if max_price is None else max_price),
-        now=now,
-    )
+    return filter_peak_time_suggestions(markets=raw_markets, min_price=min_price, max_price=max_price, now=now)
 
 
 def get_recommendation_schedule(now: Optional[datetime] = None, limit: int = 10) -> List[Dict[str, Any]]:
