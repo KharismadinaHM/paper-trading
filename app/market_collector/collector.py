@@ -151,7 +151,14 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             no_label = str(outcome).strip()
 
     closed = bool(m.get("closed", False))
-    status = "resolved" if closed else "open"
+    # endDate Polymarket BUKAN batas akhir trading: market tetap menerima order sampai
+    # ditutup. Status tradable diambil dari closed / acceptingOrders.
+    if closed:
+        status = "resolved"
+    elif m.get("acceptingOrders") is False:
+        status = "closed"
+    else:
+        status = "open"
 
     raw_end_date = m.get("endDate") or m.get("endDateIso")
     resolution_time = _parse_datetime(raw_end_date)
@@ -683,18 +690,14 @@ def record_market_observations(
 def run_collection_cycle(session: Optional[Session] = None, now: Optional[datetime] = None) -> int:
     """
     Menjalankan 1 siklus pengumpulan data lengkap: fetch -> catat observasi.
-    Market yang waktu resolusinya sudah lewat dilewati (tidak bisa di-trade); posisi terbuka
-    pada market tersebut tetap diperbarui oleh settlement worker.
     Mengembalikan jumlah market yang berhasil diamati.
     """
     now = now or datetime.now(timezone.utc)
     logger.info("Menjalankan siklus Market Collector (kategori: %s)...", settings.ENABLED_MARKET_CATEGORIES)
     try:
+        # Tidak memfilter berdasarkan endDate: market Polymarket tetap menerima order setelah
+        # endDate sampai ditutup (market closed sudah disaring oleh active_only).
         markets = fetch_all_markets()
-        markets = [
-            m for m in markets
-            if m.get("resolution_time") is None or m["resolution_time"] > now
-        ]
         if not markets:
             logger.warning("Tidak ada market yang ditemukan pada siklus ini.")
             return 0

@@ -105,12 +105,18 @@ class TestAccountConsistency:
 
 class TestOrderRules:
 
-    def test_expired_market_rejected(self):
-        """Regresi: order pada market yang waktu resolusinya sudah lewat harus ditolak."""
-        add_snapshot("0xold", "0.50", hours_to_resolution=-3)
+    def test_market_not_accepting_orders_rejected(self):
+        """Market yang ditutup untuk order (acceptingOrders=false) harus ditolak."""
+        add_snapshot("0xpaused", "0.50", status="closed")
         with pytest.raises(ValueError) as exc:
-            create_paper_order("0xold", "YES", Decimal("1.00"))
-        assert "melewati waktu resolusi" in str(exc.value)
+            create_paper_order("0xpaused", "YES", Decimal("1.00"))
+        assert "tidak menerima order" in str(exc.value)
+
+    def test_open_market_past_end_date_still_tradable(self):
+        """Regresi: endDate Polymarket bukan batas trading; market yang masih open tetap bisa di-order."""
+        add_snapshot("0xafter_end", "0.50", hours_to_resolution=-3)
+        order = create_paper_order("0xafter_end", "YES", Decimal("1.00"))
+        assert order["status"] == "FILLED"
 
     def test_cumulative_market_exposure_limit(self):
         """Regresi: MAX_EXPOSURE_PER_MARKET berlaku akumulatif, bukan per order."""
