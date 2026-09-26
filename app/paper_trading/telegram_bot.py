@@ -17,20 +17,12 @@ from app.paper_trading.telegram import send_telegram_message
 logger = logging.getLogger("paper_trading.telegram_bot")
 
 # Import paper service functions
-try:
-    from app.paper_service import (
-        get_account_status,
-        get_open_positions,
-        get_performance,
-        get_trade_history,
-    )
-except ImportError:
-    from app.paper_trading.paper_service import (  # type: ignore
-        get_account_status,
-        get_open_positions,
-        get_performance,
-        get_trade_history,
-    )
+from app.paper_service import (
+    get_account_status,
+    get_open_positions,
+    get_performance,
+    get_trade_history,
+)
 
 
 def _fmt_money(val: Any) -> str:

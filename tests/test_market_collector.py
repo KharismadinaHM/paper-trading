@@ -273,15 +273,26 @@ class TestSnapshotPersistence:
         assert db_row.market_name == "Cycle Market"
 
     @patch("app.market_collector.collector.fetch_weather_markets")
-    def test_ensure_initial_market_snapshots_empty_db_fallback(self, mock_fetch, in_memory_session):
-        """Memastikan jika DB kosong dan Gamma API gagal/kosong, baseline snapshot di-bootstrap."""
+    def test_ensure_initial_market_snapshots_empty_db_fallback(self, mock_fetch, in_memory_session, monkeypatch):
+        """Jika DB kosong, Gamma API gagal, dan ALLOW_SYNTHETIC_MARKETS=true, baseline demo di-bootstrap."""
+        from app.core.config import settings
         from app.market_collector.collector import ensure_initial_market_snapshots
+        monkeypatch.setattr(settings, "ALLOW_SYNTHETIC_MARKETS", True)
         mock_fetch.return_value = []
 
         count = ensure_initial_market_snapshots(session=in_memory_session)
         assert count > 0
         total = in_memory_session.query(MarketSnapshot).count()
         assert total == count
+
+    @patch("app.market_collector.collector.fetch_weather_markets")
+    def test_ensure_initial_market_snapshots_never_seeds_synthetic_by_default(self, mock_fetch, in_memory_session):
+        """Default produksi: market sintetis TIDAK pernah dimasukkan ke database."""
+        from app.market_collector.collector import ensure_initial_market_snapshots
+        mock_fetch.return_value = []
+
+        assert ensure_initial_market_snapshots(session=in_memory_session) == 0
+        assert in_memory_session.query(MarketSnapshot).count() == 0
 
     def test_ensure_initial_market_snapshots_already_populated(self, in_memory_session):
         """Memastikan jika DB sudah memiliki data, bootstrap tidak dipanggil ulang."""
@@ -294,3 +305,14 @@ class TestSnapshotPersistence:
 
         count = ensure_initial_market_snapshots(session=in_memory_session)
         assert count == 1
+
+
+def test_parse_status_from_accepting_orders():
+    """endDate tidak menentukan status; closed / acceptingOrders yang menentukan."""
+    base = {"conditionId": "0xs", "question": "Q?", "outcomes": '["Yes", "No"]', "outcomePrices": '["0.5", "0.5"]',
+            "endDate": "2020-01-01T12:00:00Z"}
+    assert parse_market_dict({**base, "closed": False, "acceptingOrders": True})["status"] == "open"
+    assert parse_market_dict({**base, "closed": False})["status"] == "open"
+    assert parse_market_dict({**base, "closed": False, "acceptingOrders": False})["status"] == "closed"
+    parsed = parse_market_dict({**base, "closed": True, "acceptingOrders": False})
+    assert parsed["status"] == "resolved" and parsed["is_resolved"] is True

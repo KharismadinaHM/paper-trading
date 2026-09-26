@@ -11,35 +11,15 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-# Import service functions dari paper_service.py dengan fallback fleksibel
-try:
-    from app.paper_service import (
-        get_account_status,
-        get_open_positions,
-        get_performance,
-        get_trade_history,
-        reset_paper_account,
-        start_paper_trading,
-    )
-except ImportError:
-    try:
-        from app.paper_trading.paper_service import (
-            get_account_status,
-            get_open_positions,
-            get_performance,
-            get_trade_history,
-            reset_paper_account,
-            start_paper_trading,
-        )
-    except ImportError:
-        from .paper_service import (
-            get_account_status,
-            get_open_positions,
-            get_performance,
-            get_trade_history,
-            reset_paper_account,
-            start_paper_trading,
-        )
+# Import service functions dari paper_service.py
+from app.paper_service import (
+    get_account_status,
+    get_open_positions,
+    get_performance,
+    get_trade_history,
+    reset_paper_account,
+    start_paper_trading,
+)
 
 app = typer.Typer(
     help="Polymarket Weather Paper Trading CLI",
@@ -141,7 +121,7 @@ def positions():
 
     for pos in positions_list:
         side = str(pos.get("side", "BUY")).upper()
-        side_color = "green" if side == "BUY" else "red"
+        side_color = "green" if side in ("BUY", "YES") else "red"
 
         entry = Decimal(str(pos.get("entry_price", "0")))
         size = Decimal(str(pos.get("size", "0")))
@@ -218,11 +198,13 @@ def trades(
             status_style = "[bold red]LOST[/bold red]"
         elif status == "CANCELLED":
             status_style = "[yellow]CANCELLED[/yellow]"
+        elif status == "CLOSED":
+            status_style = "[green]CLOSED[/green]" if Decimal(str(t.get("net_pnl", "0"))) >= 0 else "[red]CLOSED[/red]"
         else:
             status_style = f"[cyan]{status}[/cyan]"
 
         side = str(t.get("side", "BUY")).upper()
-        side_color = "green" if side == "BUY" else "red"
+        side_color = "green" if side in ("BUY", "YES") else "red"
 
         entry = Decimal(str(t.get("entry_price", "0")))
         exit_p = t.get("exit_price")

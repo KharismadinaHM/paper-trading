@@ -11,7 +11,8 @@ Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cua
   - Rounding standar 4 desimal konsisten (`ROUND_HALF_UP`).
 - **🛡️ Anti-Cheating & Risk Management**:
   - Penolakan order tanpa data harga historis (mencegah *Lookahead Bias*).
-  - Validasi saldo mencukupi dan pembatasan ukuran posisi maksimum (`MAX_POSITION_SIZE`).
+  - Validasi saldo mencukupi, ukuran order maksimum (`MAX_POSITION_SIZE`), serta batas eksposur akumulatif per market & total (`MAX_EXPOSURE_PER_MARKET`, `MAX_TOTAL_EXPOSURE`).
+  - Order ditolak jika market sudah melewati waktu resolusi atau data harga stale.
   - Pemodelan slippage dan spread pasar yang realistis (`apply_slippage_and_spread`).
   - Validasi atomik: order yang ditolak oleh risk engine langsung dihentikan tanpa *partial write* ke database.
 - **🛰️ Polymarket Weather Market Collector**:
@@ -32,7 +33,10 @@ Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cua
   - **Win Rate & ROI**: Perhitungan closed trades murni dan return on investment.
   - **Mark-to-Market (MTM)**: Valuasi posisi terbuka berdasarkan harga pasar terkini.
 - **🗄️ Skema Database PostgreSQL (SQLAlchemy 2.0)**:
-  - Definisi tabel lengkap: `paper_accounts`, `paper_orders`, `paper_positions`, `paper_trades`, `paper_balance_snapshots`, dan `market_snapshots`.
+  - Definisi tabel lengkap: `paper_accounts`, `paper_orders`, `paper_positions`, `paper_trades`, `paper_balance_snapshots`, `paper_cash_movements`, `market_resolutions`, dan `market_snapshots`.
+  - Seluruh state akun (saldo, posisi, order, trade, equity curve) tersimpan di database — dashboard, CLI, dan bot Telegram membaca sumber data yang sama dan data tetap ada setelah restart.
+  - Saldo dilindungi row lock (`SELECT ... FOR UPDATE`) sehingga order paralel dari beberapa proses tidak dapat memakai saldo yang sama dua kali.
+  - `init_db()` menerapkan migrasi ringan otomatis (kolom nullable baru, nilai enum baru, index baru) pada database yang sudah ada.
   - Dilengkapi *Check Constraints* dan *Index* untuk integritas data finansial ($\ge 0$).
 - **💻 CLI Terminal Modern (Typer + Rich)**:
   - Antarmuka command-line informatif dengan tabel dan pewarnaan data finansial.
@@ -104,8 +108,7 @@ Buat virtual environment dan pasang pustaka yang diperlukan:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-pip install pytest
+pip install -r requirements-dev.txt   # dependensi aplikasi + pytest & httpx2 untuk testing
 ```
 
 ### 3. Konfigurasi Lingkungan (`.env`)
@@ -126,14 +129,23 @@ POSTGRES_PORT=5433
 
 # Paper Trading Risk & Slippage Configuration
 INITIAL_BALANCE=20.00
-MAX_POSITION_SIZE=1.00
+MAX_POSITION_SIZE=1.00          # maksimum per order
+MAX_EXPOSURE_PER_MARKET=1.00    # maksimum akumulasi cost basis per market
+MAX_TOTAL_EXPOSURE=10.00        # maksimum akumulasi cost basis seluruh posisi
+MIN_ORDER_NOTIONAL=0.01         # minimum proceeds order jual
+REJECT_STALE_ORDERS=true        # tolak order jika harga lebih tua dari 3x interval collector
 SLIPPAGE_BPS=30
 SPREAD_BPS=20
-FEE_RATE_BPS=0
+FEE_RATE_BPS=0                  # fee dari profit pemenang saat settlement
+
+# Dashboard Authentication (HTTP Basic) — WAJIB jika dashboard bisa diakses dari internet
+DASHBOARD_USERNAME=admin
+DASHBOARD_PASSWORD=ganti-dengan-password-kuat
 
 # Market Collector Configuration
 COLLECTOR_INTERVAL_SECONDS=300
 GAMMA_API_BASE_URL=https://gamma-api.polymarket.com
+ALLOW_SYNTHETIC_MARKETS=false   # true hanya untuk demo lokal (market sintetis jika Gamma API gagal)
 
 # Telegram Notifications & Bot (Opsional)
 TELEGRAM_BOT_TOKEN=your_bot_token_here
@@ -202,6 +214,13 @@ python -m app.market_collector.run --once
 python -m app.market_collector.run --interval 60
 ```
 
+Setiap siklus collector juga menjalankan **settlement worker** (`app/paper_trading/settlement_worker.py`):
+1. Mengambil status terbaru (termasuk market yang sudah *closed*) untuk semua market yang masih punya posisi terbuka.
+2. Mencatat hasil akhir ke tabel `market_resolutions` (`YES` / `NO` / `INVALID`).
+3. Menutup posisi secara otomatis: menang dibayar $1/share (dikurangi `FEE_RATE_BPS` dari profit), kalah $0, market invalid dikembalikan modalnya. Notifikasi dikirim ke Telegram.
+
+Settlement bersifat idempotent — menjalankan ulang tidak akan membayar dua kali.
+
 ---
 
 ### 3. Menjalankan Web Dashboard
@@ -241,7 +260,7 @@ Bot Telegram (`app/paper_trading/telegram_bot.py`) dan notifikasi sinyal (`teleg
 
 ### 5. REST API Endpoints
 
-Sistem menyediakan API publik dan internal:
+Jika `DASHBOARD_PASSWORD` diisi, seluruh halaman dan endpoint (kecuali `/healthz`) memerlukan HTTP Basic Auth.
 
 | Method | Endpoint | Deskripsi |
 |---|---|---|
@@ -250,10 +269,11 @@ Sistem menyediakan API publik dan internal:
 | `POST` | `/api/orders` | Membuat paper order manual dengan proteksi Anti-Stale Price |
 | `POST` | `/api/positions/sell` | Menjual/menutup posisi terbuka pada harga pasar live (*Paper Sell*) |
 | `POST` | `/api/account/deposit` | Menambah saldo akun paper trading (*Paper Deposit*) |
-| `POST` | `/api/account/reset` | Mereset akun ke saldo awal $20.00 dan me-refresh posisi default |
+| `POST` | `/api/account/reset` | Mereset akun ke `INITIAL_BALANCE` dan menghapus seluruh posisi, order, dan riwayat trade |
 | `GET` | `/api/positions` | Mengambil daftar posisi terbuka dengan valuasi dynamic Mark-to-Market & `polymarket_url` |
 | `GET` | `/api/trades` | Mengambil riwayat transaksi selesai |
 | `GET` | `/api/summary` | Ringkasan saldo, portofolio, dan performa akun |
+| `GET` | `/healthz` | Healthcheck publik: koneksi database & umur snapshot pasar terbaru |
 
 ---
 
@@ -262,8 +282,11 @@ Sistem menyediakan API publik dan internal:
 Proyek ini dilengkapi dengan rangkaian pengujian unit menyeluruh (`pytest`):
 
 ```bash
-# Menjalankan seluruh test suite (105 test)
+# Menjalankan seluruh test suite (memakai SQLite in-memory terisolasi, tanpa akses jaringan/Telegram)
 pytest -v
+
+# Menjalankan test konkurensi terhadap PostgreSQL sungguhan
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/paper_trading_test pytest tests/test_paper_account_db.py -k concurrent
 
 # Menjalankan unit test modul spesifik
 pytest tests/test_positions_and_sell.py -v
@@ -274,7 +297,7 @@ pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **107/107 unit test** berada dalam status **PASS**.
+Saat ini seluruh **141/141 unit test** berada dalam status **PASS**.
 
 ---
 

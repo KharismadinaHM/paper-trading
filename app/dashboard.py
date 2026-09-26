@@ -2,38 +2,87 @@
 FastAPI Dashboard untuk Polymarket Paper Trading.
 Dijalankan via: uvicorn app.dashboard:app --reload atau python -m app.dashboard
 """
+import secrets
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from sqlalchemy import func, text
+
+from app.core.config import settings
+from app.core.logging import get_logger
+from app.paper_service import (
+    create_paper_order,
+    deposit_paper_funds,
+    ensure_default_account,
+    get_account_status,
+    get_equity_snapshots,
+    get_market_suggestions,
+    get_open_positions,
+    get_performance,
+    get_trade_history,
+    reset_paper_account,
+    search_market_snapshots,
+    sell_paper_position,
+)
+
+logger = get_logger("dashboard")
 
 # Template directory
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 
+_basic_auth = HTTPBasic(auto_error=False)
+
+
+def require_auth(credentials: Optional[HTTPBasicCredentials] = Depends(_basic_auth)) -> None:
+    """
+    HTTP Basic Auth untuk seluruh dashboard & API. Aktif jika DASHBOARD_PASSWORD diisi.
+    """
+    password = settings.DASHBOARD_PASSWORD
+    if not password:
+        return
+    valid = credentials is not None and secrets.compare_digest(
+        credentials.username.encode(), settings.DASHBOARD_USERNAME.encode()
+    ) and secrets.compare_digest(credentials.password.encode(), password.encode())
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Autentikasi diperlukan.",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Inisialisasi tabel database otomatis dan pastikan data awal snapshot pasar tersedia.
-    Memastikan saat baru dideploy di GCP (atau environment baru), dashboard langsung dapat membaca pasar.
+    Inisialisasi tabel database otomatis, akun paper default, dan data awal snapshot pasar.
     """
+    if not settings.DASHBOARD_PASSWORD:
+        logger.warning(
+            "DASHBOARD_PASSWORD belum diatur: dashboard & API dapat diakses TANPA autentikasi. "
+            "Wajib diisi sebelum dashboard dibuka ke publik."
+        )
+
     try:
         from app.core.database import init_db
         init_db()
+        ensure_default_account()
     except Exception as err:
-        print(f"[Dashboard Startup] Database init warning: {err}")
+        logger.error("Database init gagal saat startup: %s", err, exc_info=True)
 
     try:
         from app.market_collector.collector import ensure_initial_market_snapshots
         ensure_initial_market_snapshots()
     except Exception as err:
-        print(f"[Dashboard Startup] Market snapshots bootstrap warning: {err}")
+        logger.warning("Market snapshots bootstrap warning: %s", err)
     yield
 
 
@@ -41,53 +90,38 @@ app = FastAPI(title="Polymarket Paper Trading Dashboard", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-# Import service functions dari paper_service.py dengan fallback fleksibel
-try:
-    from app.paper_service import (
-        create_paper_order,
-        deposit_paper_funds,
-        get_account_status,
-        get_equity_snapshots,
-        get_market_suggestions,
-        get_open_positions,
-        get_performance,
-        get_trade_history,
-        reset_paper_account,
-        search_market_snapshots,
-        sell_paper_position,
-    )
-except ImportError:
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    """
+    Healthcheck tanpa autentikasi: koneksi database dan umur snapshot pasar terbaru.
+    Mengembalikan 503 jika database tidak dapat diakses.
+    """
+    from app.core.database import get_db_session
+    from app.paper_trading.models import MarketSnapshot
+
+    db = get_db_session()
     try:
-        from app.paper_trading.paper_service import (
-            create_paper_order,
-            deposit_paper_funds,
-            get_account_status,
-            get_equity_snapshots,
-            get_market_suggestions,
-            get_open_positions,
-            get_performance,
-            get_trade_history,
-            reset_paper_account,
-            search_market_snapshots,
-            sell_paper_position,
-        )
-    except ImportError:
-        from .paper_service import (
-            create_paper_order,
-            deposit_paper_funds,
-            get_account_status,
-            get_equity_snapshots,
-            get_market_suggestions,
-            get_open_positions,
-            get_performance,
-            get_trade_history,
-            reset_paper_account,
-            search_market_snapshots,
-            sell_paper_position,
-        )
+        db.execute(text("SELECT 1"))
+        latest = db.query(func.max(MarketSnapshot.timestamp)).scalar()
+    except Exception as err:
+        return JSONResponse(status_code=503, content={"status": "error", "database": str(err)})
+    finally:
+        db.close()
+
+    age_seconds = None
+    if latest is not None:
+        latest = latest if latest.tzinfo else latest.replace(tzinfo=timezone.utc)
+        age_seconds = int((datetime.now(timezone.utc) - latest).total_seconds())
+    stale_after = settings.COLLECTOR_INTERVAL_SECONDS * 3
+    return {
+        "status": "ok",
+        "database": "ok",
+        "latest_snapshot_age_seconds": age_seconds,
+        "collector_stale": age_seconds is None or age_seconds > stale_after,
+    }
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def get_dashboard(request: Request, strategy: Optional[str] = None):
     """
     Halaman utama dashboard paper trading.
@@ -122,7 +156,7 @@ def get_dashboard(request: Request, strategy: Optional[str] = None):
     )
 
 
-@app.get("/api/summary")
+@app.get("/api/summary", dependencies=[Depends(require_auth)])
 def get_summary_api(strategy: Optional[str] = None):
     """
     JSON API endpoint untuk status ringkasan & performa.
@@ -135,7 +169,7 @@ def get_summary_api(strategy: Optional[str] = None):
     }
 
 
-@app.get("/api/positions")
+@app.get("/api/positions", dependencies=[Depends(require_auth)])
 def get_positions_api():
     """
     JSON API endpoint untuk daftar open positions terkini.
@@ -143,7 +177,7 @@ def get_positions_api():
     return get_open_positions()
 
 
-@app.get("/api/trades")
+@app.get("/api/trades", dependencies=[Depends(require_auth)])
 def get_trades_api(limit: int = 50, strategy: Optional[str] = None):
     """
     JSON API endpoint untuk trade history.
@@ -151,7 +185,7 @@ def get_trades_api(limit: int = 50, strategy: Optional[str] = None):
     return get_trade_history(limit=limit, strategy_version=strategy)
 
 
-@app.get("/api/markets/suggestions")
+@app.get("/api/markets/suggestions", dependencies=[Depends(require_auth)])
 def get_market_suggestions_api(
     max_hours_to_resolution: float = 6.0,
     min_price: float = 0.70,
@@ -170,7 +204,7 @@ def get_market_suggestions_api(
     )
 
 
-@app.get("/api/markets/search")
+@app.get("/api/markets/search", dependencies=[Depends(require_auth)])
 def search_markets_api(
     q: str = "",
     category: Optional[str] = None,
@@ -197,13 +231,39 @@ def search_markets_api(
     )
 
 
+@app.get("/api/markets/weather-events", dependencies=[Depends(require_auth)])
+def get_weather_events_api(date_filter: Optional[str] = None):
+    """
+    Endpoint untuk mengambil data weather events dari Polymarket Gamma API
+    dalam format grouped-by-event (per kota + tanggal) dengan gambar kota,
+    sub-market temperature outcomes, volume, dan metadata.
+
+    Args:
+        date_filter: Opsional, format "YYYY-MM-DD" untuk filter event berdasarkan tanggal.
+
+    Returns:
+        List of grouped weather event dicts, setiap event berisi list sub-markets.
+    """
+    from app.market_collector.collector import fetch_weather_events
+
+    try:
+        events = fetch_weather_events(date_filter=date_filter)
+        return events
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengambil weather events: {str(e)}"
+        )
+
+
+
 class SellPositionRequest(BaseModel):
     market_id: str = Field(..., description="ID unik pasar yang akan dijual")
     side: str = Field(..., description="Sisi transaksi (YES atau NO)")
     shares: Optional[float] = Field(None, gt=0, description="Jumlah shares yang dijual (opsional, jika tidak diset maka jual semua)")
 
 
-@app.post("/api/positions/sell")
+@app.post("/api/positions/sell", dependencies=[Depends(require_auth)])
 def sell_position_api(payload: SellPositionRequest):
     """
     Endpoint untuk menjual posisi paper trading yang sedang terbuka (Paper Sell).
@@ -217,7 +277,10 @@ def sell_position_api(payload: SellPositionRequest):
         )
         return res
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        err_msg = str(e)
+        if "tidak ditemukan" in err_msg.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err_msg)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_msg)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -229,7 +292,7 @@ class DepositFundsRequest(BaseModel):
     amount: float = Field(..., gt=0, description="Jumlah deposit USD")
 
 
-@app.post("/api/account/deposit")
+@app.post("/api/account/deposit", dependencies=[Depends(require_auth)])
 def deposit_funds_api(payload: DepositFundsRequest):
     """
     Endpoint untuk menambah saldo paper account.
@@ -241,7 +304,7 @@ def deposit_funds_api(payload: DepositFundsRequest):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@app.post("/api/account/reset")
+@app.post("/api/account/reset", dependencies=[Depends(require_auth)])
 def reset_account_api():
     """
     Endpoint untuk mereset akun paper trading ke kondisi awal ($20.00).
@@ -277,7 +340,12 @@ class CreateOrderResponse(BaseModel):
     message: str
 
 
-@app.post("/api/orders", response_model=CreateOrderResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/api/orders",
+    response_model=CreateOrderResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_auth)],
+)
 def create_order_api(payload: CreateOrderRequest):
     """
     Endpoint pemesanan paper order manual (Paper Buy).

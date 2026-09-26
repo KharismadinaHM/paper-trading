@@ -255,6 +255,268 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #30363d;
         }
+        /* === POLYMARKET WEATHER EVENT CARDS === */
+        .weather-section-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 4px;
+        }
+        .weather-section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #f0f6fc;
+            margin: 0;
+        }
+        .weather-date-tabs {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 10px;
+            padding: 3px;
+        }
+        .weather-date-tab {
+            background: transparent;
+            color: #8b949e;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            padding: 6px 14px;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .weather-date-tab.active {
+            background: rgba(255,255,255,0.1);
+            color: #ffffff;
+        }
+        .weather-date-tab:hover:not(.active) {
+            color: #c9d1d9;
+            background: rgba(255,255,255,0.05);
+        }
+        .weather-date-tab .bi {
+            font-size: 0.9rem;
+        }
+        .weather-sub-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #f0f6fc;
+            margin-bottom: 12px;
+        }
+        .weather-sidebar {
+            min-width: 180px;
+        }
+        .weather-sidebar-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: #c9d1d9;
+            font-size: 0.88rem;
+            font-weight: 500;
+            border: none;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+        }
+        .weather-sidebar-item:hover {
+            background: rgba(255,255,255,0.05);
+            color: #fff;
+        }
+        .weather-sidebar-item.active {
+            background: rgba(0,112,243,0.12);
+            color: #58a6ff;
+        }
+        .weather-sidebar-item .sidebar-count {
+            font-size: 0.78rem;
+            color: #6e7681;
+            font-weight: 400;
+        }
+        .weather-sidebar-item.active .sidebar-count {
+            color: #58a6ff;
+        }
+        .weather-sidebar-item .bi {
+            font-size: 0.95rem;
+            margin-right: 8px;
+            width: 18px;
+            text-align: center;
+        }
+        /* Event Card */
+        .weather-event-card {
+            background-color: var(--poly-card);
+            border: 1px solid var(--poly-border);
+            border-radius: 14px;
+            padding: 16px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .weather-event-card:hover {
+            border-color: #30363d;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.2);
+        }
+        .weather-event-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        .weather-event-img {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .weather-event-title {
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: #f0f6fc;
+            line-height: 1.35;
+            margin: 0;
+        }
+        .weather-event-title a {
+            color: #f0f6fc;
+            text-decoration: none;
+            transition: color 0.15s;
+        }
+        .weather-event-title a:hover {
+            color: #58a6ff;
+            text-decoration: underline;
+        }
+        /* Outcome Rows */
+        .weather-outcome-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            gap: 8px;
+        }
+        .weather-outcome-row:last-child {
+            border-bottom: none;
+        }
+        .weather-outcome-temp {
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: #c9d1d9;
+            min-width: 70px;
+        }
+        .weather-outcome-pct {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #f0f6fc;
+            min-width: 40px;
+            text-align: right;
+        }
+        .weather-outcome-btns {
+            display: flex;
+            gap: 4px;
+        }
+        .weather-btn-yes, .weather-btn-no {
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.12s;
+        }
+        .weather-btn-yes {
+            background: rgba(16, 185, 129, 0.18);
+            color: #34d399;
+        }
+        .weather-btn-yes:hover {
+            background: rgba(16, 185, 129, 0.35);
+        }
+        .weather-btn-no {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+        }
+        .weather-btn-no:hover {
+            background: rgba(239, 68, 68, 0.3);
+        }
+        /* Footer */
+        .weather-event-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            gap: 8px;
+        }
+        .weather-badge-new {
+            background: rgba(0, 112, 243, 0.15);
+            color: #58a6ff;
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .weather-meta {
+            color: #6e7681;
+            font-size: 0.76rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .weather-meta-sep {
+            color: #30363d;
+        }
+        .weather-action-btn {
+            background: transparent;
+            border: none;
+            color: #6e7681;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: color 0.15s, background 0.15s;
+            font-size: 0.88rem;
+        }
+        .weather-action-btn:hover {
+            color: #c9d1d9;
+            background: rgba(255,255,255,0.06);
+        }
+        .weather-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 48px 0;
+            gap: 12px;
+        }
+        .weather-loading-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(255,255,255,0.08);
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: weather-spin 0.8s linear infinite;
+        }
+        @keyframes weather-spin {
+            to { transform: rotate(360deg); }
+        }
+        .weather-empty {
+            text-align: center;
+            padding: 48px 20px;
+            color: #6e7681;
+        }
+        .weather-empty i {
+            font-size: 2.5rem;
+            display: block;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body>
@@ -317,10 +579,10 @@
                         </div>
 
                         <!-- 24h change -->
-                        {% set day_pnl = account.day_change_pnl|default(0.62)|float %}
-                        {% set day_pct = account.day_change_pct|default(15.60)|float %}
+                        {% set day_pnl = account.day_change_pnl|default(0)|float %}
+                        {% set day_pct = account.day_change_pct|default(0)|float %}
                         <div class="fw-semibold small {% if day_pnl >= 0 %}text-green{% else %}text-red{% endif %} mb-4">
-                            {% if day_pnl >= 0 %}+{% endif %}${{ "%.2f"|format(day_pnl) }} ({{ "%.2f"|format(day_pct) }}%) past day
+                            {{ '+' if day_pnl >= 0 else '-' }}${{ "%.2f"|format(day_pnl|abs) }} ({{ "%.2f"|format(day_pct) }}%) past day
                         </div>
                     </div>
 
@@ -356,11 +618,11 @@
                         </div>
 
                         <!-- Big P/L Value -->
-                        {% set total_p = account.total_pnl|default(3.38)|float %}
+                        {% set total_p = account.total_pnl|default(0)|float %}
                         <div class="d-flex align-items-center justify-content-between my-2">
                             <div class="d-flex align-items-center gap-2">
                                 <h1 class="display-5 fw-extrabold text-white mb-0" id="pnlDisplayValue">
-                                    {% if total_p >= 0 %}+{% endif %}${{ "%.2f"|format(total_p|abs) }}
+                                    {{ '+' if total_p >= 0 else '-' }}${{ "%.2f"|format(total_p|abs) }}
                                 </h1>
                                 <i class="bi bi-box-arrow-up-right text-muted-poly fs-6" style="cursor: pointer;" title="Share / Details"></i>
                             </div>
@@ -501,7 +763,7 @@
                                             ${{ "%.2f"|format(pos.current_value|default(pos.size)|float) }}
                                         </div>
                                         <div class="small fw-semibold {% if u_pnl >= 0 %}text-green{% else %}text-red{% endif %}">
-                                            {% if u_pnl >= 0 %}+{% endif %}${{ "%.2f"|format(u_pnl|abs) }} ({{ "%.2f"|format(roi|abs) }}%)
+                                            {{ '+' if u_pnl >= 0 else '-' }}${{ "%.2f"|format(u_pnl|abs) }} ({{ '+' if roi >= 0 else '-' }}{{ "%.2f"|format(roi|abs) }}%)
                                         </div>
                                     </td>
 
@@ -602,17 +864,21 @@
                                         {% endif %}
                                     </td>
                                     <td class="text-end text-muted-poly">${{ "%.2f"|format(t.entry_price|float) }}</td>
-                                    <td class="text-end text-white">${{ "%.2f"|format(t.exit_price|default(1.0)|float) }}</td>
-                                    <td class="text-end text-white">${{ "%.2f"|format(t.size|default(1.0)|float) }}</td>
+                                    <td class="text-end text-white">{% if t.exit_price is not none %}${{ "%.2f"|format(t.exit_price|float) }}{% else %}-{% endif %}</td>
+                                    <td class="text-end text-white">${{ "%.2f"|format(t.size|default(0)|float) }}</td>
                                     <td class="text-center">
                                         {% if res == 'WON' or res == 'WIN' %}
                                             <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">WON</span>
+                                        {% elif res == 'CLOSED' %}
+                                            <span class="badge bg-secondary-subtle text-light border border-secondary-subtle px-2 py-1" title="Dijual manual sebelum market resolve">SOLD</span>
+                                        {% elif res == 'CANCELLED' %}
+                                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-2 py-1" title="Market invalid, modal dikembalikan">REFUND</span>
                                         {% else %}
                                             <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1">LOST</span>
                                         {% endif %}
                                     </td>
                                     <td class="text-end fw-bold {% if p >= 0 %}text-green{% else %}text-red{% endif %}">
-                                        {% if p >= 0 %}+{% endif %}${{ "%.2f"|format(p|abs) }}
+                                        {{ '+' if p >= 0 else '-' }}${{ "%.2f"|format(p|abs) }}
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -629,83 +895,51 @@
             </div>
         </div>
 
-        <!-- 3. SEARCH MARKET SECTION (WITH TIME FILTER, CATEGORY FILTER, & SORTING) -->
+        <!-- 3. SEARCH MARKET SECTION - POLYMARKET STYLE WEATHER EVENTS -->
         <div class="poly-card p-4 mb-4">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <div class="d-flex align-items-center gap-2">
-                    <h5 class="fw-bold text-white mb-0">
-                        <i class="bi bi-search me-2 text-primary"></i>Search Polymarket Weather
-                    </h5>
-                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="searchResultsCount">Loading...</span>
+            <!-- Header: Title + Date Tabs -->
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                <div class="weather-section-header">
+                    <h4 class="weather-section-title">Cuaca</h4>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="weatherEventsCount">Loading...</span>
+                </div>
+                <div class="weather-date-tabs" id="weatherDateTabs">
+                    <button class="weather-date-tab active" onclick="selectDateTab(this, '')" title="Semua tanggal">
+                        <i class="bi bi-globe2"></i> Globe
+                    </button>
+                    <!-- Date tabs will be injected dynamically -->
                 </div>
             </div>
 
-            <!-- Search Form -->
-            <form id="marketSearchForm" onsubmit="event.preventDefault(); executeMarketSearch();" class="mb-4">
-                <div class="row g-2 align-items-end">
-                    <!-- Keyword Search -->
-                    <div class="col-lg-4 col-md-6">
-                        <label for="searchKeyword" class="form-label text-muted-poly small fw-semibold mb-1">Keyword</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-dark border-secondary text-muted-poly"><i class="bi bi-search"></i></span>
-                            <input type="text" class="form-control bg-dark text-white border-secondary border-start-0 ps-0" id="searchKeyword" placeholder="Cari nama kota, suhu, hujan, badai..." oninput="debounceSearch()">
+            <!-- Content: Sidebar + Cards Grid -->
+            <div class="d-flex gap-4">
+                <!-- Category Sidebar -->
+                <div class="weather-sidebar d-none d-lg-block">
+                    <button class="weather-sidebar-item active" onclick="selectWeatherCategory(this, '')" data-category="">
+                        <span><i class="bi bi-grid-3x3-gap"></i>Semua</span>
+                        <span class="sidebar-count" id="sidebarCountAll">0</span>
+                    </button>
+                    <button class="weather-sidebar-item" onclick="selectWeatherCategory(this, 'highest')" data-category="highest">
+                        <span><i class="bi bi-thermometer-sun"></i>Suhu</span>
+                        <span class="sidebar-count" id="sidebarCountTemp">0</span>
+                    </button>
+                    <button class="weather-sidebar-item" onclick="selectWeatherCategory(this, 'lowest')" data-category="lowest">
+                        <span><i class="bi bi-thermometer-snow"></i>Suhu Terendah</span>
+                        <span class="sidebar-count" id="sidebarCountLow">0</span>
+                    </button>
+                </div>
+
+                <!-- Events Grid -->
+                <div class="flex-grow-1">
+                    <div class="weather-sub-title" id="weatherSubTitle">Suhu</div>
+                    <div class="row g-3" id="weatherEventsContainer">
+                        <div class="col-12">
+                            <div class="weather-loading">
+                                <div class="weather-loading-spinner"></div>
+                                <span class="text-muted-poly small">Memuat data cuaca dari Polymarket...</span>
+                            </div>
                         </div>
                     </div>
-
-                    <!-- Category Filter Dropdown -->
-                    <div class="col-lg-3 col-md-3 col-sm-6">
-                        <label for="searchCategory" class="form-label text-muted-poly small fw-semibold mb-1">Category</label>
-                        <select class="form-select bg-dark text-white border-secondary" id="searchCategory" onchange="executeMarketSearch()">
-                            <option value="">All Categories</option>
-                            <option value="Temperature">Temperature (Highest / Lowest)</option>
-                            <option value="Precipitation">Precipitation (Rain / Shower)</option>
-                            <option value="Wind">Wind / Storm / Hurricane</option>
-                            <option value="Snow">Snow / Snowfall</option>
-                        </select>
-                    </div>
-
-                    <!-- Resolution Time Filter -->
-                    <div class="col-lg-2 col-md-3 col-sm-6">
-                        <label for="searchTimeFilter" class="form-label text-muted-poly small fw-semibold mb-1">Ending Soon</label>
-                        <select class="form-select bg-dark text-white border-secondary" id="searchTimeFilter" onchange="executeMarketSearch()">
-                            <option value="" selected>All End Times</option>
-                            <option value="6h">&lt; 6 Hours (Urgent)</option>
-                            <option value="24h">&lt; 24 Hours (Today)</option>
-                            <option value="3d">&lt; 3 Days</option>
-                            <option value="7d">&lt; 7 Days (1 Week)</option>
-                            <option value="30d">&lt; 30 Days (1 Month)</option>
-                        </select>
-                    </div>
-
-                    <!-- Sort By -->
-                    <div class="col-lg-2 col-md-3 col-sm-6">
-                        <label for="searchSortBy" class="form-label text-muted-poly small fw-semibold mb-1">Sort By</label>
-                        <select class="form-select bg-dark text-white border-secondary" id="searchSortBy" onchange="executeMarketSearch()">
-                            <option value="ending_soonest">Ending Soonest</option>
-                            <option value="ending_latest">Ending Latest</option>
-                            <option value="highest_price">Highest Price</option>
-                            <option value="lowest_price">Lowest Price</option>
-                            <option value="name">Market Name</option>
-                        </select>
-                    </div>
-
-                    <!-- Search Button -->
-                    <div class="col-lg-2 col-md-3 col-sm-6 d-flex gap-2">
-                        <button type="submit" class="poly-btn-primary w-100 py-2 d-flex align-items-center justify-content-center gap-1">
-                            <i class="bi bi-search"></i> Search
-                        </button>
-                        <button type="button" class="poly-btn-secondary py-2 px-3" onclick="resetSearchFilters()" title="Reset Filters">
-                            <i class="bi bi-arrow-counterclockwise"></i>
-                        </button>
-                    </div>
-                </div>
-            </form>
-
-            <!-- Search Results Container Grid -->
-            <div class="row g-3" id="searchResultsContainer">
-                <div class="col-12 text-center text-muted-poly py-5">
-                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    Memuat data pasar Polymarket...
                 </div>
             </div>
         </div>
@@ -971,12 +1205,12 @@
                 <div class="modal-body p-4">
                     <div id="resetAlert" class="alert d-none py-2 px-3 mb-3 small" role="alert"></div>
                     <p class="text-white mb-2">Apakah Anda yakin ingin mereset akun paper trading?</p>
-                    <p class="text-muted-poly small mb-0">Saldo cash akan dikembalikan ke saldo awal $20.00 dan seluruh posisi/order akan di-refresh.</p>
+                    <p class="text-muted-poly small mb-0">Saldo cash akan dikembalikan ke saldo awal ${{ "%.2f"|format(account.initial_balance|float) }} dan seluruh posisi, order, dan riwayat trade akan dihapus.</p>
                 </div>
                 <div class="modal-footer border-secondary">
                     <button type="button" class="poly-btn-secondary px-3 py-2 btn-sm" data-bs-dismiss="modal">Batal</button>
                     <button type="button" class="btn btn-danger px-4 py-2 btn-sm fw-semibold" id="confirmResetBtn" onclick="submitPaperReset()">
-                        Reset Akun ke $20.00
+                        Reset Akun ke ${{ "%.2f"|format(account.initial_balance|float) }}
                     </button>
                 </div>
             </div>
@@ -985,6 +1219,29 @@
 
     <!-- JavaScript & Chart Initializations -->
     <script>
+        // --- 0. SANITIZATION HELPERS (data dari API pihak ketiga tidak boleh dipercaya) ---
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function safeUrl(value, fallback = '#') {
+            try {
+                const url = new URL(String(value || ''), window.location.origin);
+                return (url.protocol === 'https:' || url.protocol === 'http:') ? escapeHtml(url.href) : fallback;
+            } catch (e) {
+                return fallback;
+            }
+        }
+
+        function safeNumber(value, fallback = 0) {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : fallback;
+        }
         // --- 1. SPARKLINE CHART (Matching Polymarket Top Right Card) ---
         const sparklineCtx = document.getElementById('plSparkline').getContext('2d');
         const sparklineGrad = sparklineCtx.createLinearGradient(0, 0, 0, 95);
@@ -1408,136 +1665,223 @@
             }
         }
 
-        // --- 13. SEARCH MARKET EXECUTION (Dynamic Category, Time Filter, & Sort) ---
-        let searchDebounceTimer = null;
-        function debounceSearch() {
-            clearTimeout(searchDebounceTimer);
-            searchDebounceTimer = setTimeout(() => executeMarketSearch(), 300);
+        // --- 13. WEATHER EVENTS (Polymarket-Style Grouped Events) ---
+        let _allWeatherEvents = [];
+        let _activeWeatherDate = '';
+        let _activeWeatherCategory = '';
+
+        function selectDateTab(btn, dateVal) {
+            document.querySelectorAll('#weatherDateTabs .weather-date-tab').forEach(t => t.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            _activeWeatherDate = dateVal;
+            applyWeatherFilters();
         }
 
-        function resetSearchFilters() {
-            document.getElementById('searchKeyword').value = '';
-            document.getElementById('searchCategory').value = '';
-            document.getElementById('searchTimeFilter').value = '';
-            document.getElementById('searchSortBy').value = 'ending_soonest';
-            executeMarketSearch();
+        function selectWeatherCategory(btn, catVal) {
+            document.querySelectorAll('.weather-sidebar-item').forEach(s => s.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            _activeWeatherCategory = catVal;
+            applyWeatherFilters();
         }
 
-        async function executeMarketSearch() {
-            const q = document.getElementById('searchKeyword').value.trim();
-            const cat = document.getElementById('searchCategory').value;
-            const tf = document.getElementById('searchTimeFilter').value;
-            const sort = document.getElementById('searchSortBy').value;
+        function applyWeatherFilters() {
+            let events = _allWeatherEvents;
+            
+            // 1. Filter tanggal
+            if (_activeWeatherDate) {
+                events = events.filter(e => e.end_date === _activeWeatherDate);
+            }
 
-            const countBadge = document.getElementById('searchResultsCount');
-            const container = document.getElementById('searchResultsContainer');
-            if (countBadge) countBadge.textContent = 'Searching...';
+            // 2. Filter kategori
+            const subTitle = document.getElementById('weatherSubTitle');
+            if (_activeWeatherCategory === 'highest') {
+                events = events.filter(e => e.title.toLowerCase().includes('highest'));
+                if (subTitle) subTitle.textContent = 'Suhu Tertinggi';
+            } else if (_activeWeatherCategory === 'lowest') {
+                events = events.filter(e => e.title.toLowerCase().includes('lowest'));
+                if (subTitle) subTitle.textContent = 'Suhu Terendah';
+            } else {
+                if (subTitle) subTitle.textContent = 'Suhu';
+            }
 
-            const params = new URLSearchParams();
-            if (q) params.append('q', q);
-            if (cat) params.append('category', cat);
-            if (tf) params.append('time_filter', tf);
-            if (sort) params.append('sort_by', sort);
+            renderWeatherEvents(events);
+        }
+
+        async function fetchWeatherEvents() {
+            const container = document.getElementById('weatherEventsContainer');
+            const countBadge = document.getElementById('weatherEventsCount');
+            if (countBadge) countBadge.textContent = 'Loading...';
+
+            container.innerHTML = `
+                <div class="col-12">
+                    <div class="weather-loading">
+                        <div class="weather-loading-spinner"></div>
+                        <span class="text-muted-poly small">Memuat data cuaca dari Polymarket...</span>
+                    </div>
+                </div>`;
 
             try {
-                const res = await fetch(`/api/markets/search?${params.toString()}`);
-                if (!res.ok) throw new Error('Search failed');
-                const markets = await res.json();
+                // Selalu fetch semua weather events agar navigasi tab tanggal instan dan komplit
+                const res = await fetch('/api/markets/weather-events');
+                if (!res.ok) throw new Error('Fetch weather events failed');
+                const events = await res.json();
+                _allWeatherEvents = events;
 
-                if (countBadge) countBadge.textContent = `${markets.length} results`;
+                // Build date tabs dynamically dari event yang tersedia
+                buildDateTabs(events);
 
-                if (!markets || markets.length === 0) {
-                    container.innerHTML = `
-                        <div class="col-12 text-center text-muted-poly py-5">
-                            <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
-                            Tidak ada market yang cocok dengan kriteria filter saat ini.
-                            <div class="small mt-1 text-secondary">Coba ubah filter Ending Soon atau pilih "All Categories".</div>
+                // Update sidebar counts
+                updateSidebarCounts(events);
+
+                // Terapkan filter tanggal & kategori
+                applyWeatherFilters();
+            } catch (err) {
+                console.error('Weather events error:', err);
+                if (countBadge) countBadge.textContent = 'Error';
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="weather-empty">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            <div>Gagal memuat data cuaca dari Polymarket.</div>
+                            <div class="small mt-1" style="color:#484f58">Coba refresh halaman atau cek koneksi internet.</div>
+                            <button class="poly-btn-secondary mt-3 px-4 py-2" onclick="fetchWeatherEvents()">
+                                <i class="bi bi-arrow-repeat me-1"></i> Coba Lagi
+                            </button>
                         </div>
-                    `;
-                    return;
+                    </div>`;
+            }
+        }
+
+        function buildDateTabs(events) {
+            const tabsContainer = document.getElementById('weatherDateTabs');
+            const dates = new Set();
+            events.forEach(e => { if (e.end_date) dates.add(e.end_date); });
+            const sortedDates = [...dates].sort();
+
+            let html = `<button class="weather-date-tab ${_activeWeatherDate === '' ? 'active' : ''}" onclick="selectDateTab(this, '')" title="Semua tanggal">
+                <i class="bi bi-globe2"></i> Globe
+            </button>`;
+
+            const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+            sortedDates.forEach(d => {
+                const parts = d.split('-');
+                if (parts.length === 3) {
+                    const day = parseInt(parts[2], 10);
+                    const mon = months[parseInt(parts[1], 10) - 1] || parts[1];
+                    const label = `${day} ${mon}`;
+                    const isActive = _activeWeatherDate === d ? 'active' : '';
+                    html += `<button class="weather-date-tab ${isActive}" onclick="selectDateTab(this, '${d}')">${label}</button>`;
                 }
+            });
+            tabsContainer.innerHTML = html;
+        }
 
-                let html = '';
-                markets.forEach(m => {
-                    const side = m.side || 'YES';
-                    const isYes = (side === 'YES');
-                    const badgeClass = isYes ? 'badge-outcome-yes' : 'badge-outcome-no';
-                    const priceFormatted = (m.current_price !== null && m.current_price !== undefined) 
-                        ? Number(m.current_price).toFixed(2) : '0.50';
+        function updateSidebarCounts(events) {
+            const all = events.length;
+            const highest = events.filter(e => e.title.toLowerCase().includes('highest')).length;
+            const lowest = events.filter(e => e.title.toLowerCase().includes('lowest')).length;
+            const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+            el('sidebarCountAll', all);
+            el('sidebarCountTemp', highest);
+            el('sidebarCountLow', lowest);
+        }
 
-                    // Urgency badge coloring
-                    let timeBadgeClass = 'border border-secondary-subtle text-muted-poly';
-                    const tr = m.time_remaining || '';
-                    if (tr.includes('m') && !tr.includes('mo') || tr.includes('1h') || tr.includes('2h') || tr.includes('3h') || tr.includes('4h') || tr.includes('5h') || tr.includes('6h')) {
-                        timeBadgeClass = 'border border-danger-subtle text-danger bg-danger-subtle';
-                    } else if (tr.includes('h') || tr.includes('1d')) {
-                        timeBadgeClass = 'border border-warning-subtle text-warning bg-warning-subtle';
-                    }
+        function renderWeatherEvents(filtered) {
+            const container = document.getElementById('weatherEventsContainer');
+            const countBadge = document.getElementById('weatherEventsCount');
 
-                    // Icon determination
-                    const qLower = (m.market_name || '').toLowerCase();
-                    let iconHtml = '<div class="market-icon market-icon-default"><i class="bi bi-cloud-sun"></i></div>';
-                    if (qLower.includes('temp') || qLower.includes('°') || qLower.includes('high')) {
-                        iconHtml = '<div class="market-icon market-icon-temp"><i class="bi bi-thermometer-half"></i></div>';
-                    } else if (qLower.includes('rain') || qLower.includes('precip')) {
-                        iconHtml = '<div class="market-icon market-icon-rain"><i class="bi bi-cloud-drizzle"></i></div>';
-                    } else if (qLower.includes('snow')) {
-                        iconHtml = '<div class="market-icon market-icon-snow"><i class="bi bi-snow"></i></div>';
-                    } else if (qLower.includes('wind') || qLower.includes('storm') || qLower.includes('hurricane')) {
-                        iconHtml = '<div class="market-icon market-icon-storm"><i class="bi bi-wind"></i></div>';
-                    }
+            if (countBadge) countBadge.textContent = `${filtered.length} events`;
 
-                    const safeName = document.createElement('div');
-                    safeName.textContent = m.market_name;
-                    const safeNameStr = safeName.innerHTML;
-                    const polyUrl = m.polymarket_url || `https://polymarket.com/markets?_q=${encodeURIComponent(m.market_name || '')}`;
+            if (!filtered || filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="weather-empty">
+                            <i class="bi bi-calendar-x"></i>
+                            <div>Tidak ada weather event yang cocok untuk filter ini.</div>
+                            <div class="small mt-1" style="color:#484f58">Coba pilih tanggal lain atau kategori "Semua".</div>
+                        </div>
+                    </div>`;
+                return;
+            }
 
-                    html += `
-                        <div class="col-md-6 col-lg-4">
-                            <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
-                                <div>
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
-                                        <div class="d-flex align-items-center gap-1">
-                                            ${m.category ? `<span class="badge bg-dark text-muted-poly border border-secondary-subtle small">${m.category}</span>` : ''}
-                                            <span class="${badgeClass}">${side}</span>
-                                        </div>
-                                        <span class="badge ${timeBadgeClass} small">
-                                            <i class="bi bi-clock me-1"></i>${m.time_remaining || '-'}
-                                        </span>
-                                    </div>
-                                    <div class="d-flex gap-2 align-items-start mb-3">
-                                        ${iconHtml}
-                                        <h6 class="fw-bold mb-0 mt-1 line-clamp-2" style="font-size: 0.95rem; line-height: 1.4;" title="${safeNameStr}">
-                                            <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="market-title-link text-white text-decoration-none" title="Buka di Polymarket (Tab Baru)">
-                                                ${safeNameStr}
-                                                <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
-                                            </a>
-                                        </h6>
-                                    </div>
+            let html = '';
+            filtered.forEach(ev => {
+                // Safe title
+                const safeTitleStr = escapeHtml(ev.title);
+
+                // Image with fallback
+                const imgSrc = ev.image ? safeUrl(ev.image, '') : '';
+                const imgHtml = imgSrc
+                    ? `<img src="${imgSrc}" alt="" class="weather-event-img" onerror="this.style.display='none'">`
+                    : `<div class="market-icon market-icon-temp"><i class="bi bi-thermometer-half"></i></div>`;
+
+                // Render 2 sub-markets teratas (paling tinggi probabilitasnya seperti tampilan Polymarket)
+                const visibleMarkets = ev.markets.slice(0, 2);
+                let outcomesHtml = '';
+                visibleMarkets.forEach(sm => {
+                    const pctYes = sm.pct_yes !== null && sm.pct_yes !== undefined ? `${safeNumber(sm.pct_yes)}%` : '-';
+                    const temp = escapeHtml(sm.group_item_title || (sm.question || '').split('be ').pop().split(' on')[0] || '-');
+                    const conditionId = escapeHtml(sm.condition_id);
+
+                    outcomesHtml += `
+                        <div class="weather-outcome-row">
+                            <span class="weather-outcome-temp">${temp}</span>
+                            <span class="weather-outcome-pct">${pctYes}</span>
+                            <div class="weather-outcome-btns">
+                                <button class="weather-btn-yes"
+                                    data-market-id="${conditionId}"
+                                    data-market-name="${safeTitleStr} - ${temp}"
+                                    data-price="${safeNumber(sm.price_yes, 0.5)}"
+                                    data-side="YES"
+                                    onclick="openPaperBuyModalFromBtn(this)">Yes</button>
+                                <button class="weather-btn-no"
+                                    data-market-id="${conditionId}"
+                                    data-market-name="${safeTitleStr} - ${temp}"
+                                    data-price="${safeNumber(sm.price_no, 0.5)}"
+                                    data-side="NO"
+                                    onclick="openPaperBuyModalFromBtn(this)">No</button>
+                            </div>
+                        </div>`;
+                });
+
+                // Footer badges
+                const newBadge = ev.is_new ? `<span class="weather-badge-new">+ BARU</span>` : '';
+                const volBadge = ev.volume_display ? `<span>${escapeHtml(ev.volume_display)} Vol.</span>` : '';
+                const polyUrl = safeUrl(ev.polymarket_url);
+
+                html += `
+                    <div class="col-md-6">
+                        <div class="weather-event-card">
+                            <div class="weather-event-header">
+                                ${imgHtml}
+                                <h6 class="weather-event-title">
+                                    <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" title="Buka di Polymarket">${safeTitleStr}</a>
+                                </h6>
+                            </div>
+                            <div class="weather-outcomes-list">
+                                ${outcomesHtml}
+                            </div>
+                            <div class="weather-event-footer">
+                                <div class="weather-meta">
+                                    ${newBadge}
+                                    ${volBadge}
+                                    <span class="weather-meta-sep">·</span>
+                                    <span><i class="bi bi-arrow-repeat me-1"></i>Harian</span>
                                 </div>
-                                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
-                                    <div>
-                                        <span class="text-muted-poly small">Price:</span>
-                                        <span class="fw-bold text-white fs-6 ms-1">$${priceFormatted}</span>
-                                    </div>
-                                    <button class="btn btn-sm btn-success px-3 fw-medium"
-                                            data-market-id="${m.market_id}"
-                                            data-market-name="${safeNameStr}"
-                                            data-price="${m.current_price || 0.5}"
-                                            data-side="${side}"
-                                            onclick="openPaperBuyModalFromBtn(this)">
-                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
+                                <div class="d-flex gap-1">
+                                    <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="weather-action-btn" title="Buka di Polymarket">
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+                                    <button class="weather-action-btn" title="Bookmark" onclick="this.querySelector('i').classList.toggle('bi-bookmark'); this.querySelector('i').classList.toggle('bi-bookmark-fill')">
+                                        <i class="bi bi-bookmark"></i>
                                     </button>
                                 </div>
                             </div>
                         </div>
-                    `;
-                });
-                container.innerHTML = html;
-            } catch (err) {
-                if (countBadge) countBadge.textContent = 'Error';
-                console.error(err);
-            }
+                    </div>`;
+            });
+
+            container.innerHTML = html;
         }
 
         // --- 14. SUGGESTIONS FETCH HANDLER ---
@@ -1556,13 +1900,11 @@
                 }
                 let html = '';
                 list.forEach(sm => {
-                    const side = sm.side || 'YES';
+                    const side = (sm.side === 'NO') ? 'NO' : 'YES';
                     const isYes = (side === 'YES');
                     const badgeClass = isYes ? 'badge-outcome-yes' : 'badge-outcome-no';
-                    const safe = document.createElement('div');
-                    safe.textContent = sm.market_name;
-                    const name = safe.innerHTML;
-                    const polyUrl = sm.polymarket_url || `https://polymarket.com/markets?_q=${encodeURIComponent(sm.market_name || '')}`;
+                    const name = escapeHtml(sm.market_name);
+                    const polyUrl = safeUrl(sm.polymarket_url || `https://polymarket.com/markets?_q=${encodeURIComponent(sm.market_name || '')}`);
                     html += `
                         <div class="col-md-6 col-lg-4">
                             <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
@@ -1570,7 +1912,7 @@
                                     <div class="d-flex justify-content-between align-items-start mb-2">
                                         <span class="${badgeClass}">${side}</span>
                                         <span class="badge bg-dark text-warning border border-warning-subtle small">
-                                            <i class="bi bi-clock me-1"></i>${sm.time_remaining}
+                                            <i class="bi bi-clock me-1"></i>${escapeHtml(sm.time_remaining)}
                                         </span>
                                     </div>
                                     <h6 class="fw-bold mb-3" style="min-height: 44px;">
@@ -1583,12 +1925,12 @@
                                 <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
                                     <div>
                                         <span class="text-muted-poly small">Price:</span>
-                                        <span class="fw-bold text-white fs-6 ms-1">$${Number(sm.current_price).toFixed(2)}</span>
+                                        <span class="fw-bold text-white fs-6 ms-1">$${safeNumber(sm.current_price).toFixed(2)}</span>
                                     </div>
                                     <button class="btn btn-sm btn-success px-3 fw-medium"
-                                            data-market-id="${sm.market_id}"
+                                            data-market-id="${escapeHtml(sm.market_id)}"
                                             data-market-name="${name}"
-                                            data-price="${sm.current_price}"
+                                            data-price="${safeNumber(sm.current_price)}"
                                             data-side="${side}"
                                             onclick="openPaperBuyModalFromBtn(this)">
                                         <i class="bi bi-cart-plus me-1"></i>Paper Buy
@@ -1604,9 +1946,9 @@
             }
         }
 
-        // Initialize search when page loads
+        // Initialize weather events when page loads
         document.addEventListener('DOMContentLoaded', () => {
-            executeMarketSearch();
+            fetchWeatherEvents();
         });
     </script>
 
