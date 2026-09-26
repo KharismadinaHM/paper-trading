@@ -55,10 +55,11 @@ Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cua
   - Pemformatan pesan otomatis untuk event *Paper BUY* dan *Paper Trade Settled*.
   - **Notifikasi rekomendasi**: setiap siklus collector, kota yang baru masuk jendela menjelang jam puncak dikirim sebagai daftar (sekali per event, tahan restart), jam dalam WIB:
     ```
-    BUY #HongKong in odd 56.8¢ peak hour akan terjadi di jam 12:15–13:15 WIB.
-       31°C or higher · suhu tertinggi · 13:15–14:15 waktu lokal
+    BUY #HongKong di suhu 31°C or higher (YES) in odd 56.8¢ peak hour akan terjadi di jam 12:15–13:15 WIB.
+       Suhu tertinggi · puncak 13:15–14:15 waktu lokal
+       Alternatif: 30°C (20¢), 32°C (12¢)
     ```
-    Bracket yang disarankan = peluang YES tertinggi saat itu. Atur lewat `TELEGRAM_RECOMMENDATION_ALERTS`, `NOTIFY_TIMEZONE`, `NOTIFY_TIMEZONE_LABEL`.
+    Saran suhu = bracket dengan peluang YES tertinggi saat itu, plus 2 alternatif; ada peringatan ⚠️ jika beberapa bracket berharga sama (market sepi). Atur lewat `TELEGRAM_RECOMMENDATION_ALERTS`, `NOTIFY_TIMEZONE`, `NOTIFY_TIMEZONE_LABEL`.
   - Bot interaktif dengan command: `/start`, `/status`, `/positions`, `/trades`, `/performance`, `/rekomendasi`, `/ping`.
 
 ---

@@ -43,12 +43,26 @@ class TestFormatting:
     def test_city_hashtag(self, city, tag):
         assert city_hashtag(city) == tag
 
-    def test_buy_line_in_requested_format_with_wib_time(self):
-        text = format_recommendation(event(), now=NOW)
-        first, detail = text.split("\n")
+    def test_buy_line_includes_suggested_temperature_and_wib_time(self):
+        lines = format_recommendation(event(), now=NOW).split("\n")
         # 14:00–15:00 HKT (UTC+8) = 13:00–14:00 WIB (UTC+7)
-        assert first == "BUY #HongKong in odd 56.8¢ peak hour akan terjadi di jam 13:00–14:00 WIB."
-        assert "31°C or higher" in detail and "suhu tertinggi" in detail and "14:00–15:00 waktu lokal" in detail
+        assert lines[0] == ("BUY #HongKong di suhu 31°C or higher (YES) in odd 56.8¢ "
+                            "peak hour akan terjadi di jam 13:00–14:00 WIB.")
+        assert lines[1].strip() == "Suhu tertinggi · puncak 14:00–15:00 waktu lokal"
+        assert lines[2].strip() == "Alternatif: 30°C (20¢)"
+        assert len(lines) == 3  # tidak ada peringatan harga sama
+
+    def test_up_down_style_outcome_label_is_used(self):
+        ev = event()
+        ev["markets"][0]["outcome_yes_label"] = "Up"
+        assert "(UP) in odd" in format_recommendation(ev, now=NOW)
+
+    def test_warning_when_several_brackets_share_the_top_price(self):
+        ev = event(price=0.5)
+        ev["markets"] = [{"market_id": f"0x{i}", "bracket": f"{9 + i}°C", "price_yes": 0.5} for i in range(3)]
+        text = format_recommendation(ev, now=NOW)
+        assert "Alternatif: 10°C (50¢), 11°C (50¢)" in text
+        assert "⚠️ 3 bracket berharga sama (50¢)" in text
 
     def test_date_shown_when_peak_falls_on_another_wib_day(self):
         # Los Angeles 15:00 PDT (UTC-7) = 05:00 WIB keesokan harinya
@@ -114,7 +128,7 @@ class TestBotCommand:
     def test_rekomendasi_lists_active_events(self):
         with patch("app.paper_service.get_market_suggestions", return_value=[event()]):
             reply = handle_incoming_message("/rekomendasi", sender_chat_id="1", allowed_chat_id="1")
-        assert "BUY #HongKong in odd 56.8¢" in reply
+        assert "BUY #HongKong di suhu 31°C or higher (YES) in odd 56.8¢" in reply
 
     def test_rekomendasi_shows_schedule_when_nothing_active(self):
         schedule = [{"city": "Tokyo", "kind": "highest", "starts_at": "2026-09-26T11:15:00+09:00",

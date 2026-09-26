@@ -5,8 +5,9 @@ Dijalankan setiap siklus Market Collector: event yang baru masuk jendela rekomen
 sebagai satu pesan daftar, lalu dicatat di tabel recommendation_alerts agar tidak terkirim dua
 kali (juga setelah restart). Format per event:
 
-    BUY #Paris in odd 56.8¢ peak hour akan terjadi di jam 21:15–22:15 WIB.
-       28°C · suhu tertinggi · 16:15–17:15 waktu lokal
+    BUY #Paris di suhu 28°C (YES) in odd 56.8¢ peak hour akan terjadi di jam 21:15–22:15 WIB.
+       Suhu tertinggi · puncak 16:15–17:15 waktu lokal
+       Alternatif: 27°C (22¢), 29°C (15¢)
 """
 import re
 from datetime import datetime, timedelta, timezone
@@ -36,23 +37,39 @@ def _format_odd(price: Optional[float]) -> str:
 
 
 def format_recommendation(event: Dict[str, Any], now: Optional[datetime] = None) -> str:
-    """Dua baris per event: kalimat BUY (jam dalam zona NOTIFY_TIMEZONE) + detail bracket."""
+    """
+    Per event: kalimat BUY berisi saran suhu (bracket peluang YES tertinggi) dan jam puncak dalam
+    zona NOTIFY_TIMEZONE, lalu detail jenis/jam lokal, alternatif bracket, dan peringatan jika
+    harga beberapa bracket sama persis (tanda market sepi).
+    """
     tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
     label = settings.NOTIFY_TIMEZONE_LABEL
     now_local = (now or datetime.now(timezone.utc)).astimezone(tz)
 
-    top = event["markets"][0]  # bracket dengan peluang YES tertinggi
+    markets = event["markets"]
+    top = markets[0]  # bracket dengan peluang YES tertinggi
+    yes_label = top.get("outcome_yes_label") or "YES"
     peak_start_city = datetime.fromisoformat(event["peak_start"])
     peak_end_city = peak_start_city + timedelta(hours=settings.TEMP_PEAK_DURATION_HOURS)
     peak_start, peak_end = peak_start_city.astimezone(tz), peak_end_city.astimezone(tz)
     day_note = "" if peak_start.date() == now_local.date() else f" ({peak_start:%d %b})"
 
-    return (
-        f"BUY {city_hashtag(event['city'])} in odd {_format_odd(top.get('price_yes'))} "
-        f"peak hour akan terjadi di jam {peak_start:%H:%M}–{peak_end:%H:%M} {label}{day_note}.\n"
-        f"   {top.get('bracket')} · {KIND_LABELS.get(event['kind'], event['kind'])} · "
-        f"{peak_start_city:%H:%M}–{peak_end_city:%H:%M} waktu lokal"
-    )
+    lines = [
+        f"BUY {city_hashtag(event['city'])} di suhu {top.get('bracket')} ({yes_label.upper()}) "
+        f"in odd {_format_odd(top.get('price_yes'))} "
+        f"peak hour akan terjadi di jam {peak_start:%H:%M}–{peak_end:%H:%M} {label}{day_note}.",
+        f"   {KIND_LABELS.get(event['kind'], event['kind']).capitalize()} · "
+        f"puncak {peak_start_city:%H:%M}–{peak_end_city:%H:%M} waktu lokal",
+    ]
+    alternatives = [m for m in markets[1:3] if m.get("price_yes") is not None]
+    if alternatives:
+        lines.append("   Alternatif: " + ", ".join(
+            f"{m.get('bracket')} ({_format_odd(m.get('price_yes'))})" for m in alternatives))
+    ties = sum(1 for m in markets if m.get("price_yes") == top.get("price_yes"))
+    if ties > 1:
+        lines.append(f"   ⚠️ {ties} bracket berharga sama ({_format_odd(top.get('price_yes'))}) — market sepi, "
+                     "saran suhu kurang dapat diandalkan")
+    return "\n".join(lines)
 
 
 def build_recommendation_message(events: List[Dict[str, Any]], title: str = "📋 Rekomendasi Paper Trading",
@@ -61,7 +78,7 @@ def build_recommendation_message(events: List[Dict[str, Any]], title: str = "�
     for event in events:
         lines.append(format_recommendation(event, now=now))
     lines.append("")
-    lines.append("Bracket = peluang YES tertinggi saat ini. Paper trading, bukan saran finansial.")
+    lines.append("Saran suhu = bracket dengan peluang YES tertinggi saat ini. Paper trading, bukan saran finansial.")
     return "\n".join(lines)
 
 
