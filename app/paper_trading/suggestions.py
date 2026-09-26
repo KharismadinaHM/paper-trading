@@ -158,6 +158,8 @@ def filter_market_suggestions(
             "resolution_time": res_time.isoformat(),
             "time_remaining": format_time_remaining(seconds_remaining),
             "side": matched_side,
+            "outcome_yes_label": _get_attr_or_key(m, "outcome_yes_label") or "Yes",
+            "outcome_no_label": _get_attr_or_key(m, "outcome_no_label") or "No",
             "polymarket_url": _get_polymarket_url(str(market_id), str(market_name), _get_attr_or_key(m, "polymarket_url")),
         })
 
@@ -314,6 +316,8 @@ def search_markets(
             "_delta_sec": delta_sec if (delta_sec is not None and delta_sec > 0) else 999999999,
             "status": str(raw_status),
             "side": str(side),
+            "outcome_yes_label": _get_attr_or_key(m, "outcome_yes_label") or "Yes",
+            "outcome_no_label": _get_attr_or_key(m, "outcome_no_label") or "No",
             "polymarket_url": _get_polymarket_url(str(market_id), str(market_name), _get_attr_or_key(m, "polymarket_url")),
         })
 

@@ -66,8 +66,12 @@ class Settings(BaseSettings):
     # Market Collector Configuration
     COLLECTOR_INTERVAL_SECONDS: int = 300
     GAMMA_API_BASE_URL: str = "https://gamma-api.polymarket.com"
+    # Kategori market yang dikumpulkan (lihat app/market_collector/categories.py)
+    ENABLED_MARKET_CATEGORIES: str = "weather,elon_tweets"
     # Tag Gamma API untuk event cuaca (Weather, Daily Temperature, Highest Temperature)
     WEATHER_TAG_IDS: str = "84,103040,104596"
+    # Tag Gamma API untuk market jumlah tweet ("Tweet Markets"; difilter ke judul berisi "Elon")
+    ELON_TWEETS_TAG_IDS: str = "972"
     # Batas halaman (x100 event) per tag pada setiap siklus collector
     COLLECTOR_MAX_PAGES: int = 10
     # Hapus snapshot lebih tua dari N hari (snapshot terbaru tiap market selalu disimpan). 0 = nonaktif

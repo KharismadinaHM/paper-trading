@@ -232,30 +232,42 @@ def search_markets_api(
     )
 
 
-@app.get("/api/markets/weather-events", dependencies=[Depends(require_auth)])
-def get_weather_events_api(date_filter: Optional[str] = None):
+@app.get("/api/markets/categories", dependencies=[Depends(require_auth)])
+def get_market_categories_api():
+    """Daftar kategori market yang aktif (ENABLED_MARKET_CATEGORIES)."""
+    from app.market_collector.categories import enabled_categories
+
+    return [{"key": c.key, "label": c.label} for c in enabled_categories()]
+
+
+@app.get("/api/markets/events", dependencies=[Depends(require_auth)])
+def get_category_events_api(category: str = "weather", date_filter: Optional[str] = None):
     """
-    Endpoint untuk mengambil data weather events dari Polymarket Gamma API
-    dalam format grouped-by-event (per kota + tanggal) dengan gambar kota,
-    sub-market temperature outcomes, volume, dan metadata.
+    Event berkelompok satu kategori dari Polymarket Gamma API (mis. suhu per kota + tanggal,
+    atau jumlah tweet Elon Musk per periode) beserta sub-market bracket-nya.
 
     Args:
-        date_filter: Opsional, format "YYYY-MM-DD" untuk filter event berdasarkan tanggal.
-
-    Returns:
-        List of grouped weather event dicts, setiap event berisi list sub-markets.
+        category: Kunci kategori ('weather', 'elon_tweets', ...).
+        date_filter: Opsional, format "YYYY-MM-DD" untuk filter event berdasarkan tanggal berakhir.
     """
-    from app.market_collector.collector import fetch_weather_events
+    from app.market_collector.categories import enabled_categories
+    from app.market_collector.collector import fetch_category_events
 
+    if category not in {c.key for c in enabled_categories()}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Kategori '{category}' tidak aktif.")
     try:
-        events = fetch_weather_events(date_filter=date_filter)
-        return events
+        return fetch_category_events(category, date_filter=date_filter)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Gagal mengambil weather events: {str(e)}"
+            detail=f"Gagal mengambil event kategori '{category}': {str(e)}"
         )
 
+
+@app.get("/api/markets/weather-events", dependencies=[Depends(require_auth)])
+def get_weather_events_api(date_filter: Optional[str] = None):
+    """Alias kompatibilitas untuk /api/markets/events?category=weather."""
+    return get_category_events_api(category="weather", date_filter=date_filter)
 
 
 class SellPositionRequest(BaseModel):

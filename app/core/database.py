@@ -78,10 +78,12 @@ def _ensure_enum_values(bind: Engine) -> None:
 BACKFILL_MARKET_LATEST_SQL = """
 INSERT INTO market_latest (
     market_id, market_name, status, is_resolved, resolution_time, end_date,
-    price_yes, price_no, current_price, category, timestamp, last_snapshot_at
+    price_yes, price_no, current_price, category, outcome_yes_label, outcome_no_label,
+    timestamp, last_snapshot_at
 )
 SELECT market_id, market_name, status, is_resolved, resolution_time, end_date,
-       price_yes, price_no, current_price, category, timestamp, timestamp
+       price_yes, price_no, current_price, category, outcome_yes_label, outcome_no_label,
+       timestamp, timestamp
 FROM (
     SELECT s.*, ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY timestamp DESC) AS rn
     FROM market_snapshots s

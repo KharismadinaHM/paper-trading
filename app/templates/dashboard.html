@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polymarket Weather Paper Trading</title>
+    <title>Polymarket Paper Trading</title>
     <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -944,6 +944,28 @@
             </div>
         </div>
 
+        <!-- 3b. ELON MUSK TWEETS EVENTS -->
+        <div class="poly-card p-4 mb-4" id="elonTweetsSection">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                <div class="weather-section-header">
+                    <h4 class="weather-section-title">Elon Musk Tweets</h4>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="elonEventsCount">Loading...</span>
+                </div>
+                <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchElonEvents()">
+                    <i class="bi bi-arrow-repeat"></i> Refresh
+                </button>
+            </div>
+            <div class="weather-sub-title">Jumlah tweet per periode · bracket dengan peluang tertinggi</div>
+            <div class="row g-3" id="elonEventsContainer">
+                <div class="col-12">
+                    <div class="weather-loading">
+                        <div class="weather-loading-spinner"></div>
+                        <span class="text-muted-poly small">Memuat market Elon Musk dari Polymarket...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 4. SUGGESTED MARKETS SECTION -->
         <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -1786,26 +1808,10 @@
             el('sidebarCountLow', lowest);
         }
 
-        function renderWeatherEvents(filtered) {
-            const container = document.getElementById('weatherEventsContainer');
-            const countBadge = document.getElementById('weatherEventsCount');
-
-            if (countBadge) countBadge.textContent = `${filtered.length} events`;
-
-            if (!filtered || filtered.length === 0) {
-                container.innerHTML = `
-                    <div class="col-12">
-                        <div class="weather-empty">
-                            <i class="bi bi-calendar-x"></i>
-                            <div>Tidak ada weather event yang cocok untuk filter ini.</div>
-                            <div class="small mt-1" style="color:#484f58">Coba pilih tanggal lain atau kategori "Semua".</div>
-                        </div>
-                    </div>`;
-                return;
-            }
-
+        // Kartu event berkelompok (dipakai section Cuaca & Elon Musk Tweets)
+        function buildEventCardsHtml(events, iconClass = 'bi-thermometer-half', badgeText = 'Harian') {
             let html = '';
-            filtered.forEach(ev => {
+            events.forEach(ev => {
                 // Safe title
                 const safeTitleStr = escapeHtml(ev.title);
 
@@ -1813,7 +1819,7 @@
                 const imgSrc = ev.image ? safeUrl(ev.image, '') : '';
                 const imgHtml = imgSrc
                     ? `<img src="${imgSrc}" alt="" class="weather-event-img" onerror="this.style.display='none'">`
-                    : `<div class="market-icon market-icon-temp"><i class="bi bi-thermometer-half"></i></div>`;
+                    : `<div class="market-icon market-icon-temp"><i class="bi ${iconClass}"></i></div>`;
 
                 // Render 2 sub-markets teratas (paling tinggi probabilitasnya seperti tampilan Polymarket)
                 const visibleMarkets = ev.markets.slice(0, 2);
@@ -1833,13 +1839,13 @@
                                     data-market-name="${safeTitleStr} - ${temp}"
                                     data-price="${safeNumber(sm.price_yes, 0.5)}"
                                     data-side="YES"
-                                    onclick="openPaperBuyModalFromBtn(this)">Yes</button>
+                                    onclick="openPaperBuyModalFromBtn(this)">${escapeHtml(sm.outcome_yes_label || 'Yes')}</button>
                                 <button class="weather-btn-no"
                                     data-market-id="${conditionId}"
                                     data-market-name="${safeTitleStr} - ${temp}"
                                     data-price="${safeNumber(sm.price_no, 0.5)}"
                                     data-side="NO"
-                                    onclick="openPaperBuyModalFromBtn(this)">No</button>
+                                    onclick="openPaperBuyModalFromBtn(this)">${escapeHtml(sm.outcome_no_label || 'No')}</button>
                             </div>
                         </div>`;
                 });
@@ -1866,7 +1872,7 @@
                                     ${newBadge}
                                     ${volBadge}
                                     <span class="weather-meta-sep">·</span>
-                                    <span><i class="bi bi-arrow-repeat me-1"></i>Harian</span>
+                                    <span><i class="bi bi-arrow-repeat me-1"></i>${escapeHtml(badgeText)}</span>
                                 </div>
                                 <div class="d-flex gap-1">
                                     <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="weather-action-btn" title="Buka di Polymarket">
@@ -1880,7 +1886,28 @@
                         </div>
                     </div>`;
             });
+            return html;
+        }
 
+        function renderWeatherEvents(filtered) {
+            const container = document.getElementById('weatherEventsContainer');
+            const countBadge = document.getElementById('weatherEventsCount');
+
+            if (countBadge) countBadge.textContent = `${filtered.length} events`;
+
+            if (!filtered || filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="weather-empty">
+                            <i class="bi bi-calendar-x"></i>
+                            <div>Tidak ada weather event yang cocok untuk filter ini.</div>
+                            <div class="small mt-1" style="color:#484f58">Coba pilih tanggal lain atau kategori "Semua".</div>
+                        </div>
+                    </div>`;
+                return;
+            }
+
+            const html = buildEventCardsHtml(filtered);
             container.innerHTML = html;
         }
 
@@ -1946,9 +1973,45 @@
             }
         }
 
+        // --- ELON MUSK TWEETS EVENTS ---
+        async function fetchElonEvents() {
+            const container = document.getElementById('elonEventsContainer');
+            const countBadge = document.getElementById('elonEventsCount');
+            if (!container) return;
+            if (countBadge) countBadge.textContent = 'Loading...';
+            try {
+                const res = await fetch('/api/markets/events?category=elon_tweets');
+                if (res.status === 404) {
+                    // Kategori dinonaktifkan lewat ENABLED_MARKET_CATEGORIES
+                    document.getElementById('elonTweetsSection').classList.add('d-none');
+                    return;
+                }
+                if (!res.ok) throw new Error('Fetch Elon events failed');
+                const events = await res.json();
+                if (countBadge) countBadge.textContent = `${events.length} events`;
+                container.innerHTML = events.length
+                    ? buildEventCardsHtml(events, 'bi-twitter-x', 'Periode')
+                    : `<div class="col-12"><div class="weather-empty"><i class="bi bi-calendar-x"></i><div>Tidak ada market Elon Musk yang aktif saat ini.</div></div></div>`;
+            } catch (err) {
+                console.error('Elon events error:', err);
+                if (countBadge) countBadge.textContent = 'Error';
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="weather-empty">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            <div>Gagal memuat market Elon Musk dari Polymarket.</div>
+                            <button class="poly-btn-secondary mt-3 px-4 py-2" onclick="fetchElonEvents()">
+                                <i class="bi bi-arrow-repeat me-1"></i> Coba Lagi
+                            </button>
+                        </div>
+                    </div>`;
+            }
+        }
+
         // Initialize weather events when page loads
         document.addEventListener('DOMContentLoaded', () => {
             fetchWeatherEvents();
+            fetchElonEvents();
         });
     </script>
 

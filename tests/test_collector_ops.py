@@ -197,7 +197,7 @@ class TestMarketLatestAndHistory:
         from app.paper_service import get_market_by_id
         now = datetime.now(timezone.utc)
         markets = [self._market("0xfuture", now=now), self._market("0xpast_end", hours=-2, now=now)]
-        with patch("app.market_collector.collector.fetch_weather_markets", return_value=markets):
+        with patch("app.market_collector.collector.fetch_all_markets", return_value=markets):
             assert run_collection_cycle(now=now) == 2
         assert get_market_by_id("0xpast_end") is not None
 

@@ -564,6 +564,8 @@ def _format_market_snapshot(
         "price_yes": price_yes,
         "price_no": price_no,
         "current_price": current_price,
+        "outcome_yes_label": snapshot.outcome_yes_label or "Yes",
+        "outcome_no_label": snapshot.outcome_no_label or "No",
         "timestamp": snap_ts,
         "is_stale": is_stale,
         "polymarket_url": get_polymarket_url(str(snapshot.market_id), str(snapshot.market_name)),
