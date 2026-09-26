@@ -19,5 +19,8 @@ fastapi==0.141.1
 uvicorn==0.52.4
 jinja2==3.1.6
 
+# Zona waktu IANA (fallback jika image tidak menyertakan tzdata sistem)
+tzdata==2026.4
+
 # Notifications & HTTP
 requests==2.34.2

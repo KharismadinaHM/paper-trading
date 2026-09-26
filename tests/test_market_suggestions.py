@@ -10,7 +10,6 @@ from app.paper_trading.suggestions import (
     format_time_remaining,
 )
 from app.dashboard import get_market_suggestions_api
-from app.paper_service import get_market_suggestions
 
 
 class TestMarketSuggestionsFilter(unittest.TestCase):
@@ -327,28 +326,27 @@ class TestMarketSuggestionsFilter(unittest.TestCase):
         self.assertEqual(format_time_remaining(-50), "0h 00m")
 
     def test_fastapi_endpoint_execution(self):
-        """Uji pemanggilan handler endpoint FastAPI GET /api/markets/suggestions."""
-        with patch("app.paper_service.get_market_snapshots", return_value=self.mock_markets):
-            endpoint_res = get_market_suggestions_api(
-                max_hours_to_resolution=6.0,
-                min_price=0.70,
-                max_price=0.75,
-            )
-            self.assertIsInstance(endpoint_res, list)
-            self.assertTrue(len(endpoint_res) > 0)
-            first = endpoint_res[0]
-            self.assertIn("market_id", first)
-            self.assertIn("market_name", first)
-            self.assertIn("current_price", first)
-            self.assertIn("resolution_time", first)
-            self.assertIn("time_remaining", first)
+        """Endpoint GET /api/markets/suggestions memakai rekomendasi berbasis jam puncak lokal."""
+        hk = {
+            "market_id": "mkt-hk", "status": "open", "is_resolved": False,
+            "market_name": "Will the highest temperature in Hong Kong be 31°C or higher on September 26?",
+            "end_date": datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc),
+            "price_yes": Decimal("0.73"), "price_no": Decimal("0.27"),
+        }
+        in_window = datetime(2026, 9, 26, 4, 30, tzinfo=timezone.utc)  # 12:30 HKT
+        with patch("app.paper_service.get_market_snapshots", return_value=[hk] + self.mock_markets), \
+             patch("app.paper_trading.weather_peaks._utcnow", return_value=in_window):
+            endpoint_res = get_market_suggestions_api(min_price=0.70, max_price=0.75)
+        self.assertEqual([r["market_id"] for r in endpoint_res], ["mkt-hk"])
+        first = endpoint_res[0]
+        for key in ("market_id", "market_name", "current_price", "resolution_time", "time_remaining",
+                    "city", "kind", "window_label"):
+            self.assertIn(key, first)
 
-    def test_fastapi_endpoint_tight_max_hours(self):
-        """Uji endpoint FastAPI jika diberikan max_hours sangat kecil."""
-        # 0.5 jam -> tidak ada yang lolos karena minimum stub data 1 jam
+    def test_fastapi_endpoint_non_temperature_markets_not_recommended(self):
+        """Market non-suhu (tanpa kota & jam puncak) tidak masuk rekomendasi."""
         with patch("app.paper_service.get_market_snapshots", return_value=self.mock_markets):
-            res_tight = get_market_suggestions_api(max_hours_to_resolution=0.5)
-            self.assertEqual(len(res_tight), 0)
+            self.assertEqual(get_market_suggestions_api(), [])
 
     def test_no_settlement_engine_imported(self):
         """

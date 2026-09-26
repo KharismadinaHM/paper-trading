@@ -27,6 +27,7 @@ from app.paper_service import (
     get_market_suggestions,
     get_open_positions,
     get_performance,
+    get_recommendation_schedule,
     get_trade_history,
     reset_paper_account,
     search_market_snapshots,
@@ -134,6 +135,7 @@ def get_dashboard(request: Request, strategy: Optional[str] = None):
     trades = get_trade_history(limit=50, strategy_version=strategy)
     snapshots = get_equity_snapshots()
     suggested_markets = get_market_suggestions()
+    recommendation_schedule = [] if suggested_markets else get_recommendation_schedule(limit=6)
 
     # Siapkan data untuk Chart.js
     chart_labels = [str(s.get("timestamp", "")) for s in snapshots]
@@ -149,6 +151,7 @@ def get_dashboard(request: Request, strategy: Optional[str] = None):
             "positions": positions,
             "trades": trades,
             "suggested_markets": suggested_markets,
+            "recommendation_schedule": recommendation_schedule,
             "chart_labels": chart_labels,
             "chart_balances": chart_balances,
             "chart_equities": chart_equities,
@@ -188,21 +191,23 @@ def get_trades_api(limit: int = 50, strategy: Optional[str] = None):
 
 @app.get("/api/markets/suggestions", dependencies=[Depends(require_auth)])
 def get_market_suggestions_api(
-    max_hours_to_resolution: float = 6.0,
-    min_price: float = 0.70,
-    max_price: float = 0.75,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
 ):
     """
-    Endpoint query saran pasar (market suggestions) dari data Market Collector:
-    - Status market belum resolved (open/active).
-    - Waktu resolution mendekati sekarang (<= max_hours_to_resolution, default 6 jam).
-    - Harga YES atau NO berada di rentang [min_price, max_price] (default 0.70-0.75).
+    Rekomendasi market suhu berbasis jam puncak lokal:
+    - Market "Highest/Lowest temperature in <kota> on <tanggal>" yang masih open.
+    - Muncul hanya pada jendela menjelang puncak suhu kota tersebut (default highest 12:00–13:00,
+      lowest 03:00–04:00 waktu setempat) untuk market bertanggal hari itu.
+    - Harga YES atau NO di rentang [min_price, max_price] (default RECOMMENDATION_MIN/MAX_PRICE).
     """
-    return get_market_suggestions(
-        max_hours_to_resolution=max_hours_to_resolution,
-        min_price=min_price,
-        max_price=max_price,
-    )
+    return get_market_suggestions(min_price=min_price, max_price=max_price)
+
+
+@app.get("/api/markets/suggestions/schedule", dependencies=[Depends(require_auth)])
+def get_recommendation_schedule_api(limit: int = 10):
+    """Jendela rekomendasi berikutnya per kota & jenis (highest/lowest)."""
+    return get_recommendation_schedule(limit=max(1, min(limit, 100)))
 
 
 @app.get("/api/markets/search", dependencies=[Depends(require_auth)])

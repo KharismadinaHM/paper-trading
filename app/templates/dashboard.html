@@ -971,7 +971,7 @@
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div class="d-flex align-items-center gap-2">
                     <h5 class="fw-bold text-white mb-0">
-                        <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Suggested Markets (High Probability)
+                        <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Suggested Markets · Menjelang Puncak Suhu
                     </h5>
                     <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="suggestionsCount">
                         {{ suggested_markets|length if suggested_markets is defined else 0 }} available
@@ -994,9 +994,13 @@
                                         {% else %}
                                             <span class="badge-outcome-no">NO</span>
                                         {% endif %}
-                                        <span class="badge bg-dark text-warning border border-warning-subtle small">
-                                            <i class="bi bi-clock me-1"></i>{{ sm.time_remaining }}
+                                        <span class="badge bg-dark text-warning border border-warning-subtle small" title="Sisa waktu jendela rekomendasi">
+                                            <i class="bi bi-clock me-1"></i>sisa {{ sm.time_remaining }}
                                         </span>
+                                    </div>
+                                    <div class="small text-muted-poly mb-2">
+                                        <i class="bi bi-geo-alt me-1"></i>{{ sm.city }} · {{ 'Suhu tertinggi' if sm.kind == 'highest' else 'Suhu terendah' }}
+                                        <div><i class="bi bi-alarm me-1"></i>{{ sm.window_label }}</div>
                                     </div>
                                     <h6 class="fw-bold mb-3" style="min-height: 44px;" title="{{ sm.market_name }}">
                                         <a href="{{ sm.polymarket_url|default('https://polymarket.com/markets?_q=' ~ sm.market_name|urlencode) }}"
@@ -1027,9 +1031,22 @@
                         </div>
                     {% endfor %}
                 {% else %}
-                    <div class="col-12 text-center text-muted-poly py-4">
-                        <i class="bi bi-inbox fs-3 d-block mb-2"></i>
-                        No suggested markets found meeting probability criteria right now.
+                    <div class="col-12 text-muted-poly py-3">
+                        <div class="text-center mb-3">
+                            <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                            Belum ada kota yang sedang berada di jendela rekomendasi (dengan harga di rentang target).
+                        </div>
+                        {% if recommendation_schedule %}
+                            <div class="small fw-semibold text-white mb-2"><i class="bi bi-calendar-event me-1"></i>Jendela berikutnya</div>
+                            <ul class="list-unstyled small mb-0">
+                                {% for w in recommendation_schedule %}
+                                    <li class="mb-1">
+                                        <span class="text-white">{{ w.city }}</span> · {{ 'tertinggi' if w.kind == 'highest' else 'terendah' }}
+                                        · {{ w.window_label }} <span class="text-warning">({{ w.starts_in }})</span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
                     </div>
                 {% endif %}
             </div>
@@ -1922,7 +1939,16 @@
                 const list = await res.json();
                 if (badge) badge.textContent = `${list.length} available`;
                 if (!list.length) {
-                    container.innerHTML = `<div class="col-12 text-center text-muted-poly py-4">No suggested markets meeting criteria at this moment.</div>`;
+                    let scheduleHtml = '';
+                    try {
+                        const sched = await fetch('/api/markets/suggestions/schedule?limit=6').then(r => r.ok ? r.json() : []);
+                        if (sched.length) {
+                            scheduleHtml = `<div class="small fw-semibold text-white mb-2"><i class="bi bi-calendar-event me-1"></i>Jendela berikutnya</div><ul class="list-unstyled small mb-0">` +
+                                sched.map(w => `<li class="mb-1"><span class="text-white">${escapeHtml(w.city)}</span> · ${w.kind === 'highest' ? 'tertinggi' : 'terendah'} · ${escapeHtml(w.window_label)} <span class="text-warning">(${escapeHtml(w.starts_in)})</span></li>`).join('') +
+                                `</ul>`;
+                        }
+                    } catch (e) { console.error(e); }
+                    container.innerHTML = `<div class="col-12 text-muted-poly py-3"><div class="text-center mb-3"><i class="bi bi-inbox fs-3 d-block mb-2"></i>Belum ada kota yang sedang berada di jendela rekomendasi (dengan harga di rentang target).</div>${scheduleHtml}</div>`;
                     return;
                 }
                 let html = '';
@@ -1938,9 +1964,13 @@
                                 <div>
                                     <div class="d-flex justify-content-between align-items-start mb-2">
                                         <span class="${badgeClass}">${side}</span>
-                                        <span class="badge bg-dark text-warning border border-warning-subtle small">
-                                            <i class="bi bi-clock me-1"></i>${escapeHtml(sm.time_remaining)}
+                                        <span class="badge bg-dark text-warning border border-warning-subtle small" title="Sisa waktu jendela rekomendasi">
+                                            <i class="bi bi-clock me-1"></i>sisa ${escapeHtml(sm.time_remaining)}
                                         </span>
+                                    </div>
+                                    <div class="small text-muted-poly mb-2">
+                                        <i class="bi bi-geo-alt me-1"></i>${escapeHtml(sm.city)} · ${sm.kind === 'highest' ? 'Suhu tertinggi' : 'Suhu terendah'}
+                                        <div><i class="bi bi-alarm me-1"></i>${escapeHtml(sm.window_label)}</div>
                                     </div>
                                     <h6 class="fw-bold mb-3" style="min-height: 44px;">
                                         <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="market-title-link text-white text-decoration-none" title="Buka di Polymarket (Tab Baru)">

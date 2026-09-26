@@ -29,8 +29,13 @@ Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cua
   - Backend selalu me-fetch ulang harga real-time live saat user mengeksekusi order (mengabaikan harga payload frontend untuk settlement).
   - Peringatan divergensi harga jika harga pasar bergerak $> 5\%$ dari saat user melihat tombol buy.
   - Deteksi snapshot kadaluarsa (`is_stale: bool`) jika snapshot lebih tua dari threshold 15 menit (3x siklus collector).
-- **🔍 Suggested Markets & Live Search**:
-  - **Suggested Markets**: Filter pasar aktif dengan waktu resolusi mendekati sekarang ($\le 6$ jam) dan harga optimal (0.70 - 0.75).
+- **🔍 Rekomendasi Menjelang Puncak Suhu & Live Search**:
+  - **Suggested Markets**: market *Highest/Lowest temperature* di **semua kota** (51 kota saat ini) direkomendasikan hanya pada jendela menjelang jam puncak suhu **waktu setempat** kota tersebut, untuk market bertanggal hari itu:
+    - Suhu tertinggi: puncak 14:00–15:00 → rekomendasi **12:00–13:00** (mis. Hong Kong 12:00 HKT).
+    - Suhu terendah: puncak 05:00–06:00 → rekomendasi **03:00–04:00**.
+    - Harga YES atau NO di rentang `RECOMMENDATION_MIN_PRICE`–`RECOMMENDATION_MAX_PRICE` (default 0.70–0.75).
+    - Jam puncak, jarak (lead), dan lebar jendela dapat diatur; per kota lewat `TEMP_PEAK_HOUR_OVERRIDES`. Zona waktu (termasuk DST) memakai database IANA; kota baru lewat `CITY_TIMEZONE_OVERRIDES`.
+    - Jika belum ada yang cocok, dashboard menampilkan **jadwal jendela berikutnya** per kota.
   - **Live Search**: Pencarian multi-kriteria berdasarkan kata kunci, kategori, dan rentang harga.
   - Terintegrasi langsung dengan modal "Paper Buy" di antarmuka Web Dashboard.
 - **📊 Metrik Kinerja Portofolio**:
@@ -295,7 +300,8 @@ Jika `DASHBOARD_PASSWORD` diisi, seluruh halaman dan endpoint (kecuali `/healthz
 
 | Method | Endpoint | Deskripsi |
 |---|---|---|
-| `GET` | `/api/markets/suggestions` | Mengambil saran pasar mendekati resolusi ($\le 6$ jam, harga 0.70-0.75) dengan `polymarket_url` |
+| `GET` | `/api/markets/suggestions` | Rekomendasi market suhu yang sedang berada di jendela menjelang jam puncak lokal (param opsional `min_price`, `max_price`) |
+| `GET` | `/api/markets/suggestions/schedule` | Jadwal jendela rekomendasi berikutnya per kota & jenis (highest/lowest) |
 | `GET` | `/api/markets/search` | Pencarian pasar cuaca dengan filter kata kunci, kategori, harga, sisa waktu, dan `polymarket_url` |
 | `POST` | `/api/orders` | Membuat paper order manual dengan proteksi Anti-Stale Price |
 | `POST` | `/api/positions/sell` | Menjual/menutup posisi terbuka pada harga pasar live (*Paper Sell*) |
@@ -330,7 +336,7 @@ pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **175/175 unit test** berada dalam status **PASS**. Test tidak pernah mengakses jaringan sungguhan (diblokir di `tests/conftest.py`).
+Saat ini seluruh **207/207 unit test** berada dalam status **PASS**. Test tidak pernah mengakses jaringan sungguhan (diblokir di `tests/conftest.py`).
 
 Setiap push ke `main` dan setiap pull request dijalankan otomatis oleh GitHub Actions (`.github/workflows/ci.yml`): migrasi Alembic di PostgreSQL + `alembic check`, seluruh test suite, test konkurensi di PostgreSQL, dan build image Docker.
 

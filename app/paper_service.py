@@ -40,7 +40,8 @@ from app.paper_trading.settlement_engine import (
     calculate_shares,
     evaluate_risk_and_rules,
 )
-from app.paper_trading.suggestions import filter_market_suggestions, search_markets
+from app.paper_trading.suggestions import search_markets
+from app.paper_trading.weather_peaks import filter_peak_time_suggestions, upcoming_recommendation_windows
 
 logger = get_logger("paper_service")
 
@@ -613,22 +614,26 @@ def get_market_snapshots(
 
 
 def get_market_suggestions(
-    max_hours_to_resolution: float = 6.0,
-    min_price: float = 0.70,
-    max_price: float = 0.75,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
     now: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Mengambil saran market dari data Market Collector yang memenuhi kriteria filter.
+    Rekomendasi market suhu (highest/lowest) yang sedang berada di jendela menjelang jam
+    puncak suhu lokal kotanya, dengan harga YES/NO di rentang [min_price, max_price].
     """
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
-    return filter_market_suggestions(
+    return filter_peak_time_suggestions(
         markets=raw_markets,
-        max_hours_to_resolution=max_hours_to_resolution,
-        min_price=min_price,
-        max_price=max_price,
+        min_price=float(settings.RECOMMENDATION_MIN_PRICE if min_price is None else min_price),
+        max_price=float(settings.RECOMMENDATION_MAX_PRICE if max_price is None else max_price),
         now=now,
     )
+
+
+def get_recommendation_schedule(now: Optional[datetime] = None, limit: int = 10) -> List[Dict[str, Any]]:
+    """Jadwal jendela rekomendasi berikutnya per kota (untuk ditampilkan saat belum ada yang aktif)."""
+    return upcoming_recommendation_windows(get_market_snapshots(now=now, include_resolved=False), now=now, limit=limit)
 
 
 def search_market_snapshots(
