@@ -191,14 +191,15 @@ class TestMarketLatestAndHistory:
         t1 = t0 + timedelta(minutes=61)
         assert record_market_observations([self._market(now=t1)], now=t1)["history_rows"] == 1
 
-    def test_collection_cycle_skips_markets_past_resolution(self):
+    def test_collection_cycle_keeps_open_markets_past_end_date(self):
+        """Regresi: market yang masih open setelah endDate tetap dikumpulkan (masih bisa di-trade)."""
         from app.market_collector.collector import run_collection_cycle
-        now = datetime.now(timezone.utc)
-        markets = [self._market("0xfuture", now=now), self._market("0xpast", hours=-2, now=now)]
-        with patch("app.market_collector.collector.fetch_weather_markets", return_value=markets):
-            assert run_collection_cycle(now=now) == 1
         from app.paper_service import get_market_by_id
-        assert get_market_by_id("0xpast") is None
+        now = datetime.now(timezone.utc)
+        markets = [self._market("0xfuture", now=now), self._market("0xpast_end", hours=-2, now=now)]
+        with patch("app.market_collector.collector.fetch_weather_markets", return_value=markets):
+            assert run_collection_cycle(now=now) == 2
+        assert get_market_by_id("0xpast_end") is not None
 
     def test_latest_ignores_older_out_of_order_snapshot(self):
         from app.paper_service import get_market_by_id

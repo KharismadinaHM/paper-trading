@@ -244,7 +244,7 @@ Collector juga:
 - Mem-paginasi event bertag cuaca (`WEATHER_TAG_IDS`, maks. `COLLECTOR_MAX_PAGES` × 100 event per tag), sehingga tidak terbatas pada 100 hasil pertama.
 - Menyimpan observasi terbaru setiap market di tabel `market_latest` (satu baris per market) — dipakai untuk harga eksekusi, cek stale, dan daftar market, sehingga tetap cepat walau histori besar.
 - Menulis histori harga ke `market_snapshots` **hanya jika harga/status berubah**, atau minimal setiap `SNAPSHOT_HEARTBEAT_SECONDS` (default 1 jam).
-- Melewati market yang waktu resolusinya sudah lewat (posisi terbuka pada market tersebut tetap disinkronkan oleh settlement worker).
+- Status tradable market diambil dari `closed` / `acceptingOrders` Polymarket — **bukan** `endDate`, karena market cuaca tetap menerima order berjam-jam setelah `endDate`.
 - Menjalankan retensi: snapshot lebih tua dari `SNAPSHOT_RETENTION_DAYS` hari dihapus, kecuali snapshot terbaru tiap market.
 
 ---
