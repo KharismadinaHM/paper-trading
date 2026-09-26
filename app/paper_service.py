@@ -808,12 +808,10 @@ def create_paper_order(
     if market.get("is_resolved") or str(market.get("status", "")).lower() == "resolved":
         raise ValueError(f"Market '{market_id}' sudah resolved dan tidak dapat menerima order.")
 
-    res_time = _aware(market.get("resolution_time") or market.get("end_date"))
-    if res_time is not None and now >= res_time:
-        raise ValueError(
-            f"Market '{market_id}' sudah melewati waktu resolusi "
-            f"({res_time.strftime('%Y-%m-%d %H:%M UTC')}) dan tidak dapat menerima order."
-        )
+    # Catatan: endDate Polymarket bukan batas akhir trading (market cuaca tetap menerima order
+    # berjam-jam setelahnya), jadi yang menentukan adalah status dari collector (acceptingOrders).
+    if str(market.get("status", "")).lower() != "open":
+        raise ValueError(f"Market '{market_id}' sedang tidak menerima order (status: {market.get('status')}).")
 
     normalized_side = _normalize_side(side)
     raw_price = _outcome_price(market, normalized_side)
@@ -1033,6 +1031,11 @@ def sell_paper_position(
             ):
                 raise ValueError(
                     f"Market '{market_id}' sudah resolve. Posisi akan di-settle otomatis oleh settlement worker."
+                )
+            if market and str(market.get("status", "")).lower() != "open":
+                raise ValueError(
+                    f"Market '{market_id}' sedang tidak menerima order (status: {market.get('status')}). "
+                    "Penjualan dibatalkan."
                 )
             live_price = _outcome_price(market, normalized_side)
             if live_price is None or live_price <= Decimal("0"):

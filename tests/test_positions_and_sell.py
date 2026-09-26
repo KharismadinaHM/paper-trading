@@ -136,6 +136,12 @@ class TestPolymarketPositionsAndTrading:
             sell_paper_position(market_id="0xnyc", side="YES")
         assert "tidak tersedia" in str(exc.value).lower()
 
+    def test_sell_rejected_when_market_not_accepting_orders(self):
+        add_snapshot("0xnyc", "0.60", name="Will NYC exceed 85°F?", status="closed")
+        with pytest.raises(ValueError) as exc:
+            sell_paper_position(market_id="0xnyc", side="YES")
+        assert "tidak menerima order" in str(exc.value)
+
     def test_sell_applies_sell_side_slippage(self, monkeypatch):
         monkeypatch.setattr(settings, "SLIPPAGE_BPS", 100)  # 1%
         res = sell_paper_position(market_id="0xnyc", side="YES")

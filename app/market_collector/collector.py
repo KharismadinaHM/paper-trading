@@ -136,7 +136,14 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             price_no = price_dec
 
     closed = bool(m.get("closed", False))
-    status = "resolved" if closed else "open"
+    # endDate Polymarket BUKAN batas akhir trading: market tetap menerima order sampai
+    # ditutup. Status tradable diambil dari closed / acceptingOrders.
+    if closed:
+        status = "resolved"
+    elif m.get("acceptingOrders") is False:
+        status = "closed"
+    else:
+        status = "open"
 
     raw_end_date = m.get("endDate") or m.get("endDateIso")
     resolution_time = _parse_datetime(raw_end_date)

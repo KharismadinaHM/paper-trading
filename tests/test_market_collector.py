@@ -305,3 +305,14 @@ class TestSnapshotPersistence:
 
         count = ensure_initial_market_snapshots(session=in_memory_session)
         assert count == 1
+
+
+def test_parse_status_from_accepting_orders():
+    """endDate tidak menentukan status; closed / acceptingOrders yang menentukan."""
+    base = {"conditionId": "0xs", "question": "Q?", "outcomes": '["Yes", "No"]', "outcomePrices": '["0.5", "0.5"]',
+            "endDate": "2020-01-01T12:00:00Z"}
+    assert parse_market_dict({**base, "closed": False, "acceptingOrders": True})["status"] == "open"
+    assert parse_market_dict({**base, "closed": False})["status"] == "open"
+    assert parse_market_dict({**base, "closed": False, "acceptingOrders": False})["status"] == "closed"
+    parsed = parse_market_dict({**base, "closed": True, "acceptingOrders": False})
+    assert parsed["status"] == "resolved" and parsed["is_resolved"] is True
