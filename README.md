@@ -53,7 +53,13 @@ Sistem simulasi perdagangan (*paper trading*) real-time untuk pasar prediksi cua
   - Tampilan visual responsif untuk ringkasan akun, tabel posisi terbuka, riwayat trade, grafik kurva ekuitas, serta section Suggested & Search Markets.
 - **📱 Notifikasi & Bot Interaktif Telegram**:
   - Pemformatan pesan otomatis untuk event *Paper BUY* dan *Paper Trade Settled*.
-  - Bot interaktif dengan command: `/start`, `/status`, `/positions`, `/trades`, `/performance`, `/ping`.
+  - **Notifikasi rekomendasi**: setiap siklus collector, kota yang baru masuk jendela menjelang jam puncak dikirim sebagai daftar (sekali per event, tahan restart), jam dalam WIB:
+    ```
+    BUY #HongKong in odd 56.8¢ peak hour akan terjadi di jam 12:15–13:15 WIB.
+       31°C or higher · suhu tertinggi · 13:15–14:15 waktu lokal
+    ```
+    Bracket yang disarankan = peluang YES tertinggi saat itu. Atur lewat `TELEGRAM_RECOMMENDATION_ALERTS`, `NOTIFY_TIMEZONE`, `NOTIFY_TIMEZONE_LABEL`.
+  - Bot interaktif dengan command: `/start`, `/status`, `/positions`, `/trades`, `/performance`, `/rekomendasi`, `/ping`.
 
 ---
 
@@ -335,7 +341,7 @@ pytest tests/test_orders_endpoint.py -v
 pytest tests/test_settlement_engine.py -v
 ```
 
-Saat ini seluruh **219/219 unit test** berada dalam status **PASS**. Test tidak pernah mengakses jaringan sungguhan (diblokir di `tests/conftest.py`).
+Saat ini seluruh **235/235 unit test** berada dalam status **PASS**. Test tidak pernah mengakses jaringan sungguhan (diblokir di `tests/conftest.py`).
 
 Setiap push ke `main` dan setiap pull request dijalankan otomatis oleh GitHub Actions (`.github/workflows/ci.yml`): migrasi Alembic di PostgreSQL + `alembic check`, seluruh test suite, test konkurensi di PostgreSQL, dan build image Docker.
 

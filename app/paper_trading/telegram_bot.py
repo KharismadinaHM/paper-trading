@@ -59,9 +59,10 @@ def build_help_message() -> str:
         "📈 `/positions` - Daftar posisi trading aktif\n"
         "📜 `/trades` - Riwayat 5 transaksi terakhir yang selesai\n"
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
+        "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
         "🏓 `/ping` - Tes respon server bot\n"
         "❓ `/help` - Tampilkan panduan ini\n\n"
-        "💡 _Notifikasi otomatis sinyal BUY dan Settlement akan dikirim ke chat ini secara real-time._"
+        "💡 _Notifikasi otomatis sinyal BUY, rekomendasi jam puncak, dan Settlement dikirim ke chat ini secara real-time._"
     )
 
 
@@ -196,6 +197,30 @@ def build_performance_message(strategy: Optional[str] = None) -> str:
     )
 
 
+def build_recommendations_message() -> str:
+    """Daftar rekomendasi aktif; jika kosong, tampilkan jendela berikutnya (jam dalam WIB)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.core.config import settings
+    from app.paper_service import get_market_suggestions, get_recommendation_schedule
+    from app.paper_trading.recommendation_alerts import build_recommendation_message
+
+    events = [e for e in get_market_suggestions() if e.get("markets")]
+    if events:
+        return build_recommendation_message(events, title="🌡️ Rekomendasi aktif")
+
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    lines = ["🌡️ Belum ada kota yang sedang menjelang jam puncak suhu.", "", "Jendela berikutnya:"]
+    for w in get_recommendation_schedule(limit=5):
+        start = datetime.fromisoformat(w["starts_at"]).astimezone(tz)
+        kind = "tertinggi" if w["kind"] == "highest" else "terendah"
+        lines.append(f"• {w['city']} ({kind}) mulai {start:%H:%M} {settings.NOTIFY_TIMEZONE_LABEL} — {w['starts_in']}")
+    if len(lines) == 3:
+        lines.append("• (belum ada data market suhu)")
+    return "\n".join(lines)
+
+
 def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Optional[str] = None) -> Optional[str]:
     """
     Memproses teks perintah dari pengguna dan menghasilkan respon balasan.
@@ -234,6 +259,8 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
     elif cmd == "/performance":
         strat = args[0] if args else None
         return build_performance_message(strategy=strat)
+    elif cmd in ("/rekomendasi", "/recommendations"):
+        return build_recommendations_message()
     elif cmd == "/ping":
         return "🏓 *Pong!*\nSistem Paper Trading aktif dan terhubung."
     else:

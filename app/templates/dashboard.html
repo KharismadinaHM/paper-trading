@@ -895,6 +895,35 @@
             </div>
         </div>
 
+        <!-- 2b. SUGGESTED MARKETS (REKOMENDASI MENJELANG JAM PUNCAK) — tepat setelah Positions -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0">
+                        <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Suggested Markets · Menjelang Puncak Suhu
+                    </h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="suggestionsCount">
+                        {{ suggested_markets|length if suggested_markets is defined else 0 }} kota
+                    </span>
+                </div>
+                <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchSuggestedMarkets()">
+                    <i class="bi bi-arrow-repeat"></i> Refresh
+                </button>
+            </div>
+            <div class="small text-muted-poly mb-3">
+                Muncul menjelang jam puncak suhu tertinggi/terendah <b>waktu setempat</b> tiap kota
+                (jam puncak dari riset data historis per kota), khusus market bertanggal hari itu.
+            </div>
+            <div class="row g-3" id="suggestedMarketsContainer">
+                <div class="col-12">
+                    <div class="weather-loading">
+                        <div class="weather-loading-spinner"></div>
+                        <span class="text-muted-poly small">Memuat rekomendasi...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 3. SEARCH MARKET SECTION - POLYMARKET STYLE WEATHER EVENTS -->
         <div class="poly-card p-4 mb-4">
             <!-- Header: Title + Date Tabs -->
@@ -961,35 +990,6 @@
                     <div class="weather-loading">
                         <div class="weather-loading-spinner"></div>
                         <span class="text-muted-poly small">Memuat market Elon Musk dari Polymarket...</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 4. SUGGESTED MARKETS SECTION -->
-        <div class="poly-card p-4 mb-4">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <div class="d-flex align-items-center gap-2">
-                    <h5 class="fw-bold text-white mb-0">
-                        <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Suggested Markets · Menjelang Puncak Suhu
-                    </h5>
-                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="suggestionsCount">
-                        {{ suggested_markets|length if suggested_markets is defined else 0 }} kota
-                    </span>
-                </div>
-                <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchSuggestedMarkets()">
-                    <i class="bi bi-arrow-repeat"></i> Refresh
-                </button>
-            </div>
-            <div class="small text-muted-poly mb-3">
-                Muncul menjelang jam puncak suhu tertinggi/terendah <b>waktu setempat</b> tiap kota
-                (jam puncak dari riset data historis per kota), khusus market bertanggal hari itu.
-            </div>
-            <div class="row g-3" id="suggestedMarketsContainer">
-                <div class="col-12">
-                    <div class="weather-loading">
-                        <div class="weather-loading-spinner"></div>
-                        <span class="text-muted-poly small">Memuat rekomendasi...</span>
                     </div>
                 </div>
             </div>

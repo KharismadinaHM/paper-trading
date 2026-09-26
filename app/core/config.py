@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     # Telegram Integration
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
+    # Kirim daftar rekomendasi saat kota masuk jendela menjelang jam puncak suhu
+    TELEGRAM_RECOMMENDATION_ALERTS: bool = True
+    # Zona waktu jam di notifikasi (default WIB)
+    NOTIFY_TIMEZONE: str = "Asia/Jakarta"
+    NOTIFY_TIMEZONE_LABEL: str = "WIB"
 
     # Market Collector Configuration
     COLLECTOR_INTERVAL_SECONDS: int = 300

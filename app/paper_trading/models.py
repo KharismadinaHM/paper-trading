@@ -300,3 +300,15 @@ class MarketResolution(Base):
     winning_outcome: Mapped[str] = mapped_column(String(20), nullable=False)  # YES / NO / INVALID
     resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+
+class RecommendationAlert(Base):
+    """Event rekomendasi yang sudah dikirim ke Telegram (mencegah notifikasi ganda)."""
+    __tablename__ = "recommendation_alerts"
+
+    event_key: Mapped[str] = mapped_column(String(255), primary_key=True)  # kota|jenis|tanggal
+    city: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    local_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    market_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    price_yes: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
