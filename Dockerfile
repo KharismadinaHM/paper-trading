@@ -22,6 +22,8 @@ RUN useradd --create-home --uid 10001 app && mkdir -p /app/logs && chown -R app:
 
 # Copy application source code
 COPY --chown=app:app app/ ./app/
+COPY --chown=app:app alembic.ini ./
+COPY --chown=app:app migrations/ ./migrations/
 
 USER app
 

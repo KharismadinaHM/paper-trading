@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import func, text
 
-from app.core.config import settings
+from app.core.config import settings, validate_production_settings
 from app.core.logging import get_logger
 from app.paper_service import (
     create_paper_order,
@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
     """
     Inisialisasi tabel database otomatis, akun paper default, dan data awal snapshot pasar.
     """
+    validate_production_settings(settings)
     if not settings.DASHBOARD_PASSWORD:
         logger.warning(
             "DASHBOARD_PASSWORD belum diatur: dashboard & API dapat diakses TANPA autentikasi. "
@@ -97,12 +98,12 @@ def healthz():
     Mengembalikan 503 jika database tidak dapat diakses.
     """
     from app.core.database import get_db_session
-    from app.paper_trading.models import MarketSnapshot
+    from app.paper_trading.models import MarketLatest
 
     db = get_db_session()
     try:
         db.execute(text("SELECT 1"))
-        latest = db.query(func.max(MarketSnapshot.timestamp)).scalar()
+        latest = db.query(func.max(MarketLatest.timestamp)).scalar()
     except Exception as err:
         return JSONResponse(status_code=503, content={"status": "error", "database": str(err)})
     finally:

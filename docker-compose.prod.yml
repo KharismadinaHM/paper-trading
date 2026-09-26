@@ -29,6 +29,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-paper_trading}
       - IN_DOCKER=true
+      - APP_ENV=${APP_ENV:-production}
     ports:
       - "8000:8000"
     command: uvicorn app.dashboard:app --host 0.0.0.0 --port 8000
@@ -51,6 +52,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-paper_trading}
       - IN_DOCKER=true
+      - APP_ENV=${APP_ENV:-production}
     command: python -m app.paper bot
 
   collector:
@@ -65,6 +67,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-paper_trading}
       - IN_DOCKER=true
+      - APP_ENV=${APP_ENV:-production}
     command: python -m app.market_collector.run
 
 volumes:

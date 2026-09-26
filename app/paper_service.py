@@ -14,13 +14,14 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
 from app.paper_trading.metrics import calculate_performance_metrics
 from app.paper_trading.models import (
+    MarketLatest,
     MarketResolution,
     MarketSnapshot,
     PaperAccount,
@@ -575,9 +576,8 @@ def get_market_snapshots(
     db: Optional[Session] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Mengambil snapshot pasar terbaru per market_id langsung dari database PostgreSQL.
-    Mengambil HANYA snapshot terbaru per market_id menggunakan pendekatan:
-        SELECT DISTINCT ON (market_id) * FROM market_snapshots ORDER BY market_id, timestamp DESC
+    Mengambil observasi pasar terbaru per market_id dari tabel market_latest
+    (satu baris per market, tanpa memindai histori market_snapshots).
     Secara default mengecualikan market yang sudah resolved (is_resolved=True) kecuali include_resolved=True.
     """
     if now is None:
@@ -593,45 +593,13 @@ def get_market_snapshots(
             return []
 
     try:
-        bind = db.get_bind()
-        if bind is not None and bind.dialect.name == "postgresql":
-            # PostgreSQL native DISTINCT ON (market_id)
-            subq = (
-                db.query(MarketSnapshot)
-                .distinct(MarketSnapshot.market_id)
-                .order_by(MarketSnapshot.market_id, MarketSnapshot.timestamp.desc())
-                .subquery()
+        query = db.query(MarketLatest)
+        if not include_resolved:
+            query = query.filter(
+                MarketLatest.is_resolved.is_(False),
+                func.lower(MarketLatest.status) != "resolved",
             )
-            SnapshotAlias = aliased(MarketSnapshot, subq)
-            query = db.query(SnapshotAlias)
-            if not include_resolved:
-                query = query.filter(
-                    SnapshotAlias.is_resolved.is_(False),
-                    func.lower(SnapshotAlias.status) != "resolved",
-                )
-            snapshots = query.all()
-        else:
-            # Standar ANSI SQL Window Function (kompatibel SQLite & dialect lain untuk test/fixture)
-            subq = (
-                db.query(
-                    MarketSnapshot.id.label("sid"),
-                    func.row_number().over(
-                        partition_by=MarketSnapshot.market_id,
-                        order_by=MarketSnapshot.timestamp.desc(),
-                    ).label("rn"),
-                ).subquery()
-            )
-            query = (
-                db.query(MarketSnapshot)
-                .join(subq, MarketSnapshot.id == subq.c.sid)
-                .filter(subq.c.rn == 1)
-            )
-            if not include_resolved:
-                query = query.filter(
-                    MarketSnapshot.is_resolved.is_(False),
-                    func.lower(MarketSnapshot.status) != "resolved",
-                )
-            snapshots = query.all()
+        snapshots = query.all()
 
         return [_format_market_snapshot(s, now=now) for s in snapshots]
     except Exception as e:
@@ -692,9 +660,8 @@ def get_market_by_id(
     db: Optional[Session] = None,
 ) -> Optional[Dict[str, Any]]:
     """
-    Mengambil data snapshot pasar real-time TERBARU langsung dari tabel market_snapshots berdasarkan market_id:
-        SELECT * FROM market_snapshots WHERE market_id = :market_id ORDER BY timestamp DESC LIMIT 1
-    Jika tidak ada snapshot, mengembalikan None.
+    Mengambil observasi pasar TERBARU untuk market_id dari tabel market_latest.
+    Jika market belum pernah diamati, mengembalikan None.
     """
     if not market_id:
         return None
@@ -712,12 +679,7 @@ def get_market_by_id(
             return None
 
     try:
-        snapshot = (
-            db.query(MarketSnapshot)
-            .filter(MarketSnapshot.market_id == str(market_id))
-            .order_by(MarketSnapshot.timestamp.desc())
-            .first()
-        )
+        snapshot = db.get(MarketLatest, str(market_id))
         if snapshot is None:
             return None
 
@@ -738,24 +700,13 @@ def get_latest_markets(
     db: Optional[Session] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Snapshot terbaru untuk sekumpulan market_id dalam SATU query (menghindari N+1).
+    Observasi terbaru (market_latest) untuk sekumpulan market_id dalam SATU query (menghindari N+1).
     """
     ids = {str(m) for m in market_ids if m}
     if not ids:
         return {}
     with _session_scope(db) as session:
-        latest_ts = (
-            session.query(MarketSnapshot.market_id, func.max(MarketSnapshot.timestamp).label("max_ts"))
-            .filter(MarketSnapshot.market_id.in_(ids))
-            .group_by(MarketSnapshot.market_id)
-            .subquery()
-        )
-        rows = (
-            session.query(MarketSnapshot)
-            .join(latest_ts, (MarketSnapshot.market_id == latest_ts.c.market_id)
-                  & (MarketSnapshot.timestamp == latest_ts.c.max_ts))
-            .all()
-        )
+        rows = session.query(MarketLatest).filter(MarketLatest.market_id.in_(ids)).all()
         return {r.market_id: _format_market_snapshot(r, now=now) for r in rows}
 
 

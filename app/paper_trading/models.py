@@ -1,13 +1,14 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Numeric, 
-    String, UniqueConstraint
+    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Numeric,
+    String, UniqueConstraint, event
 )
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -195,6 +196,75 @@ class MarketSnapshot(Base):
         Index("idx_market_snapshots_category", "category"),
         Index("idx_market_snapshots_market_ts", "market_id", "timestamp"),
     )
+
+
+# Kolom data market yang sama di market_snapshots (histori) dan market_latest (harga terkini)
+MARKET_DATA_FIELDS = (
+    "market_id", "market_name", "status", "is_resolved", "resolution_time", "end_date",
+    "price_yes", "price_no", "current_price", "category", "timestamp",
+)
+
+
+class MarketLatest(Base):
+    """
+    Satu baris per market: observasi TERBARU dari collector. Dipakai untuk semua pembacaan
+    harga, cek stale, dan daftar market, sehingga tidak perlu memindai seluruh histori.
+    `timestamp` = kapan market terakhir diamati; `last_snapshot_at` = kapan baris histori
+    terakhir ditulis ke market_snapshots.
+    """
+    __tablename__ = "market_latest"
+
+    market_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    market_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="open")
+    is_resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    resolution_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    price_yes: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    price_no: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    current_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="Weather")
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_snapshot_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_market_latest_resolved", "is_resolved"),
+        Index("idx_market_latest_resolution_time", "resolution_time"),
+    )
+
+
+def upsert_market_latest(connection, rows, history_written: bool) -> None:
+    """
+    Upsert observasi ke market_latest. Baris lama hanya ditimpa oleh observasi yang
+    lebih baru (atau sama), sehingga urutan insert tidak berpengaruh.
+    """
+    rows = [dict(r) for r in rows]
+    if not rows:
+        return
+    for r in rows:
+        r["last_snapshot_at"] = r["timestamp"] if history_written else None
+    dialect = connection.dialect.name
+    insert_fn = postgresql.insert if dialect == "postgresql" else sqlite.insert
+    stmt = insert_fn(MarketLatest.__table__).values(rows)
+    update_cols = {f: stmt.excluded[f] for f in MARKET_DATA_FIELDS if f != "market_id"}
+    if history_written:
+        update_cols["last_snapshot_at"] = stmt.excluded.last_snapshot_at
+    table = MarketLatest.__table__
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[table.c.market_id],
+        set_=update_cols,
+        where=stmt.excluded.timestamp >= table.c.timestamp,
+    )
+    connection.execute(stmt)
+
+
+@event.listens_for(MarketSnapshot, "after_insert")
+def _sync_market_latest(mapper, connection, target) -> None:
+    """Setiap baris histori baru otomatis memperbarui market_latest."""
+    row = {f: getattr(target, f) for f in MARKET_DATA_FIELDS}
+    if row["timestamp"] is None:  # server_default belum dimuat kembali ke objek
+        row["timestamp"] = datetime.now(timezone.utc)
+    upsert_market_latest(connection, [row], history_written=True)
 
 
 class PaperCashMovement(Base):

@@ -337,7 +337,9 @@ def run_telegram_bot():
     """
     Jalankan listener interaktif Bot Telegram (merespon perintah /start, /status, /positions, /trades, dll).
     """
+    from app.core.config import settings, validate_production_settings
     from app.paper_trading.telegram_bot import start_bot_polling
+    validate_production_settings(settings)
     console.print("[bold green]🤖 Memulai interactive Telegram bot listener...[/bold green]")
     try:
         start_bot_polling()

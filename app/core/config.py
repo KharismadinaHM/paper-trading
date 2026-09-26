@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     # Market Collector Configuration
     COLLECTOR_INTERVAL_SECONDS: int = 300
     GAMMA_API_BASE_URL: str = "https://gamma-api.polymarket.com"
+    # Tag Gamma API untuk event cuaca (Weather, Daily Temperature, Highest Temperature)
+    WEATHER_TAG_IDS: str = "84,103040,104596"
+    # Batas halaman (x100 event) per tag pada setiap siklus collector
+    COLLECTOR_MAX_PAGES: int = 10
+    # Hapus snapshot lebih tua dari N hari (snapshot terbaru tiap market selalu disimpan). 0 = nonaktif
+    SNAPSHOT_RETENTION_DAYS: int = 30
+    # Baris histori market_snapshots ditulis saat harga/status berubah, atau minimal setiap N detik
+    SNAPSHOT_HEARTBEAT_SECONDS: int = 3600
     # Market baseline sintetis hanya boleh dimuat secara eksplisit (untuk demo/dev lokal)
     ALLOW_SYNTHETIC_MARKETS: bool = False
 
@@ -73,6 +81,28 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/app.log"
     APP_ENV: str = "development"
+
+
+DEFAULT_DB_PASSWORDS = {"postgres", "password", "changeme", ""}
+
+
+def validate_production_settings(config: "Settings") -> None:
+    """
+    Fail-fast saat APP_ENV=production: tolak start jika password database masih default
+    atau dashboard tidak dilindungi password.
+    """
+    if config.APP_ENV.strip().lower() != "production":
+        return
+    from sqlalchemy.engine import make_url
+
+    problems = []
+    url = make_url(config.DATABASE_URL)
+    if url.get_backend_name() == "postgresql" and (url.password or "") in DEFAULT_DB_PASSWORDS:
+        problems.append("password database (DATABASE_URL / POSTGRES_PASSWORD) masih default")
+    if not config.DASHBOARD_PASSWORD:
+        problems.append("DASHBOARD_PASSWORD belum diatur")
+    if problems:
+        raise RuntimeError("Konfigurasi produksi tidak aman: " + "; ".join(problems) + ".")
 
 
 # Singleton instance untuk kemudahan import: `from app.core.config import settings`

@@ -28,7 +28,7 @@ from app.paper_service import (
     reset_paper_account,
     sell_paper_position,
 )
-from app.paper_trading.models import MarketSnapshot
+from app.paper_trading.models import MarketLatest, MarketSnapshot
 
 
 def add_snapshot(market_id, price_yes, name=None, minutes_ago=0, hours_to_resolution=5, **extra):
@@ -129,6 +129,7 @@ class TestPolymarketPositionsAndTrading:
         """Tanpa snapshot harga, penjualan tidak boleh memakai harga karangan."""
         db = get_db_session()
         db.query(MarketSnapshot).filter(MarketSnapshot.market_id == "0xnyc").delete()
+        db.query(MarketLatest).filter(MarketLatest.market_id == "0xnyc").delete()
         db.commit()
         db.close()
         with pytest.raises(ValueError) as exc:
