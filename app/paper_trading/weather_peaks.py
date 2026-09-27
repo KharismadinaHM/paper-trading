@@ -331,6 +331,7 @@ def filter_peak_time_suggestions(
             "price_no": float(price_no) if price_no is not None else None,
             "outcome_yes_label": _get(m, "outcome_yes_label") or "Yes",
             "outcome_no_label": _get(m, "outcome_no_label") or "No",
+            "volume": _float_or_none(_get(m, "volume")),
             "polymarket_url": _get(m, "polymarket_url") or "",
         })
 
@@ -338,11 +339,37 @@ def filter_peak_time_suggestions(
     for e in results:
         e["markets"].sort(key=lambda x: -(x["price_yes"] or 0))
         e["market_count"] = len(e["markets"])
+        e["volume"] = sum(x["volume"] or 0 for x in e["markets"])
     # Urutkan berdasarkan waktu absolut (string ISO dengan offset berbeda tidak bisa dibandingkan)
     results.sort(key=lambda e: (e["_sort"], e["city"], e["kind"]))
     for e in results:
         e.pop("_sort")
     return results
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def top_cities_by_volume(markets: Iterable[Any], limit: int, now: Optional[datetime] = None) -> Optional[List[str]]:
+    """
+    Kota dengan total volume market suhu open terbesar (semua tanggal, tertinggi + terendah),
+    urut dari yang terbesar. Mengembalikan None jika belum ada data volume sama sekali (mis.
+    collector belum sempat mengisi kolom volume) supaya pemanggil tidak menyaring semuanya.
+    """
+    now = now or _utcnow()
+    now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    totals: Dict[str, float] = {}
+    for m, _, parsed in _open_temperature_markets(markets, now):
+        city = resolve_city(parsed.city)
+        totals[city] = totals.get(city, 0.0) + (_float_or_none(_get(m, "volume")) or 0.0)
+    if not any(totals.values()):
+        return None
+    ranked = sorted(totals, key=lambda c: (-totals[c], c))
+    return ranked[:limit] if limit > 0 else ranked
 
 
 def upcoming_recommendation_windows(

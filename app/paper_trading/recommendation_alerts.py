@@ -3,10 +3,11 @@ Notifikasi Telegram untuk rekomendasi market suhu (jendela menjelang jam puncak 
 
 Dijalankan setiap siklus Market Collector: event yang baru masuk jendela rekomendasi dikirim
 sebagai satu pesan daftar, lalu dicatat di tabel recommendation_alerts agar tidak terkirim dua
-kali (juga setelah restart). Format per event:
+kali (juga setelah restart). Hanya kota dengan total volume market suhu terbesar
+(TELEGRAM_RECOMMENDATION_TOP_CITIES, default 7) yang dikirim. Format per event:
 
     BUY #Paris di suhu 28°C (YES) in odd 56.8¢ peak hour akan terjadi di jam 21:15–22:15 WIB.
-       Suhu tertinggi · puncak 16:15–17:15 waktu lokal
+       Suhu tertinggi · puncak 16:15–17:15 waktu lokal · Vol $12K
        Alternatif: 27°C (22¢), 29°C (15¢)
 """
 import re
@@ -36,6 +37,33 @@ def _format_odd(price: Optional[float]) -> str:
     return f"{cents:.0f}¢" if cents.is_integer() else f"{cents:.1f}¢"
 
 
+def _format_volume(volume: Optional[float]) -> str:
+    volume = float(volume or 0)
+    if volume >= 1_000_000:
+        return f"${volume / 1_000_000:.1f}M"
+    if volume >= 1_000:
+        return f"${volume / 1_000:.0f}K"
+    return f"${volume:.0f}"
+
+
+def top_volume_events(events: List[Dict[str, Any]], now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """
+    Saring event ke kota-kota dengan total volume market suhu terbesar (seluruh market suhu open,
+    bukan hanya yang sedang di jendela), sehingga daftar kotanya stabil sepanjang hari.
+    Jika data volume belum tersedia, event tidak disaring.
+    """
+    limit = settings.TELEGRAM_RECOMMENDATION_TOP_CITIES
+    if limit <= 0 or not events:
+        return events
+    from app.paper_service import get_top_volume_cities
+
+    top = get_top_volume_cities(limit, now=now)
+    if top is None:
+        return events
+    allowed = set(top)
+    return [e for e in events if e["city"] in allowed]
+
+
 def format_recommendation(event: Dict[str, Any], now: Optional[datetime] = None) -> str:
     """
     Per event: kalimat BUY berisi saran suhu (bracket peluang YES tertinggi) dan jam puncak dalam
@@ -59,7 +87,8 @@ def format_recommendation(event: Dict[str, Any], now: Optional[datetime] = None)
         f"in odd {_format_odd(top.get('price_yes'))} "
         f"peak hour akan terjadi di jam {peak_start:%H:%M}–{peak_end:%H:%M} {label}{day_note}.",
         f"   {KIND_LABELS.get(event['kind'], event['kind']).capitalize()} · "
-        f"puncak {peak_start_city:%H:%M}–{peak_end_city:%H:%M} waktu lokal",
+        f"puncak {peak_start_city:%H:%M}–{peak_end_city:%H:%M} waktu lokal"
+        + (f" · Vol {_format_volume(event['volume'])}" if event.get("volume") else ""),
     ]
     alternatives = [m for m in markets[1:3] if m.get("price_yes") is not None]
     if alternatives:
@@ -94,7 +123,7 @@ def send_new_recommendation_alerts(now: Optional[datetime] = None) -> List[str]:
     from app.paper_service import get_market_suggestions
     from app.paper_trading.telegram import send_telegram_message
 
-    events = [e for e in get_market_suggestions(now=now) if e.get("markets")]
+    events = top_volume_events([e for e in get_market_suggestions(now=now) if e.get("markets")], now=now)
     if not events:
         return []
 

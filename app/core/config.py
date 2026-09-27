@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: Optional[str] = None
     # Kirim daftar rekomendasi saat kota masuk jendela menjelang jam puncak suhu
     TELEGRAM_RECOMMENDATION_ALERTS: bool = True
+    # Hanya kota dengan total volume market suhu terbesar yang dikirim ke Telegram (0 = semua kota)
+    TELEGRAM_RECOMMENDATION_TOP_CITIES: int = 7
     # Zona waktu jam di notifikasi (default WIB)
     NOTIFY_TIMEZONE: str = "Asia/Jakarta"
     NOTIFY_TIMEZONE_LABEL: str = "WIB"

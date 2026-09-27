@@ -204,15 +204,17 @@ def build_recommendations_message() -> str:
 
     from app.core.config import settings
     from app.paper_service import get_market_suggestions, get_recommendation_schedule
-    from app.paper_trading.recommendation_alerts import build_recommendation_message
+    from app.paper_trading.recommendation_alerts import build_recommendation_message, top_volume_events
 
-    events = [e for e in get_market_suggestions() if e.get("markets")]
+    events = top_volume_events([e for e in get_market_suggestions() if e.get("markets")])
     if events:
         return build_recommendation_message(events, title="🌡️ Rekomendasi aktif")
 
     tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
     lines = ["🌡️ Belum ada kota yang sedang menjelang jam puncak suhu.", "", "Jendela berikutnya:"]
-    for w in get_recommendation_schedule(limit=5):
+    schedule = get_recommendation_schedule(limit=200)
+    cities = {w["city"] for w in top_volume_events(schedule)}  # hanya kota bervolume besar
+    for w in [w for w in schedule if w["city"] in cities][:5]:
         start = datetime.fromisoformat(w["starts_at"]).astimezone(tz)
         kind = "tertinggi" if w["kind"] == "highest" else "terendah"
         lines.append(f"• {w['city']} ({kind}) mulai {start:%H:%M} {settings.NOTIFY_TIMEZONE_LABEL} — {w['starts_in']}")

@@ -27,6 +27,7 @@ from app.market_collector.categories import (
     get_category,
 )
 from app.paper_trading.models import (
+    LATEST_ONLY_FIELDS,
     MARKET_DATA_FIELDS,
     MarketLatest,
     MarketResolution,
@@ -180,8 +181,24 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "current_price": current_price,
         "outcome_yes_label": yes_label,
         "outcome_no_label": no_label,
+        "volume": _parse_volume(m),
         "timestamp": datetime.now(timezone.utc),
     }
+
+
+def _parse_volume(m: Dict[str, Any]) -> Optional[Decimal]:
+    """Volume trading kumulatif market (USD); Gamma mengirim volumeNum (angka) dan volume (string)."""
+    for key in ("volumeNum", "volume"):
+        raw = m.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = Decimal(str(raw))
+        except Exception:
+            continue
+        if value.is_finite() and value >= 0:
+            return value.quantize(Decimal("0.01"))
+    return None
 
 
 def _fetch_json(url: str, headers: Dict[str, str], timeout: int = 15) -> Any:
@@ -670,10 +687,15 @@ def record_market_observations(
             if changed or last_hist is None or m["timestamp"] - last_hist >= heartbeat:
                 history_rows.append(m)
             else:
-                refresh_rows.append({f: m.get(f) for f in MARKET_DATA_FIELDS})
+                refresh_rows.append({f: m.get(f) for f in MARKET_DATA_FIELDS + LATEST_ONLY_FIELDS})
 
         if history_rows:
             save_snapshots(history_rows, session=db)  # market_latest ikut diperbarui oleh listener
+            # Listener hanya membawa kolom histori; kolom khusus market_latest (volume) diisi di sini
+            refresh_rows.extend(
+                {f: m.get(f) for f in MARKET_DATA_FIELDS + LATEST_ONLY_FIELDS}
+                for m in history_rows if any(m.get(f) is not None for f in LATEST_ONLY_FIELDS)
+            )
         if refresh_rows:
             for i in range(0, len(refresh_rows), 500):
                 upsert_market_latest(db.connection(), refresh_rows[i:i + 500], history_written=False)

@@ -312,3 +312,22 @@ class TestServiceAndApi:
         with patch("app.paper_trading.weather_peaks._utcnow", return_value=self.NOW):
             assert [e["city"] for e in get_market_suggestions_api()] == ["Hong Kong"]
             assert get_recommendation_schedule_api()[0]["active"] is True
+
+
+class TestTopCitiesByVolume:
+
+    def test_ranks_cities_by_total_volume_of_open_markets(self):
+        markets = [
+            {**market(HK_HIGH, market_id="0x1", end_date=END_SEP26), "volume": 100},
+            {**market(HK_HIGH.replace("31°C or higher", "30°C"), market_id="0x2", end_date=END_SEP26), "volume": 100},
+            {**market(LA_LOW, market_id="0x3", end_date=END_SEP26), "volume": 150},
+            {**market(LA_LOW.replace("60-61", "62-63"), market_id="0x4", status="resolved", end_date=END_SEP26),
+             "volume": 10_000},  # resolved tidak dihitung
+        ]
+        now = datetime(2026, 9, 26, 0, 0, tzinfo=UTC)
+        assert wp.top_cities_by_volume(markets, limit=7, now=now) == ["Hong Kong", "Los Angeles"]
+        assert wp.top_cities_by_volume(markets, limit=1, now=now) == ["Hong Kong"]
+
+    def test_none_without_volume_data(self):
+        now = datetime(2026, 9, 26, 0, 0, tzinfo=UTC)
+        assert wp.top_cities_by_volume([market(HK_HIGH, end_date=END_SEP26)], limit=7, now=now) is None

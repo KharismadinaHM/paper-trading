@@ -69,6 +69,11 @@ class TestFormatting:
         text = format_recommendation(event("Los Angeles", peak_start="2026-09-26T15:00:00-07:00"), now=NOW)
         assert "di jam 05:00–06:00 WIB (27 Sep)." in text
 
+    def test_volume_shown_on_detail_line(self):
+        ev = {**event(), "volume": 12_345}
+        assert format_recommendation(ev, now=NOW).split("\n")[1].strip() == (
+            "Suhu tertinggi · puncak 14:00–15:00 waktu lokal · Vol $12K")
+
     def test_whole_cent_odds_without_decimal(self):
         assert "in odd 57¢" in format_recommendation(event(price=0.57), now=NOW)
 
@@ -115,6 +120,25 @@ class TestSending:
             with patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": True}):
                 assert send_new_recommendation_alerts(now=NOW) == ["Hong Kong|highest|2026-09-26"]
 
+    def test_only_top_volume_cities_are_sent(self):
+        sent = []
+        with patch("app.paper_service.get_market_suggestions",
+                   return_value=[event(), event("Madrid"), event("Tokyo")]), \
+             patch("app.paper_service.get_top_volume_cities", return_value=["Tokyo", "Hong Kong"]), \
+             patch("app.paper_trading.telegram.send_telegram_message",
+                   side_effect=lambda text, **kw: sent.append(text) or {"success": True}):
+            assert send_new_recommendation_alerts(now=NOW) == ["Hong Kong|highest|2026-09-26", "Tokyo|highest|2026-09-26"]
+        assert "#Madrid" not in sent[0]
+        # Madrid tidak dicatat, sehingga tetap bisa dikirim bila nanti masuk 7 besar
+        assert self._alerts() == {"Hong Kong|highest|2026-09-26", "Tokyo|highest|2026-09-26"}
+
+    def test_top_cities_setting_zero_sends_all(self, monkeypatch):
+        monkeypatch.setattr(settings, "TELEGRAM_RECOMMENDATION_TOP_CITIES", 0)
+        with patch("app.paper_service.get_market_suggestions", return_value=[event(), event("Madrid")]), \
+             patch("app.paper_service.get_top_volume_cities", return_value=["Tokyo"]), \
+             patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": True}):
+            assert len(send_new_recommendation_alerts(now=NOW)) == 2
+
     def test_disabled_setting_sends_nothing(self, monkeypatch):
         monkeypatch.setattr(settings, "TELEGRAM_RECOMMENDATION_ALERTS", False)
         with patch("app.paper_service.get_market_suggestions", return_value=[event()]), \
@@ -137,6 +161,12 @@ class TestBotCommand:
              patch("app.paper_service.get_recommendation_schedule", return_value=schedule):
             reply = handle_incoming_message("/rekomendasi", sender_chat_id="1", allowed_chat_id="1")
         assert "Tokyo (tertinggi) mulai 09:15 WIB" in reply
+
+    def test_rekomendasi_only_lists_top_volume_cities(self):
+        with patch("app.paper_service.get_market_suggestions", return_value=[event(), event("Madrid")]), \
+             patch("app.paper_service.get_top_volume_cities", return_value=["Madrid"]):
+            reply = handle_incoming_message("/rekomendasi", sender_chat_id="1", allowed_chat_id="1")
+        assert "#Madrid" in reply and "#HongKong" not in reply
 
     def test_help_mentions_command(self):
         assert "/rekomendasi" in handle_incoming_message("/help", sender_chat_id="1", allowed_chat_id="1")

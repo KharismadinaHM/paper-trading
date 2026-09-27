@@ -243,3 +243,26 @@ class TestMarketLatestAndHistory:
             assert {r.market_id for r in db.query(MarketLatest)} == {"0xfresh"}
         finally:
             db.close()
+
+    def test_volume_stored_on_latest_without_forcing_history(self):
+        from app.market_collector.collector import record_market_observations
+        from app.paper_service import get_market_by_id
+        t0 = datetime.now(timezone.utc) - timedelta(minutes=20)
+        # baris baru (lewat histori + listener) tetap mendapat volume
+        record_market_observations([{**self._market(now=t0), "volume": Decimal("1500.00")}], now=t0)
+        assert get_market_by_id("0xm")["volume"] == 1500.0
+        # volume berubah tapi harga sama → tidak ada baris histori baru, volume tetap diperbarui
+        t1 = t0 + timedelta(minutes=5)
+        assert record_market_observations([{**self._market(now=t1), "volume": Decimal("2500.00")}], now=t1)["history_rows"] == 0
+        assert get_market_by_id("0xm")["volume"] == 2500.0
+        # observasi tanpa volume tidak menghapus nilai lama
+        t2 = t1 + timedelta(minutes=5)
+        record_market_observations([self._market(price="0.45", now=t2)], now=t2)
+        assert get_market_by_id("0xm")["volume"] == 2500.0
+
+    def test_parse_market_dict_reads_volume(self):
+        from app.market_collector.collector import parse_market_dict
+        base = {"conditionId": "0x1", "question": "Q?", "outcomes": '["Yes","No"]', "outcomePrices": '["0.4","0.6"]'}
+        assert parse_market_dict({**base, "volumeNum": 1234.567})["volume"] == Decimal("1234.57")
+        assert parse_market_dict({**base, "volume": "99.5"})["volume"] == Decimal("99.50")
+        assert parse_market_dict(base)["volume"] is None

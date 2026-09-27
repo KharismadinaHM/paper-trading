@@ -41,7 +41,11 @@ from app.paper_trading.settlement_engine import (
     evaluate_risk_and_rules,
 )
 from app.paper_trading.suggestions import search_markets
-from app.paper_trading.weather_peaks import filter_peak_time_suggestions, upcoming_recommendation_windows
+from app.paper_trading.weather_peaks import (
+    filter_peak_time_suggestions,
+    top_cities_by_volume,
+    upcoming_recommendation_windows,
+)
 
 logger = get_logger("paper_service")
 
@@ -567,6 +571,7 @@ def _format_market_snapshot(
         "current_price": current_price,
         "outcome_yes_label": snapshot.outcome_yes_label or "Yes",
         "outcome_no_label": snapshot.outcome_no_label or "No",
+        "volume": float(snapshot.volume) if getattr(snapshot, "volume", None) is not None else None,
         "timestamp": snap_ts,
         "is_stale": is_stale,
         "polymarket_url": get_polymarket_url(str(snapshot.market_id), str(snapshot.market_name)),
@@ -624,6 +629,11 @@ def get_market_suggestions(
     """
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
     return filter_peak_time_suggestions(markets=raw_markets, min_price=min_price, max_price=max_price, now=now)
+
+
+def get_top_volume_cities(limit: int, now: Optional[datetime] = None) -> Optional[List[str]]:
+    """Kota dengan total volume market suhu open terbesar; None jika data volume belum ada."""
+    return top_cities_by_volume(get_market_snapshots(now=now, include_resolved=False), limit=limit, now=now)
 
 
 def get_recommendation_schedule(now: Optional[datetime] = None, limit: int = 10) -> List[Dict[str, Any]]:

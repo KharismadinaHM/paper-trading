@@ -208,6 +208,9 @@ MARKET_DATA_FIELDS = (
     "timestamp",
 )
 
+# Kolom yang hanya ada di market_latest (tidak ikut histori market_snapshots)
+LATEST_ONLY_FIELDS = ("volume",)
+
 
 class MarketLatest(Base):
     """
@@ -230,6 +233,9 @@ class MarketLatest(Base):
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="Weather")
     outcome_yes_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     outcome_no_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Volume trading kumulatif (USD) dari Gamma. Hanya disimpan di sini, bukan di histori:
+    # volume berubah hampir setiap siklus dan akan membatalkan penulisan histori hemat.
+    volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 2), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_snapshot_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -253,9 +259,13 @@ def upsert_market_latest(connection, rows, history_written: bool) -> None:
     insert_fn = postgresql.insert if dialect == "postgresql" else sqlite.insert
     stmt = insert_fn(MarketLatest.__table__).values(rows)
     update_cols = {f: stmt.excluded[f] for f in MARKET_DATA_FIELDS if f != "market_id"}
+    table = MarketLatest.__table__
+    for f in LATEST_ONLY_FIELDS:
+        if any(f in r for r in rows):
+            # Baris tanpa nilai (mis. dari listener histori) tidak menghapus nilai lama
+            update_cols[f] = func.coalesce(stmt.excluded[f], table.c[f])
     if history_written:
         update_cols["last_snapshot_at"] = stmt.excluded.last_snapshot_at
-    table = MarketLatest.__table__
     stmt = stmt.on_conflict_do_update(
         index_elements=[table.c.market_id],
         set_=update_cols,
