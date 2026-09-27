@@ -150,6 +150,7 @@ def get_dashboard(request: Request, strategy: Optional[str] = None):
             "positions": positions,
             "trades": trades,
             "suggested_markets": suggested_markets,
+            "default_top_cities": settings.TELEGRAM_RECOMMENDATION_TOP_CITIES,
             "chart_labels": chart_labels,
             "chart_balances": chart_balances,
             "chart_equities": chart_equities,

@@ -180,3 +180,21 @@ def test_suggestions_section_is_between_positions_and_weather():
     suggestions = html.index('id="suggestedMarketsContainer"')
     weather = html.index('id="weatherEventsContainer"')
     assert positions < suggestions < weather
+
+
+def test_dashboard_has_top_volume_filter_with_configured_default(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.dashboard import app
+    monkeypatch.setattr(settings, "TELEGRAM_RECOMMENDATION_TOP_CITIES", 5)
+    html = TestClient(app).get("/").text
+    assert 'id="suggestionsTopFilter"' in html and 'data-default="5"' in html
+
+
+def test_suggestions_carry_city_volume_rank():
+    from app.paper_service import get_market_suggestions
+    raw = [{"market_name": "x", "volume": 1}]
+    with patch("app.paper_service.get_market_snapshots", return_value=raw), \
+         patch("app.paper_service.filter_peak_time_suggestions", return_value=[event(), event("Madrid"), event("Oslo")]), \
+         patch("app.paper_service.top_cities_by_volume", return_value=["Madrid", "Hong Kong"]):
+        ranks = {e["city"]: e["city_volume_rank"] for e in get_market_suggestions(now=NOW)}
+    assert ranks == {"Madrid": 1, "Hong Kong": 2, "Oslo": None}

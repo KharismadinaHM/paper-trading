@@ -628,7 +628,17 @@ def get_market_suggestions(
     menjelang jam puncak suhu lokal kotanya. Tanpa filter harga kecuali min/max diberikan.
     """
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
-    return filter_peak_time_suggestions(markets=raw_markets, min_price=min_price, max_price=max_price, now=now)
+    events = filter_peak_time_suggestions(markets=raw_markets, min_price=min_price, max_price=max_price, now=now)
+    return _with_city_volume_rank(events, raw_markets, now)
+
+
+def _with_city_volume_rank(items: List[Dict[str, Any]], raw_markets, now: Optional[datetime]) -> List[Dict[str, Any]]:
+    """city_volume_rank = peringkat kota menurut total volume market suhu (1 = terbesar; None tanpa data)."""
+    ranking = top_cities_by_volume(raw_markets, limit=0, now=now) or []
+    rank = {city: i for i, city in enumerate(ranking, start=1)}
+    for item in items:
+        item["city_volume_rank"] = rank.get(item["city"])
+    return items
 
 
 def get_top_volume_cities(limit: int, now: Optional[datetime] = None) -> Optional[List[str]]:
@@ -638,7 +648,8 @@ def get_top_volume_cities(limit: int, now: Optional[datetime] = None) -> Optiona
 
 def get_recommendation_schedule(now: Optional[datetime] = None, limit: int = 10) -> List[Dict[str, Any]]:
     """Jadwal jendela rekomendasi berikutnya per kota (untuk ditampilkan saat belum ada yang aktif)."""
-    return upcoming_recommendation_windows(get_market_snapshots(now=now, include_resolved=False), now=now, limit=limit)
+    raw_markets = get_market_snapshots(now=now, include_resolved=False)
+    return _with_city_volume_rank(upcoming_recommendation_windows(raw_markets, now=now, limit=limit), raw_markets, now)
 
 
 def search_market_snapshots(
