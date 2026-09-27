@@ -360,16 +360,47 @@ def top_cities_by_volume(markets: Iterable[Any], limit: int, now: Optional[datet
     urut dari yang terbesar. Mengembalikan None jika belum ada data volume sama sekali (mis.
     collector belum sempat mengisi kolom volume) supaya pemanggil tidak menyaring semuanya.
     """
+    summary = city_volume_summary(markets, now=now)
+    if not summary:
+        return None
+    ranked = [s["city"] for s in summary]
+    return ranked[:limit] if limit > 0 else ranked
+
+
+def city_volume_summary(markets: Iterable[Any], now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """
+    Total volume market suhu open per kota (semua tanggal), dipecah tertinggi/terendah, urut
+    dari yang terbesar. Kosong jika belum ada data volume sama sekali.
+    """
     now = now or _utcnow()
     now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
-    totals: Dict[str, float] = {}
+    cities: Dict[str, Dict[str, Any]] = {}
     for m, _, parsed in _open_temperature_markets(markets, now):
         city = resolve_city(parsed.city)
-        totals[city] = totals.get(city, 0.0) + (_float_or_none(_get(m, "volume")) or 0.0)
-    if not any(totals.values()):
+        row = cities.setdefault(city, {"city": city, "volume": 0.0, "highest": 0.0, "lowest": 0.0,
+                                       "market_count": 0})
+        volume = _float_or_none(_get(m, "volume")) or 0.0
+        row["volume"] += volume
+        row[parsed.kind] = row.get(parsed.kind, 0.0) + volume
+        row["market_count"] += 1
+    if not any(r["volume"] for r in cities.values()):
+        return []
+    return sorted(cities.values(), key=lambda r: (-r["volume"], r["city"]))
+
+
+def next_recommendation_window(city: str, kind: str, now: Optional[datetime] = None) -> Optional[RecommendationWindow]:
+    """Jendela rekomendasi hari ini (waktu lokal kota) atau besok jika hari ini sudah lewat."""
+    now = now or _utcnow()
+    now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    tz = city_timezone(city)
+    if tz is None:
         return None
-    ranked = sorted(totals, key=lambda c: (-totals[c], c))
-    return ranked[:limit] if limit > 0 else ranked
+    today = now.astimezone(tz).date()
+    for d in (today, today + timedelta(days=1)):
+        window = recommendation_window(city, kind, d)
+        if window is not None and window.end > now:
+            return window
+    return None
 
 
 def upcoming_recommendation_windows(

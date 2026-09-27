@@ -60,6 +60,7 @@ def build_help_message() -> str:
         "📜 `/trades` - Riwayat 5 transaksi terakhir yang selesai\n"
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
+        "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
         "❓ `/help` - Tampilkan panduan ini\n\n"
         "💡 _Notifikasi otomatis sinyal BUY, rekomendasi jam puncak, dan Settlement dikirim ke chat ini secara real-time._"
@@ -223,6 +224,40 @@ def build_recommendations_message() -> str:
     return "\n".join(lines)
 
 
+def build_volume_message(limit: Optional[int] = None) -> str:
+    """Top kota menurut total volume market suhu open, beserta jam beli & puncak berikutnya (WIB)."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from app.core.config import settings
+    from app.paper_service import get_city_volume_summary
+    from app.paper_trading.recommendation_alerts import _format_volume, city_hashtag
+    from app.paper_trading.weather_peaks import next_recommendation_window
+
+    limit = limit or settings.TELEGRAM_RECOMMENDATION_TOP_CITIES or 7
+    rows = get_city_volume_summary(limit=limit)
+    if not rows:
+        return ("🔥 Belum ada data volume market cuaca.\n\n"
+                "Data volume diisi oleh Market Collector; coba lagi setelah satu siklus (±5 menit).")
+
+    now = datetime.now(timezone.utc)
+    tz, label = ZoneInfo(settings.NOTIFY_TIMEZONE), settings.NOTIFY_TIMEZONE_LABEL
+    lines = [f"🔥 *Top {len(rows)} Volume · Market Cuaca*", ""]
+    for i, r in enumerate(rows, start=1):
+        lines.append(f"{i}. {city_hashtag(r['city'])} — {_format_volume(r['volume'])} "
+                     f"(max {_format_volume(r['highest'])} · min {_format_volume(r['lowest'])})")
+        for kind, name in (("highest", "Max"), ("lowest", "Min")):
+            w = next_recommendation_window(r["city"], kind, now=now)
+            if w is None:
+                continue
+            start, peak = w.start.astimezone(tz), w.peak_start.astimezone(tz)
+            day = "" if peak.date() == now.astimezone(tz).date() else f" ({peak:%d %b})"
+            status = "🟢 sedang jam beli" if w.contains(now) else f"beli {start:%H:%M}"
+            lines.append(f"   {name}: {status} · puncak {peak:%H:%M} {label}{day}")
+    lines += ["", "Volume = total volume semua market suhu yang masih buka di kota tersebut."]
+    return "\n".join(lines)
+
+
 def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Optional[str] = None) -> Optional[str]:
     """
     Memproses teks perintah dari pengguna dan menghasilkan respon balasan.
@@ -263,6 +298,9 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
         return build_performance_message(strategy=strat)
     elif cmd in ("/rekomendasi", "/recommendations"):
         return build_recommendations_message()
+    elif cmd in ("/volume", "/topvolume"):
+        limit = min(int(args[0]), 20) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return build_volume_message(limit=limit)
     elif cmd == "/ping":
         return "🏓 *Pong!*\nSistem Paper Trading aktif dan terhubung."
     else:

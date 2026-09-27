@@ -42,6 +42,7 @@ from app.paper_trading.settlement_engine import (
 )
 from app.paper_trading.suggestions import search_markets
 from app.paper_trading.weather_peaks import (
+    city_volume_summary,
     filter_peak_time_suggestions,
     top_cities_by_volume,
     upcoming_recommendation_windows,
@@ -644,6 +645,12 @@ def _with_city_volume_rank(items: List[Dict[str, Any]], raw_markets, now: Option
 def get_top_volume_cities(limit: int, now: Optional[datetime] = None) -> Optional[List[str]]:
     """Kota dengan total volume market suhu open terbesar; None jika data volume belum ada."""
     return top_cities_by_volume(get_market_snapshots(now=now, include_resolved=False), limit=limit, now=now)
+
+
+def get_city_volume_summary(limit: int = 7, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Kota dengan total volume market suhu open terbesar (dengan rincian tertinggi/terendah)."""
+    summary = city_volume_summary(get_market_snapshots(now=now, include_resolved=False), now=now)
+    return summary[:limit] if limit > 0 else summary
 
 
 def get_recommendation_schedule(now: Optional[datetime] = None, limit: int = 10) -> List[Dict[str, Any]]:

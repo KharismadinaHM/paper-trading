@@ -198,3 +198,33 @@ def test_suggestions_carry_city_volume_rank():
          patch("app.paper_service.top_cities_by_volume", return_value=["Madrid", "Hong Kong"]):
         ranks = {e["city"]: e["city_volume_rank"] for e in get_market_suggestions(now=NOW)}
     assert ranks == {"Madrid": 1, "Hong Kong": 2, "Oslo": None}
+
+
+class TestVolumeCommand:
+
+    SUMMARY = [
+        {"city": "Hong Kong", "volume": 125_000, "highest": 100_000, "lowest": 25_000, "market_count": 20},
+        {"city": "New York City", "volume": 8_000, "highest": 8_000, "lowest": 0, "market_count": 10},
+    ]
+
+    def test_lists_cities_with_volume_and_wib_times(self):
+        with patch("app.paper_service.get_city_volume_summary", return_value=self.SUMMARY) as fake:
+            reply = handle_incoming_message("/volume", sender_chat_id="1", allowed_chat_id="1")
+        fake.assert_called_once_with(limit=settings.TELEGRAM_RECOMMENDATION_TOP_CITIES)
+        assert "Top 2 Volume" in reply
+        assert "1. #HongKong — $125K (max $100K · min $25K)" in reply
+        assert "2. #NewYorkCity — $8K" in reply
+        assert reply.count("puncak") == 4 and "WIB" in reply
+
+    def test_custom_limit_capped_at_20(self):
+        with patch("app.paper_service.get_city_volume_summary", return_value=self.SUMMARY) as fake:
+            handle_incoming_message("/volume 50", sender_chat_id="1", allowed_chat_id="1")
+        fake.assert_called_once_with(limit=20)
+
+    def test_no_volume_data_message(self):
+        with patch("app.paper_service.get_city_volume_summary", return_value=[]):
+            reply = handle_incoming_message("/volume", sender_chat_id="1", allowed_chat_id="1")
+        assert "Belum ada data volume" in reply
+
+    def test_help_mentions_volume(self):
+        assert "/volume" in handle_incoming_message("/help", sender_chat_id="1", allowed_chat_id="1")

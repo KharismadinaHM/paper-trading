@@ -331,3 +331,23 @@ class TestTopCitiesByVolume:
     def test_none_without_volume_data(self):
         now = datetime(2026, 9, 26, 0, 0, tzinfo=UTC)
         assert wp.top_cities_by_volume([market(HK_HIGH, end_date=END_SEP26)], limit=7, now=now) is None
+
+
+class TestCityVolumeSummary:
+
+    def test_splits_volume_by_kind(self):
+        markets = [
+            {**market(HK_HIGH, market_id="0x1", end_date=END_SEP26), "volume": 100},
+            {**market(HK_HIGH.replace("highest", "lowest"), market_id="0x2", end_date=END_SEP26), "volume": 40},
+            {**market(LA_LOW, market_id="0x3", end_date=END_SEP26), "volume": 30},
+        ]
+        rows = wp.city_volume_summary(markets, now=datetime(2026, 9, 26, 0, 0, tzinfo=UTC))
+        assert [(r["city"], r["volume"], r["highest"], r["lowest"], r["market_count"]) for r in rows] == [
+            ("Hong Kong", 140, 100, 40, 2), ("Los Angeles", 30, 0, 30, 1)]
+
+    def test_next_window_rolls_to_tomorrow_after_today_passed(self):
+        # Hong Kong highest: jendela 12:00–13:00 HKT; pukul 20:00 HKT → jendela besok
+        w = wp.next_recommendation_window("Hong Kong", "highest", now=datetime(2026, 9, 26, 12, 0, tzinfo=UTC))
+        assert w.start.date() == date(2026, 9, 27)
+        w = wp.next_recommendation_window("Hong Kong", "highest", now=datetime(2026, 9, 26, 1, 0, tzinfo=UTC))
+        assert w.start.date() == date(2026, 9, 26)
