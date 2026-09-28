@@ -323,7 +323,7 @@ def build_current_temp_message(query: Optional[str] = None) -> str:
 
     from app.core.config import settings
     from app.paper_service import get_city_stations, get_city_volume_summary
-    from app.paper_trading.live_market_data import station_day_summary
+    from app.paper_trading.live_market_data import station_report
     from app.paper_trading.recommendation_alerts import city_hashtag, format_temp
     from app.paper_trading.weather_peaks import city_timezone
 
@@ -336,7 +336,7 @@ def build_current_temp_message(query: Optional[str] = None) -> str:
     def summary(city):
         tz = city_timezone(city)
         info = stations[city]
-        return tz, (station_day_summary(info["station"], tz, info["unit"], now=now) if tz else None)
+        return tz, (station_report(info["station"], tz, info["unit"], now=now, city=city) if tz else None)
 
     def stale(s):
         return s.get("current_at") is not None and now - s["current_at"] > timedelta(minutes=90)
@@ -359,8 +359,18 @@ def build_current_temp_message(query: Optional[str] = None) -> str:
             + (f" ({s['max_at']:%H:%M})" if s.get("max_at") else "")
             + f" · min {format_temp(s['min'], s['unit'])}" + (f" ({s['min_at']:%H:%M})" if s.get("min_at") else ""),
             f"Jam lokal sekarang: {now.astimezone(tz):%H:%M}",
-            f"Sumber: {s['url']}",
         ]
+        if s.get("condition"):
+            lines.append(f"Kondisi: {s['condition']['emoji']} {s['condition']['label']}")
+        conclusions = s.get("conclusion") or {}
+        if conclusions.get("highest") or conclusions.get("lowest"):
+            lines.append("")
+            lines.append("🧭 *Kesimpulan*")
+            for kind, name in (("highest", "Tertinggi"), ("lowest", "Terendah")):
+                if conclusions.get(kind):
+                    lines.append(f"• {name}: {conclusions[kind]}")
+            lines.append("_Perkiraan dari prakiraan Open-Meteo yang dikoreksi observasi stasiun — bukan kepastian._")
+        lines += ["", f"Sumber: {s['url']}"]
         return "\n".join(lines)
 
     top = [r["city"] for r in get_city_volume_summary(limit=settings.TELEGRAM_RECOMMENDATION_TOP_CITIES or 7)]
@@ -374,10 +384,16 @@ def build_current_temp_message(query: Optional[str] = None) -> str:
             continue
         at = f" {s['current_at']:%H:%M}" if s.get("current_at") else ""
         source = s["source"] if station == s["source"] else f"{s['source']} · {station}"
-        lines.append(f"{i}. {city_hashtag(city)} — *{format_temp(s['current'], s['unit'])}* ({source}{at})"
-                     f" · max {format_temp(s['max'], s['unit'])} · min {format_temp(s['min'], s['unit'])}"
+        emoji = f"{s['condition']['emoji']} " if s.get("condition") else ""
+        trend = f" {'↗' if s['trend'] > 0 else '↘'}{s['trend']:+.1f}°/j" if s.get("trend") not in (None, 0) else ""
+        out = (s.get("outlook") or {}).get("highest")
+        forecast = (f" · perkiraan max ±{out['value']:.0f}°{s['unit']} ~{out['at']:%H:%M}"
+                    if out and not out["passed"] and out.get("at") else "")
+        lines.append(f"{i}. {city_hashtag(city)} — {emoji}*{format_temp(s['current'], s['unit'])}*{trend} ({source}{at})"
+                     f" · max {format_temp(s['max'], s['unit'])} · min {format_temp(s['min'], s['unit'])}{forecast}"
                      + (" ⚠️" if stale(s) else ""))
-    lines += ["", "Jam = waktu lokal kota. Max/min sejak 00:00 lokal. Detail & link sumber: `/suhu <kota>`."]
+    lines += ["", "Jam = waktu lokal kota. Max/min sejak 00:00 lokal; °/j = laju 3 jam terakhir. "
+              "Kondisi & kesimpulan lengkap: `/suhu <kota>`."]
     return "\n".join(lines)
 
 

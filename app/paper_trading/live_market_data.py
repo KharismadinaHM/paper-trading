@@ -135,22 +135,27 @@ def _parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def fetch_metar_observations(stations: Iterable[str]) -> Dict[str, List[tuple]]:
-    """{ICAO: [(utc_datetime, temp_c), ...]} 30 jam terakhir."""
+def _fetch_metar(stations: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+    """{ICAO: {"obs": [(utc_datetime, temp_c), ...], "latest": laporan METAR terbaru}} 30 jam terakhir."""
     ids = sorted({s for s in stations if s and s != "HKO"})
     if not ids:
         return {}
 
     def load():
-        out: Dict[str, List[tuple]] = {}
+        out: Dict[str, Dict[str, Any]] = {}
         for i in range(0, len(ids), 40):
             url = f"{METAR_URL}?ids={','.join(ids[i:i + 40])}&hours=30&format=json"
             for row in json.loads(_http(url) or "[]"):
                 if row.get("temp") is None or not row.get("reportTime"):
                     continue
-                out.setdefault(str(row["icaoId"]).upper(), []).append((_parse_time(row["reportTime"]), float(row["temp"])))
-        for rows in out.values():
-            rows.sort()
+                ts = _parse_time(row["reportTime"])
+                entry = out.setdefault(str(row["icaoId"]).upper(), {"obs": [], "latest": None})
+                entry["obs"].append((ts, float(row["temp"])))
+                if entry["latest"] is None or ts > _parse_time(entry["latest"]["reportTime"]):
+                    entry["latest"] = {k: row.get(k) for k in ("reportTime", "cover", "wxString", "lat", "lon",
+                                                             "name", "rawOb")}
+        for entry in out.values():
+            entry["obs"].sort()
         return out
 
     try:
@@ -158,6 +163,16 @@ def fetch_metar_observations(stations: Iterable[str]) -> Dict[str, List[tuple]]:
     except Exception as err:
         logger.warning("Gagal mengambil METAR: %s", err)
         return {}
+
+
+def fetch_metar_observations(stations: Iterable[str]) -> Dict[str, List[tuple]]:
+    """{ICAO: [(utc_datetime, temp_c), ...]} 30 jam terakhir."""
+    return {station: entry["obs"] for station, entry in _fetch_metar(stations).items()}
+
+
+def fetch_metar_latest(stations: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+    """{ICAO: laporan METAR terbaru (cover, wxString, lat, lon, …)}."""
+    return {station: entry["latest"] for station, entry in _fetch_metar(stations).items() if entry["latest"]}
 
 
 def fetch_hko_observation() -> Optional[Dict[str, Any]]:
@@ -171,6 +186,8 @@ def fetch_hko_observation() -> Optional[Dict[str, Any]]:
                               max=float(row[2]), min=float(row[3]))
         try:
             current = json.loads(_http(HKO_CURRENT_URL))
+            icons = current.get("icon") or []
+            result["icon"] = int(icons[0]) if icons else None
             for item in (current.get("temperature") or {}).get("data", []):
                 if item.get("place") == "Hong Kong Observatory":
                     result["current"] = float(item["value"])
@@ -242,12 +259,70 @@ def station_day_summary(station: str, tz: ZoneInfo, unit: str, local_date: Optio
             "max": high["value"], "max_at": high["at"], "min": low["value"], "min_at": low["at"]}
 
 
+def station_report(station: str, tz: ZoneInfo, unit: str, now: Optional[datetime] = None,
+                   city: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Ringkasan stasiun hari ini + kondisi cuaca, tren & perkiraan max/min (untuk /suhu)."""
+    now = now or datetime.now(timezone.utc)
+    summary = station_day_summary(station, tz, unit, now=now)
+    if summary is None:
+        return None
+    try:
+        add_weather_outlook(summary, ("highest", "lowest"), tz, now.astimezone(tz).date(), now=now, city=city)
+    except Exception as err:
+        logger.warning("Gagal membuat perkiraan cuaca %s: %s", station, err)
+    return summary
+
+
+def add_weather_outlook(summary: Dict[str, Any], kinds, tz: ZoneInfo, local_date: date,
+                        now: Optional[datetime] = None, city: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Lengkapi ringkasan stasiun dengan kondisi cuaca, tren suhu (°/jam), perkiraan max/min hari ini
+    dan kalimat kesimpulan: summary['condition'|'trend'|'outlook'|'conclusion'][kind].
+    """
+    from app.paper_trading import weather_outlook as wo
+
+    now = now or datetime.now(timezone.utc)
+    station, unit = summary["station"], summary["unit"]
+    if station == "HKO":
+        hko = fetch_hko_observation() or {}
+        condition, coords = wo.condition_from_hko(hko.get("icon")), wo.HKO_COORDS
+        rows = []
+    else:
+        latest = fetch_metar_latest([station]).get(station) or {}
+        condition = wo.condition_from_metar(latest) if latest else None
+        coords = (latest.get("lat"), latest.get("lon")) if latest.get("lat") is not None else None
+        # Tanpa pembulatan °F agar laju per jam tidak "bertangga"
+        rows = [(ts, t * 9 / 5 + 32 if unit == "F" else t)
+                for ts, t in fetch_metar_observations([station]).get(station, [])]
+    forecast = wo.fetch_hourly_forecast(*coords) if coords else []
+    trend = wo.temperature_trend(rows, now)
+    summary.update(condition=condition, trend=trend, outlook={}, conclusion={})
+    peak_passed = False
+    if city:
+        from app.paper_trading.weather_peaks import recommendation_window
+        window = recommendation_window(city, "highest", local_date)
+        peak_passed = (window is not None and now >= window.peak_end
+                       and (trend is None or trend <= 0.1) and (station == "HKO" or trend is not None))
+    for kind in kinds:
+        observed = summary.get("max") if kind == "highest" else summary.get("min")
+        observed_at = summary.get("max_at") if kind == "highest" else summary.get("min_at")
+        out = wo.outlook(kind, tz, local_date, observed, observed_at, summary.get("current"),
+                         summary.get("current_at"), forecast, unit, now, peak_passed_hint=peak_passed)
+        summary["outlook"][kind] = out
+        summary["conclusion"][kind] = wo.summarize(kind, unit, summary.get("current"), condition, trend, out,
+                                                   now.astimezone(tz))
+    return summary
+
+
 def event_unit(event: Dict[str, Any]) -> str:
     return "F" if any("°F" in str(m.get("bracket") or "") for m in event["markets"]) else "C"
 
 
 def apply_observations(events: List[Dict[str, Any]]) -> None:
-    """Tambahkan event['observation'] = {station, value, at, current, current_at, unit} bila ada."""
+    """
+    Tambahkan event['observation'] = {station, source, url, value, at, current, current_at, unit,
+    condition, trend, outlook, conclusion} bila ada data stasiun.
+    """
     from app.paper_trading.weather_peaks import city_timezone
 
     metar = fetch_metar_observations(e.get("station") for e in events)
@@ -269,6 +344,20 @@ def apply_observations(events: List[Dict[str, Any]]) -> None:
         obs = observed_extreme(e["kind"], event_unit(e), tz, local_date, metar.get(station, []))
         if obs:
             e["observation"] = {"station": station, "source": "NOAA", "url": station_url(station), **obs}
+    for e in events:
+        obs = e.get("observation")
+        if not obs:
+            continue
+        key = "max" if e["kind"] == "highest" else "min"
+        base = {"station": obs["station"], "unit": obs["unit"], "current": obs.get("current"),
+                "current_at": obs.get("current_at"), key: obs.get("value"), f"{key}_at": obs.get("at")}
+        try:
+            extra = add_weather_outlook(base, [e["kind"]], city_timezone(e["city"]), date.fromisoformat(e["local_date"]),
+                                        city=e["city"])
+            obs.update(condition=extra["condition"], trend=extra["trend"],
+                       outlook=extra["outlook"].get(e["kind"]), conclusion=extra["conclusion"].get(e["kind"]))
+        except Exception as err:
+            logger.warning("Gagal membuat perkiraan cuaca %s: %s", e["city"], err)
 
 
 def enrich_suggestions(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

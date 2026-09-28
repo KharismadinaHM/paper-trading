@@ -124,6 +124,8 @@ def format_recommendation(event: Dict[str, Any], now: Optional[datetime] = None)
     obs = event.get("observation")
     if obs:
         lines.append("   " + format_observation_line(obs, event["kind"]))
+        if obs.get("conclusion"):
+            lines.append(f"   🧭 {obs['conclusion']}")
         if obs.get("url"):
             lines.append(f"   {obs['url']}")
     alternatives = [m for m in markets[1:3] if entry_price(m) is not None]

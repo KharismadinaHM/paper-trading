@@ -155,7 +155,7 @@ class TestCurrentTempCommand:
     STATIONS = {"London": {"station": "EGLC", "unit": "C"}, "Hong Kong": {"station": "HKO", "unit": "C"},
                 "New York City": {"station": "KLGA", "unit": "F"}}
 
-    def _summary(self, station, tz, unit, local_date=None, now=None):
+    def _summary(self, station, tz, unit, local_date=None, now=None, city=None):
         now = datetime.now(timezone.utc)
         return {"station": station, "source": live.station_source(station), "url": live.station_url(station),
                 "unit": unit, "current": 15.0, "current_at": now.astimezone(tz), "max": 17.0,
@@ -164,7 +164,7 @@ class TestCurrentTempCommand:
     def test_list_of_top_volume_cities(self):
         with patch("app.paper_service.get_city_stations", return_value=self.STATIONS), \
              patch("app.paper_service.get_city_volume_summary", return_value=[{"city": "London"}, {"city": "Oslo"}]), \
-             patch.object(live, "station_day_summary", side_effect=self._summary):
+             patch.object(live, "station_report", side_effect=self._summary):
             reply = handle_incoming_message("/suhu", sender_chat_id="1", allowed_chat_id="1")
         assert "1. #London — *15°C* (NOAA · EGLC" in reply and "max 17°C · min 11°C" in reply
         assert "Oslo" not in reply  # tidak punya data stasiun
@@ -175,7 +175,7 @@ class TestCurrentTempCommand:
     ])
     def test_single_city_detail_with_source_link(self, query, city, station):
         with patch("app.paper_service.get_city_stations", return_value=self.STATIONS), \
-             patch.object(live, "station_day_summary", side_effect=self._summary):
+             patch.object(live, "station_report", side_effect=self._summary):
             reply = handle_incoming_message(f"/suhu {query}", sender_chat_id="1", allowed_chat_id="1")
         assert f"*{city}* — " in reply and station in reply
         assert "Sekarang: *15°" in reply and live.station_url(station) in reply

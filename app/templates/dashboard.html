@@ -1979,7 +1979,9 @@
                                 · ${obs.url && /^https:\/\//.test(obs.url)
                                     ? `<a class="text-info" href="${escapeHtml(obs.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(obs.source || 'NOAA')} ${escapeHtml(obs.station)} <i class="bi bi-box-arrow-up-right"></i></a>`
                                     : `${escapeHtml(obs.source || 'NOAA')} ${escapeHtml(obs.station)}`}
-                            </div>` : '';
+                            </div>${obs.conclusion ? `
+                            <div class="small text-muted-poly mb-2" title="Perkiraan dari prakiraan Open-Meteo yang dikoreksi observasi stasiun — bukan kepastian">
+                                <i class="bi bi-compass me-1"></i>${escapeHtml(obs.conclusion)}</div>` : ''}` : '';
                 const illiquid = ev.liquid === false ? `
                             <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Tidak ada bracket likuid — harga belum bisa dipercaya</div>` : '';
                 const source = ev.peak_source === 'data' ? 'jam puncak dari data historis kota'
