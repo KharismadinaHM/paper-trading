@@ -104,3 +104,13 @@ def test_peak_passed_hint_overrides_small_forecast_noise():
     out = wo.outlook("highest", SEOUL, D, observed=23.0, observed_at=at(11, 30), current=23.0, current_at=at(15),
                      forecast_c=FORECAST, unit="C", now=at(15, 30), peak_passed_hint=True)
     assert out["passed"] is True and out["value"] == 23.0
+
+
+def test_max_carried_from_midnight_is_explained():
+    # 26° tercatat 00:00; prakiraan siang (dikoreksi) hanya ±24.5° → max tetap 26°, dengan konteks
+    out = wo.outlook("highest", SEOUL, D, observed=26.0, observed_at=at(0).astimezone(SEOUL), current=23.0, current_at=at(12),
+                     forecast_c=FORECAST, unit="C", now=at(12, 10))
+    assert out["passed"] is True and out["reason"] == "forecast" and out["next_value"] == 24.5
+    text = wo.describe_outlook("highest", "C", 23.0, None, out, datetime(2026, 9, 28, 12, 10, tzinfo=SEOUL))
+    assert text == ("Max hari ini kemungkinan tetap 26°C (tercatat 00:00): perkiraan berikutnya ±24°C sekitar "
+                    "jam 14:00, tidak melebihi angka itu.")

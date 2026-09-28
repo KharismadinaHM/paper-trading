@@ -677,6 +677,59 @@ def get_city_stations(now: Optional[datetime] = None) -> Dict[str, Dict[str, str
     }
 
 
+def match_city(query: str, cities) -> Optional[str]:
+    """Cocokkan input bebas ('nyc', 'hong kong', 'york') ke nama kota market suhu."""
+    from app.paper_trading.cities import CITY_ALIASES
+
+    q = " ".join(str(query or "").split()).lower()
+    if not q:
+        return None
+    canonical = next((v for k, v in CITY_ALIASES.items() if k.lower() == q), None)
+    for city in cities:
+        if city.lower() == q or city == canonical:
+            return city
+    matches = [c for c in cities if q in c.lower()]
+    return sorted(matches, key=len)[0] if matches else None
+
+
+def get_current_weather(limit: int = 7, city: Optional[str] = None,
+                        now: Optional[datetime] = None) -> Dict[str, Any]:
+    """
+    Cuaca terkini di stasiun resolusi market suhu (NOAA METAR / HKO) untuk kota top volume, atau satu
+    kota bila `city` diisi: suhu sekarang, max/min sejak 00:00 lokal, kondisi, tren °/jam, perkiraan
+    & kesimpulan. {"cities": [semua kota berstasiun], "items": [...], "not_found": bool}
+    """
+    from datetime import timedelta
+
+    from app.paper_trading.live_market_data import fetch_metar_observations, station_report
+    from app.paper_trading.weather_peaks import city_timezone
+
+    now = now or datetime.now(timezone.utc)
+    stations = get_city_stations(now=now)
+    result: Dict[str, Any] = {"cities": sorted(stations), "items": [], "not_found": False}
+    ranking = [r["city"] for r in get_city_volume_summary(limit=0, now=now)]
+    rank = {c: i for i, c in enumerate(ranking, start=1)}
+    if city:
+        matched = match_city(city, stations)
+        if matched is None:
+            result["not_found"] = True
+            return result
+        selected = [matched]
+    else:
+        selected = [c for c in ranking if c in stations][:limit] if ranking else sorted(stations)[:limit]
+    fetch_metar_observations(stations[c]["station"] for c in selected)  # satu request untuk semua stasiun
+    for c in selected:
+        tz = city_timezone(c)
+        info = stations[c]
+        report = station_report(info["station"], tz, info["unit"], now=now, city=c) if tz else None
+        item = {"city": c, "station": info["station"], "unit": info["unit"], "volume_rank": rank.get(c),
+                "local_time": now.astimezone(tz).strftime("%H:%M") if tz else None, "report": report}
+        if report and report.get("current_at") is not None:
+            item["stale"] = now - report["current_at"] > timedelta(minutes=90)
+        result["items"].append(item)
+    return result
+
+
 def get_recommendation_schedule(now: Optional[datetime] = None, limit: int = 10) -> List[Dict[str, Any]]:
     """Jadwal jendela rekomendasi berikutnya per kota (untuk ditampilkan saat belum ada yang aktif)."""
     raw_markets = get_market_snapshots(now=now, include_resolved=False)

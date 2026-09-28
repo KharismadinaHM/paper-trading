@@ -136,33 +136,44 @@ def _parse_time(value: str) -> datetime:
 
 
 def _fetch_metar(stations: Iterable[str]) -> Dict[str, Dict[str, Any]]:
-    """{ICAO: {"obs": [(utc_datetime, temp_c), ...], "latest": laporan METAR terbaru}} 30 jam terakhir."""
+    """
+    {ICAO: {"obs": [(utc_datetime, temp_c), ...], "latest": laporan METAR terbaru}} 30 jam terakhir.
+    Di-cache per stasiun; stasiun yang belum ada di cache diambil sekaligus dalam satu request.
+    """
     ids = sorted({s for s in stations if s and s != "HKO"})
     if not ids:
         return {}
-
-    def load():
-        out: Dict[str, Dict[str, Any]] = {}
-        for i in range(0, len(ids), 40):
-            url = f"{METAR_URL}?ids={','.join(ids[i:i + 40])}&hours=30&format=json"
+    now = time.monotonic()
+    out: Dict[str, Dict[str, Any]] = {}
+    with _lock:
+        for station in ids:
+            hit = _cache.get("metar1:" + station)
+            if hit and now - hit[0] < OBS_TTL:
+                out[station] = hit[1]
+    missing = [s for s in ids if s not in out]
+    if not missing:
+        return {s: v for s, v in out.items() if v}
+    try:
+        fetched: Dict[str, Dict[str, Any]] = {s: {"obs": [], "latest": None} for s in missing}
+        for i in range(0, len(missing), 40):
+            url = f"{METAR_URL}?ids={','.join(missing[i:i + 40])}&hours=30&format=json"
             for row in json.loads(_http(url) or "[]"):
                 if row.get("temp") is None or not row.get("reportTime"):
                     continue
                 ts = _parse_time(row["reportTime"])
-                entry = out.setdefault(str(row["icaoId"]).upper(), {"obs": [], "latest": None})
+                entry = fetched.setdefault(str(row["icaoId"]).upper(), {"obs": [], "latest": None})
                 entry["obs"].append((ts, float(row["temp"])))
                 if entry["latest"] is None or ts > _parse_time(entry["latest"]["reportTime"]):
                     entry["latest"] = {k: row.get(k) for k in ("reportTime", "cover", "wxString", "lat", "lon",
                                                              "name", "rawOb")}
-        for entry in out.values():
-            entry["obs"].sort()
-        return out
-
-    try:
-        return _cached("metar:" + ",".join(ids), OBS_TTL, load)
+        with _lock:
+            for station, entry in fetched.items():
+                entry["obs"].sort()
+                _cache["metar1:" + station] = (now, entry)
+        out.update(fetched)
     except Exception as err:
         logger.warning("Gagal mengambil METAR: %s", err)
-        return {}
+    return {s: v for s, v in out.items() if v and v.get("obs")}
 
 
 def fetch_metar_observations(stations: Iterable[str]) -> Dict[str, List[tuple]]:
@@ -296,7 +307,8 @@ def add_weather_outlook(summary: Dict[str, Any], kinds, tz: ZoneInfo, local_date
                 for ts, t in fetch_metar_observations([station]).get(station, [])]
     forecast = wo.fetch_hourly_forecast(*coords) if coords else []
     trend = wo.temperature_trend(rows, now)
-    summary.update(condition=condition, trend=trend, outlook={}, conclusion={})
+    summary.update(condition=condition, trend=trend, outlook={}, conclusion={}, outlook_text={},
+                   now_text=wo.describe_now(unit, summary.get("current"), condition, trend))
     peak_passed = False
     if city:
         from app.paper_trading.weather_peaks import recommendation_window
@@ -309,8 +321,9 @@ def add_weather_outlook(summary: Dict[str, Any], kinds, tz: ZoneInfo, local_date
         out = wo.outlook(kind, tz, local_date, observed, observed_at, summary.get("current"),
                          summary.get("current_at"), forecast, unit, now, peak_passed_hint=peak_passed)
         summary["outlook"][kind] = out
-        summary["conclusion"][kind] = wo.summarize(kind, unit, summary.get("current"), condition, trend, out,
-                                                   now.astimezone(tz))
+        summary["outlook_text"][kind] = wo.describe_outlook(kind, unit, summary.get("current"), condition, out,
+                                                            now.astimezone(tz))
+        summary["conclusion"][kind] = " ".join(x for x in (summary["now_text"], summary["outlook_text"][kind]) if x)
     return summary
 
 

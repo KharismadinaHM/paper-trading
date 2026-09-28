@@ -130,7 +130,7 @@ def outlook(kind: str, tz: ZoneInfo, local_date: date, observed: Optional[float]
     if observed is None:
         return None
     if kind == "highest" and peak_passed_hint:
-        return {"value": observed, "at": observed_at, "passed": True, "source": "observasi"}
+        return {"value": observed, "at": observed_at, "passed": True, "reason": "peak", "source": "observasi"}
     convert = (lambda c: c * 9 / 5 + 32) if unit == "F" else (lambda c: c)
     day_end = datetime.combine(local_date, datetime.min.time(), tzinfo=tz) + timedelta(days=1)
     forecast = [(ts, convert(c)) for ts, c in forecast_c]
@@ -141,19 +141,23 @@ def outlook(kind: str, tz: ZoneInfo, local_date: date, observed: Optional[float]
             offset = current - at_obs  # koreksi bias model terhadap stasiun
     remaining = [(ts, v + offset) for ts, v in forecast if now < ts < day_end]
     if not remaining:
-        return {"value": observed, "at": observed_at, "passed": True, "source": "observasi"}
+        return {"value": observed, "at": observed_at, "passed": True, "reason": "day_end", "source": "observasi"}
     better = max if kind == "highest" else min
     ts, value = better(remaining, key=lambda r: r[1])
     margin = 0.3 if unit == "C" else 0.5
     beyond = value > observed + margin if kind == "highest" else value < observed - margin
     if not beyond:
-        return {"value": observed, "at": observed_at, "passed": True, "source": "observasi"}
-    return {"value": round(value, 1), "at": ts.astimezone(tz), "passed": False, "source": "Open-Meteo + koreksi observasi"}
+        # Sisa hari diperkirakan tidak melampaui angka yang sudah tercatat (mis. max terbawa dari
+        # tengah malam); simpan juga puncak prakiraan berikutnya untuk konteks.
+        return {"value": observed, "at": observed_at, "passed": True, "reason": "forecast",
+                "next_value": round(value, 1), "next_at": ts.astimezone(tz), "source": "observasi"}
+    return {"value": round(value, 1), "at": ts.astimezone(tz), "passed": False, "reason": None,
+            "source": "Open-Meteo + koreksi observasi"}
 
 
-def summarize(kind: str, unit: str, current: Optional[float], condition: Optional[Dict[str, Any]],
-              trend: Optional[float], out: Optional[Dict[str, Any]], now_local: datetime) -> str:
-    """Kalimat kesimpulan: kondisi, laju suhu, dan perkiraan puncak hari ini."""
+def describe_now(unit: str, current: Optional[float], condition: Optional[Dict[str, Any]],
+                 trend: Optional[float]) -> str:
+    """'☁️ Cuaca sekarang mendung (sejuk); suhu 22°C, naik +0.8°/jam.'"""
     parts = []
     if condition:
         heat = heat_label(current if unit == "C" else (current - 32) * 5 / 9 if current is not None else None)
@@ -165,19 +169,34 @@ def summarize(kind: str, unit: str, current: Optional[float], condition: Optiona
             direction = "naik" if trend > 0.1 else ("turun" if trend < -0.1 else "stabil")
             rate = f", {direction} {trend:+.1f}°/jam" if direction != "stabil" else ", stabil"
         parts.append(f"suhu {current:g}°{unit}{rate}")
-    sentence = "; ".join(parts)
-    if out:
-        word = "max" if kind == "highest" else "min"
-        if out["passed"]:
-            at = f" (tercatat {out['at']:%H:%M})" if out.get("at") else ""
-            sentence += (f". Puncak kemungkinan sudah lewat — {word} hari ini kemungkinan tetap "
-                         f"{out['value']:g}°{unit}{at}")
-        else:
-            hours = max((out["at"] - now_local).total_seconds() / 3600, 0.25)
-            delta = out["value"] - (current if current is not None else out["value"])
-            need = f", perlu {delta:+.1f}° ({delta / hours:+.1f}°/jam)" if current is not None else ""
-            sentence += (f". Kemungkinan suhu {word} ±{out['value']:.0f}°{unit} sekitar jam "
-                         f"{out['at']:%H:%M}{need}")
-            if kind == "highest" and condition and condition.get("dim"):
-                sentence += " — awan tebal/hujan bisa menahan kenaikan"
-    return sentence + "." if sentence else ""
+    return "; ".join(parts) + "." if parts else ""
+
+
+def describe_outlook(kind: str, unit: str, current: Optional[float], condition: Optional[Dict[str, Any]],
+                     out: Optional[Dict[str, Any]], now_local: datetime) -> str:
+    """Kalimat perkiraan suhu tertinggi/terendah hari ini."""
+    if not out:
+        return ""
+    word = "max" if kind == "highest" else "min"
+    at = f" (tercatat {out['at']:%H:%M})" if out.get("at") else ""
+    if out["passed"]:
+        if out.get("reason") == "forecast" and out.get("next_at"):
+            cmp = "tidak melebihi" if kind == "highest" else "tidak di bawah"
+            return (f"{word.capitalize()} hari ini kemungkinan tetap {out['value']:g}°{unit}{at}: perkiraan "
+                    f"berikutnya ±{out['next_value']:.0f}°{unit} sekitar jam {out['next_at']:%H:%M}, {cmp} angka itu.")
+        return f"Puncak kemungkinan sudah lewat — {word} hari ini kemungkinan tetap {out['value']:g}°{unit}{at}."
+    hours = max((out["at"] - now_local).total_seconds() / 3600, 0.25)
+    text = f"Kemungkinan suhu {word} ±{out['value']:.0f}°{unit} sekitar jam {out['at']:%H:%M}"
+    if current is not None:
+        delta = out["value"] - current
+        text += f", perlu {delta:+.1f}° ({delta / hours:+.1f}°/jam)"
+    if kind == "highest" and condition and condition.get("dim"):
+        text += " — awan tebal/hujan bisa menahan kenaikan"
+    return text + "."
+
+
+def summarize(kind: str, unit: str, current: Optional[float], condition: Optional[Dict[str, Any]],
+              trend: Optional[float], out: Optional[Dict[str, Any]], now_local: datetime) -> str:
+    """Kalimat kesimpulan lengkap: kondisi, laju suhu, dan perkiraan puncak hari ini."""
+    return " ".join(x for x in (describe_now(unit, current, condition, trend),
+                                describe_outlook(kind, unit, current, condition, out, now_local)) if x)

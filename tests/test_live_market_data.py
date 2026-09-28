@@ -200,3 +200,40 @@ def test_hko_csv_station_name():
     with patch.object(live, "_http", side_effect=lambda url, **kw: csv_text if url.endswith(".csv") else current):
         obs = live.fetch_hko_observation()
     assert (obs["max"], obs["min"], obs["current"]) == (32.3, 28.3, 32.0)
+
+
+class TestCurrentWeatherApi:
+
+    def _report(self, station, tz, unit, now=None, city=None):
+        return {"station": station, "unit": unit, "url": live.station_url(station), "current": 20.0,
+                "current_at": datetime.now(timezone.utc), "max": 22.0, "min": 15.0,
+                "condition": {"emoji": "☁️", "label": "Mendung", "dim": True}, "trend": 0.5,
+                "conclusion": {"highest": "☁️ Cuaca sekarang mendung."}}
+
+    def _get(self, **params):
+        from fastapi.testclient import TestClient
+        from app.dashboard import app
+        stations = {"London": {"station": "EGLC", "unit": "C"}, "Tokyo": {"station": "RJTT", "unit": "C"}}
+        with patch("app.paper_service.get_city_stations", return_value=stations), \
+             patch("app.paper_service.get_city_volume_summary", return_value=[{"city": "Tokyo"}, {"city": "London"}]), \
+             patch.object(live, "fetch_metar_observations", return_value={}), \
+             patch.object(live, "station_report", side_effect=self._report):
+            return TestClient(app).get("/api/weather/current", params=params).json()
+
+    def test_top_volume_order_and_limit(self):
+        data = self._get(limit=1)
+        assert data["cities"] == ["London", "Tokyo"]
+        assert [i["city"] for i in data["items"]] == ["Tokyo"] and data["items"][0]["volume_rank"] == 1
+        assert data["items"][0]["report"]["condition"]["label"] == "Mendung" and data["items"][0]["stale"] is False
+
+    def test_single_city(self):
+        data = self._get(city="london")
+        assert [i["city"] for i in data["items"]] == ["London"] and not data["not_found"]
+        assert self._get(city="atlantis")["not_found"] is True
+
+    def test_dashboard_has_station_weather_section(self):
+        from fastapi.testclient import TestClient
+        from app.dashboard import app
+        html = TestClient(app).get("/").text
+        assert html.index('id="suggestedMarketsContainer"') < html.index('id="stationWeatherContainer"') \
+            < html.index('id="recStatsContainer"')

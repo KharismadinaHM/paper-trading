@@ -304,26 +304,14 @@ def build_stats_message(days: Optional[int] = None) -> str:
     return "\n".join(lines)
 
 
-def _match_city(query: str, cities) -> Optional[str]:
-    from app.paper_trading.cities import CITY_ALIASES
-
-    q = " ".join(query.split()).lower()
-    canonical = next((v for k, v in CITY_ALIASES.items() if k.lower() == q), None)
-    for city in cities:
-        if city.lower() == q or city == canonical:
-            return city
-    matches = [c for c in cities if q in c.lower()]
-    return sorted(matches, key=len)[0] if matches else None
-
-
 def build_current_temp_message(query: Optional[str] = None) -> str:
     """Suhu terkini + max/min sejak tengah malam lokal di stasiun resolusi market (NOAA METAR / HKO)."""
     from datetime import datetime, timedelta, timezone
     from zoneinfo import ZoneInfo
 
     from app.core.config import settings
-    from app.paper_service import get_city_stations, get_city_volume_summary
-    from app.paper_trading.live_market_data import station_report
+    from app.paper_service import get_city_stations, get_city_volume_summary, match_city
+    from app.paper_trading.live_market_data import fetch_metar_observations, station_report
     from app.paper_trading.recommendation_alerts import city_hashtag, format_temp
     from app.paper_trading.weather_peaks import city_timezone
 
@@ -342,7 +330,7 @@ def build_current_temp_message(query: Optional[str] = None) -> str:
         return s.get("current_at") is not None and now - s["current_at"] > timedelta(minutes=90)
 
     if query:
-        city = _match_city(query, stations)
+        city = match_city(query, stations)
         if city is None:
             return f"🌡️ Kota `{query}` tidak ditemukan di market suhu. Contoh: `/suhu london`, `/suhu hong kong`."
         tz, s = summary(city)
@@ -362,19 +350,22 @@ def build_current_temp_message(query: Optional[str] = None) -> str:
         ]
         if s.get("condition"):
             lines.append(f"Kondisi: {s['condition']['emoji']} {s['condition']['label']}")
-        conclusions = s.get("conclusion") or {}
-        if conclusions.get("highest") or conclusions.get("lowest"):
+        outlooks = s.get("outlook_text") or {}
+        if s.get("now_text") or any(outlooks.values()):
             lines.append("")
             lines.append("🧭 *Kesimpulan*")
+            if s.get("now_text"):
+                lines.append(s["now_text"])
             for kind, name in (("highest", "Tertinggi"), ("lowest", "Terendah")):
-                if conclusions.get(kind):
-                    lines.append(f"• {name}: {conclusions[kind]}")
+                if outlooks.get(kind):
+                    lines.append(f"• {name}: {outlooks[kind]}")
             lines.append("_Perkiraan dari prakiraan Open-Meteo yang dikoreksi observasi stasiun — bukan kepastian._")
         lines += ["", f"Sumber: {s['url']}"]
         return "\n".join(lines)
 
     top = [r["city"] for r in get_city_volume_summary(limit=settings.TELEGRAM_RECOMMENDATION_TOP_CITIES or 7)]
     cities = [c for c in top if c in stations] or sorted(stations)[:7]
+    fetch_metar_observations(stations[c]["station"] for c in cities)  # satu request untuk semua stasiun
     lines = [f"🌡️ *Suhu terkini* · {'top volume' if top else 'kota market suhu'} (stasiun resolusi)", ""]
     for i, city in enumerate(cities, start=1):
         tz, s = summary(city)

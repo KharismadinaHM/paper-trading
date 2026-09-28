@@ -938,6 +938,39 @@
             </div>
         </div>
 
+        <!-- 2b-2. CUACA STASIUN (suhu terkini NOAA/HKO + kondisi + kesimpulan) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-cloud-sun-fill me-2 text-info"></i>Cuaca Stasiun · Suhu Terkini</h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="stationWeatherCount">-</span>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="stationWeatherCity"
+                            onchange="onStationWeatherChange()" aria-label="Pilih kota">
+                        <option value="">Top volume</option>
+                    </select>
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="stationWeatherLimit"
+                            onchange="onStationWeatherChange()" aria-label="Jumlah kota">
+                        <option value="4">4 kota</option>
+                        <option value="7" selected>7 kota</option>
+                        <option value="10">10 kota</option>
+                        <option value="20">20 kota</option>
+                    </select>
+                    <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchStationWeather()">
+                        <i class="bi bi-arrow-repeat"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="row g-3" id="stationWeatherContainer">
+                <div class="col-12 small text-muted-poly">Memuat cuaca stasiun...</div>
+            </div>
+            <div class="small text-muted-poly mt-3">
+                Data dari stasiun resolusi tiap market (NOAA METAR bandara; Hong Kong dari HKO). Max/min sejak 00:00 waktu lokal;
+                tren = laju 3 jam terakhir. Kesimpulan = prakiraan Open-Meteo yang dikoreksi observasi stasiun — perkiraan, bukan kepastian.
+            </div>
+        </div>
+
         <!-- 2c. STATISTIK SARAN BOT (win rate notifikasi rekomendasi) -->
         <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -2012,6 +2045,114 @@
             }).join('');
         }
 
+        // --- CUACA STASIUN ---
+        const STATION_WEATHER_KEY = 'stationWeatherPrefs';
+        function isoHHMM(iso) {
+            const m = String(iso || '').match(/T(\d{2}:\d{2})/);
+            return m ? m[1] : '';
+        }
+        function loadStationWeatherPrefs() {
+            try { return JSON.parse(localStorage.getItem(STATION_WEATHER_KEY) || '{}') || {}; } catch (e) { return {}; }
+        }
+        function onStationWeatherChange() {
+            const prefs = {
+                city: document.getElementById('stationWeatherCity').value,
+                limit: document.getElementById('stationWeatherLimit').value,
+            };
+            try { localStorage.setItem(STATION_WEATHER_KEY, JSON.stringify(prefs)); } catch (e) { /* abaikan */ }
+            fetchStationWeather();
+        }
+        function buildStationWeatherCard(item) {
+            const r = item.report;
+            const rank = item.volume_rank ? `<span class="badge bg-dark text-warning border border-warning-subtle small ms-1" title="Peringkat volume market suhu">🔥 #${safeNumber(item.volume_rank)}</span>` : '';
+            const srcLabel = item.station === 'HKO' ? 'HKO' : `NOAA ${escapeHtml(item.station)}`;
+            const link = r && r.url && /^https:\/\//.test(r.url)
+                ? `<a class="small text-info text-decoration-none" href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer">${srcLabel} <i class="bi bi-box-arrow-up-right"></i></a>`
+                : `<span class="small text-muted-poly">${srcLabel}</span>`;
+            const header = `
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h6 class="weather-event-title mb-0">${escapeHtml(item.city)}${rank}</h6>${link}
+                </div>`;
+            if (!r) {
+                return `<div class="col-md-6 col-xl-4"><div class="weather-event-card">${header}
+                    <div class="small text-muted-poly">Belum ada observasi hari ini.</div></div></div>`;
+            }
+            const unit = escapeHtml(r.unit);
+            const t = v => v === null || v === undefined ? '-' : `${safeNumber(v)}°${unit}`;
+            const cond = r.condition || {};
+            const trend = r.trend === null || r.trend === undefined ? ''
+                : `<span class="badge bg-dark border border-secondary-subtle ${r.trend > 0.1 ? 'text-danger' : (r.trend < -0.1 ? 'text-info' : 'text-muted-poly')}" title="Laju 3 jam terakhir">
+                     ${r.trend > 0.1 ? '↗' : (r.trend < -0.1 ? '↘' : '→')} ${r.trend > 0 ? '+' : ''}${safeNumber(r.trend).toFixed(1)}°/jam</span>`;
+            const stale = item.stale ? `<span class="badge bg-dark text-warning border border-warning-subtle" title="Observasi terakhir lebih dari 90 menit lalu">data lama</span>` : '';
+            const outlooks = r.outlook_text || {};
+            const conclusions = (r.now_text ? `<li class="mb-1">${escapeHtml(r.now_text)}</li>` : '') +
+                [['highest', 'Tertinggi'], ['lowest', 'Terendah']]
+                .filter(([k]) => outlooks[k])
+                .map(([k, name]) => `<li class="mb-1"><span class="text-white">${name}:</span> ${escapeHtml(outlooks[k])}</li>`).join('');
+            return `
+                <div class="col-md-6 col-xl-4"><div class="weather-event-card h-100">${header}
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        <div class="fs-2" aria-hidden="true">${escapeHtml(cond.emoji || '🌡️')}</div>
+                        <div>
+                            <div class="fs-3 fw-bold text-white lh-1">${t(r.current)}</div>
+                            <div class="small text-muted-poly">${escapeHtml(cond.label || '')}</div>
+                        </div>
+                        <div class="ms-auto d-flex flex-column align-items-end gap-1">${trend}${stale}</div>
+                    </div>
+                    <div class="small text-muted-poly mb-2">
+                        Max ${t(r.max)}${r.max_at ? ' (' + escapeHtml(isoHHMM(r.max_at)) + ')' : ''}
+                        · Min ${t(r.min)}${r.min_at ? ' (' + escapeHtml(isoHHMM(r.min_at)) + ')' : ''}
+                        · obs ${escapeHtml(isoHHMM(r.current_at))} · sekarang ${escapeHtml(item.local_time || '')} lokal
+                    </div>
+                    ${conclusions ? `<div class="small fw-semibold text-white mb-1"><i class="bi bi-compass me-1"></i>Kesimpulan</div><ul class="list-unstyled small text-muted-poly mb-0">${conclusions}</ul>` : ''}
+                </div></div>`;
+        }
+        async function fetchStationWeather() {
+            const container = document.getElementById('stationWeatherContainer');
+            const badge = document.getElementById('stationWeatherCount');
+            const citySel = document.getElementById('stationWeatherCity');
+            const limitSel = document.getElementById('stationWeatherLimit');
+            if (!container) return;
+            const city = citySel.value;
+            const params = new URLSearchParams({ limit: limitSel.value });
+            if (city) params.set('city', city);
+            try {
+                const res = await fetch('/api/weather/current?' + params.toString());
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                const known = new Set([...citySel.options].map(o => o.value));
+                for (const c of data.cities || []) {
+                    if (!known.has(c)) citySel.add(new Option(c, c));
+                }
+                if (city && citySel.value !== city) citySel.value = city;
+                limitSel.disabled = !!citySel.value;
+                if (badge) badge.textContent = `${data.items.length} kota`;
+                if (data.not_found) {
+                    container.innerHTML = '<div class="col-12 small text-muted-poly">Kota tidak ditemukan di market suhu.</div>';
+                } else if (!data.items.length) {
+                    container.innerHTML = '<div class="col-12 small text-muted-poly">Belum ada data stasiun. Tunggu satu siklus Market Collector (±5 menit).</div>';
+                } else {
+                    container.innerHTML = data.items.map(buildStationWeatherCard).join('');
+                }
+            } catch (err) {
+                console.error(err);
+                if (badge) badge.textContent = 'Error';
+                container.innerHTML = '<div class="col-12 small text-muted-poly">Gagal memuat cuaca stasiun.</div>';
+            }
+        }
+        function initStationWeather() {
+            const prefs = loadStationWeatherPrefs();
+            const citySel = document.getElementById('stationWeatherCity');
+            const limitSel = document.getElementById('stationWeatherLimit');
+            if (!citySel || !limitSel) return;
+            if (prefs.limit && [...limitSel.options].some(o => o.value === String(prefs.limit))) limitSel.value = String(prefs.limit);
+            if (prefs.city) {
+                citySel.add(new Option(prefs.city, prefs.city));
+                citySel.value = prefs.city;
+            }
+            fetchStationWeather();
+        }
+
         // --- STATISTIK SARAN BOT ---
         async function fetchRecommendationStats() {
             const container = document.getElementById('recStatsContainer');
@@ -2138,6 +2279,7 @@
             initSuggestionsTopFilter();
             fetchSuggestedMarkets();
             fetchRecommendationStats();
+            initStationWeather();
         });
     </script>
 
