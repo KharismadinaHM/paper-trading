@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     TEMP_PEAK_DURATION_HOURS: float = 1.0
     RECOMMENDATION_LEAD_HOURS: float = 1.0
     RECOMMENDATION_WINDOW_HOURS: float = 1.0
+    # Jenis market yang direkomendasikan (dashboard & Telegram): "highest", "lowest", atau keduanya
+    RECOMMENDATION_KINDS: str = "highest,lowest"
     # Jam puncak cadangan untuk kota tanpa koordinat (hanya ditambahkan lewat CITY_TIMEZONE_OVERRIDES)
     TEMP_HIGH_PEAK_HOUR: float = 14.0
     TEMP_LOW_PEAK_HOUR: float = 5.0

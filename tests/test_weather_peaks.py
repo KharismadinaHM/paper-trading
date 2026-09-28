@@ -351,3 +351,22 @@ class TestCityVolumeSummary:
         assert w.start.date() == date(2026, 9, 27)
         w = wp.next_recommendation_window("Hong Kong", "highest", now=datetime(2026, 9, 26, 1, 0, tzinfo=UTC))
         assert w.start.date() == date(2026, 9, 26)
+
+
+class TestRecommendationKinds:
+
+    def test_only_enabled_kinds_are_recommended(self, monkeypatch):
+        monkeypatch.setattr(settings, "RECOMMENDATION_KINDS", "highest")
+        lows = "Will the lowest temperature in Hong Kong be 26°C on September 26?"
+        markets = [market(HK_HIGH, market_id="0x1", end_date=END_SEP26),
+                   market(lows, market_id="0x2", end_date=END_SEP26)]
+        assert {w["kind"] for w in wp.upcoming_recommendation_windows(
+            markets, now=datetime(2026, 9, 25, 16, 0, tzinfo=UTC))} == {"highest"}
+
+    @pytest.mark.parametrize("value,expected", [
+        ("highest", {"highest"}), ("Lowest, highest", {"highest", "lowest"}), ("", {"highest", "lowest"}),
+        ("bogus", {"highest", "lowest"}),
+    ])
+    def test_kinds_setting_parsing(self, monkeypatch, value, expected):
+        monkeypatch.setattr(settings, "RECOMMENDATION_KINDS", value)
+        assert wp.recommendation_kinds() == expected

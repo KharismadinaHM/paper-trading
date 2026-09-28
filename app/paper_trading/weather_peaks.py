@@ -269,6 +269,12 @@ def _in_price_range(m: Any, min_price: Optional[float], max_price: Optional[floa
     return any(p is not None and lo <= p <= hi for p in (_dec(_get(m, "price_yes")), _dec(_get(m, "price_no"))))
 
 
+def recommendation_kinds() -> set:
+    """Jenis market yang direkomendasikan (RECOMMENDATION_KINDS, mis. 'highest' atau 'highest,lowest')."""
+    kinds = {k.strip().lower() for k in str(settings.RECOMMENDATION_KINDS or "").split(",") if k.strip()}
+    return kinds & {"highest", "lowest"} or {"highest", "lowest"}
+
+
 def _open_temperature_markets(markets: Iterable[Any], now: datetime):
     for m in markets:
         if bool(_get(m, "is_resolved", False)) or str(_get(m, "status", "open")).lower() != "open":
@@ -295,7 +301,10 @@ def filter_peak_time_suggestions(
     events: Dict[Tuple[str, str, date], Dict[str, Any]] = {}
     outside: set = set()
 
+    kinds = recommendation_kinds()
     for m, name, parsed in _open_temperature_markets(markets, now):
+        if parsed.kind not in kinds:
+            continue
         key = (resolve_city(parsed.city), parsed.kind, parsed.local_date)
         if key in outside:
             continue
@@ -416,7 +425,10 @@ def upcoming_recommendation_windows(
     now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
     seen: Dict[Tuple[str, str, date], Dict[str, Any]] = {}
     skipped: set = set()
+    kinds = recommendation_kinds()
     for _, _, parsed in _open_temperature_markets(markets, now):
+        if parsed.kind not in kinds:
+            continue
         key = (resolve_city(parsed.city), parsed.kind, parsed.local_date)
         if key in skipped:
             continue
