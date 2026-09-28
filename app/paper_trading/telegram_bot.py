@@ -60,6 +60,7 @@ def build_help_message() -> str:
         "📜 `/trades` - Riwayat 5 transaksi terakhir yang selesai\n"
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
+        "🎯 `/statistik` - Win rate saran beli bot (`/statistik 7` untuk 7 hari terakhir)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
         "❓ `/help` - Tampilkan panduan ini\n\n"
@@ -258,6 +259,50 @@ def build_volume_message(limit: Optional[int] = None) -> str:
     return "\n".join(lines)
 
 
+def build_stats_message(days: Optional[int] = None) -> str:
+    """Win rate, odds rata-rata, dan ROI saran beli bot, plus hasil terakhir."""
+    from app.paper_trading.recommendation_alerts import _format_odd, city_hashtag
+    from app.paper_trading.recommendation_results import get_recommendation_stats
+
+    s = get_recommendation_stats(days=days)
+    period = f"{days} hari terakhir" if days else "semua waktu"
+    if not s["sent"]:
+        return f"🎯 *Statistik Saran Bot* ({period})\n\nBelum ada saran yang terkirim."
+
+    def pct(x):
+        return f"{x * 100:.0f}%" if x is not None else "-"
+
+    def roi(x):
+        return f"{x * 100:+.0f}%" if x is not None else "-"
+
+    lines = [
+        f"🎯 *Statistik Saran Bot* ({period})",
+        "",
+        f"Saran terkirim: {s['sent']} · sudah ada hasil: {s['decided']} · menunggu: {s['pending']}"
+        + (f" · batal: {s['void']}" if s["void"] else ""),
+        f"✅ Menang {s['wins']} · ❌ Kalah {s['losses']} · *Win rate {pct(s['win_rate'])}*",
+        f"Odds rata-rata: {_format_odd(s['avg_odds'])} · ROI per $1: {roi(s['roi'])}",
+    ]
+    for kind, name in (("highest", "Suhu tertinggi"), ("lowest", "Suhu terendah")):
+        k = s["by_kind"][kind]
+        if k["decided"]:
+            lines.append(f"   {name}: {k['wins']}/{k['decided']} ({pct(k['win_rate'])}) · ROI {roi(k['roi'])}")
+    if s["winner_in_alternatives"]:
+        lines.append(f"Saat kalah, {s['winner_in_alternatives']}× pemenangnya ada di bracket Alternatif.")
+    if s["recent"]:
+        lines += ["", "Hasil terakhir:"]
+        icons = {"WIN": "✅", "LOSS": "❌", "VOID": "⚪"}
+        for r in s["recent"]:
+            kind = "max" if r["kind"] == "highest" else "min"
+            winner = (f" → menang: {r['winning_bracket']}"
+                      if r["result"] == "LOSS" and r["winning_bracket"] else "")
+            lines.append(f"{icons.get(r['result'], '')} {city_hashtag(r['city'])} {kind} {r['local_date'][5:]} · "
+                         f"{r['bracket'] or '-'} @ {_format_odd(r['price_yes'])}{winner}")
+    lines += ["", "Win rate hanya dari saran utama (bracket peluang tertinggi). "
+              "ROI = seandainya beli $1 YES di odds saat saran dikirim."]
+    return "\n".join(lines)
+
+
 def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Optional[str] = None) -> Optional[str]:
     """
     Memproses teks perintah dari pengguna dan menghasilkan respon balasan.
@@ -298,6 +343,9 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
         return build_performance_message(strategy=strat)
     elif cmd in ("/rekomendasi", "/recommendations"):
         return build_recommendations_message()
+    elif cmd in ("/statistik", "/stats", "/winrate"):
+        days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return build_stats_message(days=days)
     elif cmd in ("/volume", "/topvolume"):
         limit = min(int(args[0]), 20) if args and args[0].isdigit() and int(args[0]) > 0 else None
         return build_volume_message(limit=limit)

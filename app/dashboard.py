@@ -210,6 +210,13 @@ def get_recommendation_schedule_api(limit: int = 10):
     return get_recommendation_schedule(limit=max(1, min(limit, 100)))
 
 
+@app.get("/api/recommendations/stats", dependencies=[Depends(require_auth)])
+def get_recommendation_stats_api(days: Optional[int] = None):
+    """Win rate & ROI saran beli bot (notifikasi rekomendasi Telegram), opsional N hari terakhir."""
+    from app.paper_trading.recommendation_results import get_recommendation_stats
+    return get_recommendation_stats(days=days if days and days > 0 else None)
+
+
 @app.get("/api/markets/search", dependencies=[Depends(require_auth)])
 def search_markets_api(
     q: str = "",

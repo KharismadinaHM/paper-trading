@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Numeric,
+    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric,
     String, UniqueConstraint, event
 )
 from sqlalchemy.dialects import postgresql, sqlite
@@ -322,3 +322,23 @@ class RecommendationAlert(Base):
     market_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     price_yes: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Hasil saran (diisi tracker setelah market resolve): WIN / LOSS / VOID; None = belum ada hasil
+    bracket: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    winning_bracket: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # resolved_at = pelacakan hasil selesai; checked_at = terakhir dicek ke Gamma (throttle)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RecommendationAlertMarket(Base):
+    """Semua bracket sebuah event saat saran dikirim (rank 0 = saran utama), untuk melihat pemenangnya."""
+    __tablename__ = "recommendation_alert_markets"
+
+    event_key: Mapped[str] = mapped_column(
+        ForeignKey("recommendation_alerts.event_key", ondelete="CASCADE"), primary_key=True)
+    market_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    bracket: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    price_yes: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    winning_outcome: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # YES / NO / INVALID

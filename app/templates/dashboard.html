@@ -938,6 +938,23 @@
             </div>
         </div>
 
+        <!-- 2c. STATISTIK SARAN BOT (win rate notifikasi rekomendasi) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-bullseye me-2 text-success"></i>Statistik Saran Bot</h5>
+                <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="recStatsDays" onchange="fetchRecommendationStats()">
+                    <option value="7">7 hari terakhir</option>
+                    <option value="30">30 hari terakhir</option>
+                    <option value="0" selected>Semua waktu</option>
+                </select>
+            </div>
+            <div id="recStatsContainer" class="small text-muted-poly">Memuat statistik...</div>
+            <div class="small text-muted-poly mt-3">
+                Dari saran BUY yang dikirim ke Telegram. Win rate dihitung dari saran utama (bracket peluang tertinggi);
+                ROI = seandainya membeli $1 YES di odds saat saran dikirim. Hasil terisi otomatis setelah market resolve.
+            </div>
+        </div>
+
         <!-- 3. SEARCH MARKET SECTION - POLYMARKET STYLE WEATHER EVENTS -->
         <div class="poly-card p-4 mb-4">
             <!-- Header: Title + Date Tabs -->
@@ -1973,6 +1990,53 @@
             }).join('');
         }
 
+        // --- STATISTIK SARAN BOT ---
+        async function fetchRecommendationStats() {
+            const container = document.getElementById('recStatsContainer');
+            if (!container) return;
+            const days = document.getElementById('recStatsDays').value;
+            try {
+                const res = await fetch('/api/recommendations/stats' + (days !== '0' ? `?days=${encodeURIComponent(days)}` : ''));
+                if (!res.ok) throw new Error('Failed');
+                const s = await res.json();
+                if (!s.sent) {
+                    container.innerHTML = 'Belum ada saran yang terkirim pada periode ini.';
+                    return;
+                }
+                const pct = x => x === null || x === undefined ? '-' : Math.round(x * 100) + '%';
+                const roi = x => x === null || x === undefined ? '-' : (x >= 0 ? '+' : '') + Math.round(x * 100) + '%';
+                const odd = x => x === null || x === undefined ? '-' : (x * 100).toFixed(1) + '¢';
+                const tile = (label, value, cls = 'text-white') => `
+                    <div class="col-6 col-md-3"><div class="border border-secondary-subtle rounded p-2 h-100">
+                        <div class="text-muted-poly small">${label}</div>
+                        <div class="fs-5 fw-bold ${cls}">${value}</div></div></div>`;
+                const kinds = [['highest', 'Suhu tertinggi'], ['lowest', 'Suhu terendah']]
+                    .filter(([k]) => s.by_kind[k].decided)
+                    .map(([k, name]) => `${name}: ${s.by_kind[k].wins}/${s.by_kind[k].decided} (${pct(s.by_kind[k].win_rate)}) · ROI ${roi(s.by_kind[k].roi)}`)
+                    .join(' &nbsp;|&nbsp; ');
+                const icons = { WIN: '✅', LOSS: '❌', VOID: '⚪' };
+                const recent = s.recent.map(r => `
+                    <li class="mb-1">${icons[r.result] || ''} <span class="text-white">${escapeHtml(r.city)}</span>
+                        · ${r.kind === 'highest' ? 'max' : 'min'} ${escapeHtml(r.local_date)}
+                        · ${escapeHtml(r.bracket || '-')} @ ${odd(r.price_yes)}
+                        ${r.result === 'LOSS' && r.winning_bracket ? `<span class="text-warning">→ menang: ${escapeHtml(r.winning_bracket)}</span>` : ''}</li>`).join('');
+                container.innerHTML = `
+                    <div class="row g-2 mb-2">
+                        ${tile('Win rate', pct(s.win_rate), s.win_rate >= 0.5 ? 'text-success' : 'text-white')}
+                        ${tile('Menang / Kalah', `${safeNumber(s.wins)} / ${safeNumber(s.losses)}`)}
+                        ${tile('Odds rata-rata', odd(s.avg_odds))}
+                        ${tile('ROI per $1', roi(s.roi), s.roi > 0 ? 'text-success' : (s.roi < 0 ? 'text-danger' : 'text-white'))}
+                    </div>
+                    <div class="mb-2">Terkirim ${safeNumber(s.sent)} · sudah ada hasil ${safeNumber(s.decided)} · menunggu ${safeNumber(s.pending)}${s.void ? ` · batal ${safeNumber(s.void)}` : ''}
+                        ${s.winner_in_alternatives ? ` · saat kalah, ${safeNumber(s.winner_in_alternatives)}× pemenangnya bracket alternatif` : ''}</div>
+                    ${kinds ? `<div class="mb-2">${kinds}</div>` : ''}
+                    ${recent ? `<div class="fw-semibold text-white mt-3 mb-1">Hasil terakhir</div><ul class="list-unstyled mb-0">${recent}</ul>` : ''}`;
+            } catch (err) {
+                console.error(err);
+                container.innerHTML = 'Gagal memuat statistik.';
+            }
+        }
+
         async function fetchSuggestedMarkets() {
             const container = document.getElementById('suggestedMarketsContainer');
             const badge = document.getElementById('suggestionsCount');
@@ -2051,6 +2115,7 @@
             fetchElonEvents();
             initSuggestionsTopFilter();
             fetchSuggestedMarkets();
+            fetchRecommendationStats();
         });
     </script>
 

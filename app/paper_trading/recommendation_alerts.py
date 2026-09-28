@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
-from app.paper_trading.models import RecommendationAlert
+from app.paper_trading.models import RecommendationAlert, RecommendationAlertMarket
 
 logger = get_logger("recommendation_alerts")
 
@@ -146,7 +146,15 @@ def send_new_recommendation_alerts(now: Optional[datetime] = None) -> List[str]:
             db.add(RecommendationAlert(
                 event_key=e["event_key"], city=e["city"], kind=e["kind"], local_date=e["local_date"],
                 market_id=top.get("market_id"), price_yes=top.get("price_yes"), sent_at=sent_at,
+                bracket=top.get("bracket"),
             ))
+            # Semua bracket saat saran dikirim, supaya nanti terlihat bracket mana yang menang
+            for rank, m in enumerate(e["markets"]):
+                if m.get("market_id"):
+                    db.add(RecommendationAlertMarket(
+                        event_key=e["event_key"], market_id=m["market_id"], bracket=m.get("bracket"),
+                        rank=rank, price_yes=m.get("price_yes"),
+                    ))
         db.commit()
         logger.info("Notifikasi rekomendasi terkirim: %s", [e["event_key"] for e in new_events])
         return [e["event_key"] for e in new_events]
