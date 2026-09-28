@@ -1972,10 +1972,13 @@
                 const obs = ev.observation;
                 const hhmm = iso => { const t = String(iso || ''); const m = t.match(/T(\d{2}:\d{2})/); return m ? m[1] : ''; };
                 const obsHtml = obs ? `
-                            <div class="small text-info mb-2" title="Observasi stasiun resolusi market (METAR / HKO), waktu lokal">
-                                <i class="bi bi-broadcast me-1"></i>Terukur di ${escapeHtml(obs.station)}:
-                                ${ev.kind === 'highest' ? 'max' : 'min'} ${safeNumber(obs.value)}°${escapeHtml(obs.unit)}${obs.at ? ' (' + escapeHtml(hhmm(obs.at)) + ')' : ''}
-                                ${obs.current !== null && obs.current !== undefined ? ` · terakhir ${safeNumber(obs.current)}°${escapeHtml(obs.unit)}${obs.current_at ? ' (' + escapeHtml(hhmm(obs.current_at)) + ')' : ''}` : ''}
+                            <div class="small text-info mb-2" title="Observasi stasiun resolusi market (NOAA METAR / HKO), waktu lokal">
+                                <i class="bi bi-thermometer-half me-1"></i>${obs.current !== null && obs.current !== undefined
+                                    ? `Sekarang <b class="text-white">${safeNumber(obs.current)}°${escapeHtml(obs.unit)}</b>${obs.current_at ? ' (' + escapeHtml(hhmm(obs.current_at)) + ')' : ''} · ` : ''}
+                                ${ev.kind === 'highest' ? 'max' : 'min'} hari ini ${safeNumber(obs.value)}°${escapeHtml(obs.unit)}${obs.at ? ' (' + escapeHtml(hhmm(obs.at)) + ')' : ''}
+                                · ${obs.url && /^https:\/\//.test(obs.url)
+                                    ? `<a class="text-info" href="${escapeHtml(obs.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(obs.source || 'NOAA')} ${escapeHtml(obs.station)} <i class="bi bi-box-arrow-up-right"></i></a>`
+                                    : `${escapeHtml(obs.source || 'NOAA')} ${escapeHtml(obs.station)}`}
                             </div>` : '';
                 const illiquid = ev.liquid === false ? `
                             <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Tidak ada bracket likuid — harga belum bisa dipercaya</div>` : '';

@@ -11,6 +11,7 @@ Semua fetch di-cache singkat dan gagal dengan aman (data kosong, rekomendasi tet
 import csv
 import io
 import json
+import math
 import threading
 import time
 import urllib.request
@@ -164,7 +165,8 @@ def fetch_hko_observation() -> Optional[Dict[str, Any]]:
     def load():
         result: Dict[str, Any] = {}
         for row in csv.reader(io.StringIO(_http(HKO_MAXMIN_URL))):
-            if len(row) >= 4 and row[1].strip().lower() == "hong kong observatory":
+            # Di CSV maks/min namanya "HK Observatory" (di data terkini "Hong Kong Observatory")
+            if len(row) >= 4 and row[1].strip().lower() in ("hk observatory", "hong kong observatory"):
                 result.update(at=datetime.strptime(row[0], "%Y%m%d%H%M").replace(tzinfo=ZoneInfo("Asia/Hong_Kong")),
                               max=float(row[2]), min=float(row[3]))
         try:
@@ -184,7 +186,8 @@ def fetch_hko_observation() -> Optional[Dict[str, Any]]:
 
 
 def _to_unit(temp_c: float, unit: str) -> float:
-    return temp_c * 9 / 5 + 32 if unit == "F" else temp_c
+    # °F dibulatkan ke derajat bulat seperti tabel NOAA & bracket market (60.08 → 60)
+    return float(math.floor(temp_c * 9 / 5 + 32 + 0.5)) if unit == "F" else temp_c
 
 
 def observed_extreme(kind: str, unit: str, tz: ZoneInfo, local_date: date,
@@ -200,6 +203,43 @@ def observed_extreme(kind: str, unit: str, tz: ZoneInfo, local_date: date,
     last_at, last = today[-1]
     return {"value": round(value, 1), "at": at.astimezone(tz), "current": round(last, 1),
             "current_at": last_at.astimezone(tz), "unit": unit}
+
+
+def station_url(station: Optional[str]) -> Optional[str]:
+    """Halaman sumber resolusi: NOAA timeseries per stasiun ICAO, atau halaman cuaca terkini HKO."""
+    if not station:
+        return None
+    if station == "HKO":
+        return "https://www.hko.gov.hk/en/wxinfo/currwx/current.htm"
+    return f"https://www.weather.gov/wrh/timeseries?site={station.lower()}"
+
+
+def station_source(station: Optional[str]) -> str:
+    return "HKO" if station == "HKO" else "NOAA"
+
+
+def station_day_summary(station: str, tz: ZoneInfo, unit: str, local_date: Optional[date] = None,
+                        now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
+    """
+    Suhu terkini + tertinggi/terendah sejak tengah malam lokal di stasiun resolusi.
+    {station, source, url, unit, current, current_at, max, max_at, min, min_at}; None tanpa data.
+    """
+    now = now or datetime.now(timezone.utc)
+    local_date = local_date or now.astimezone(tz).date()
+    base = {"station": station, "source": station_source(station), "url": station_url(station), "unit": unit}
+    if station == "HKO":
+        hko = fetch_hko_observation()
+        if not hko or not hko.get("at") or hko["at"].date() != local_date:
+            return None
+        return {**base, "unit": "C", "current": hko.get("current"), "current_at": hko["at"],
+                "max": hko.get("max"), "max_at": None, "min": hko.get("min"), "min_at": None}
+    rows = fetch_metar_observations([station]).get(station, [])
+    high = observed_extreme("highest", unit, tz, local_date, rows)
+    if high is None:
+        return None
+    low = observed_extreme("lowest", unit, tz, local_date, rows)
+    return {**base, "current": high["current"], "current_at": high["current_at"],
+            "max": high["value"], "max_at": high["at"], "min": low["value"], "min_at": low["at"]}
 
 
 def event_unit(event: Dict[str, Any]) -> str:
@@ -223,11 +263,12 @@ def apply_observations(events: List[Dict[str, Any]]) -> None:
                 e["observation"] = {
                     "station": "HKO", "value": hko["max" if e["kind"] == "highest" else "min"], "at": None,
                     "current": hko.get("current"), "current_at": hko["at"], "unit": "C",
+                    "source": "HKO", "url": station_url("HKO"),
                 }
             continue
         obs = observed_extreme(e["kind"], event_unit(e), tz, local_date, metar.get(station, []))
         if obs:
-            e["observation"] = {"station": station, **obs}
+            e["observation"] = {"station": station, "source": "NOAA", "url": station_url(station), **obs}
 
 
 def enrich_suggestions(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

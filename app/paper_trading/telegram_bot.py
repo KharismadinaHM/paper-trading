@@ -61,6 +61,7 @@ def build_help_message() -> str:
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
         "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
+        "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
         "❓ `/help` - Tampilkan panduan ini\n\n"
@@ -303,6 +304,83 @@ def build_stats_message(days: Optional[int] = None) -> str:
     return "\n".join(lines)
 
 
+def _match_city(query: str, cities) -> Optional[str]:
+    from app.paper_trading.cities import CITY_ALIASES
+
+    q = " ".join(query.split()).lower()
+    canonical = next((v for k, v in CITY_ALIASES.items() if k.lower() == q), None)
+    for city in cities:
+        if city.lower() == q or city == canonical:
+            return city
+    matches = [c for c in cities if q in c.lower()]
+    return sorted(matches, key=len)[0] if matches else None
+
+
+def build_current_temp_message(query: Optional[str] = None) -> str:
+    """Suhu terkini + max/min sejak tengah malam lokal di stasiun resolusi market (NOAA METAR / HKO)."""
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    from app.core.config import settings
+    from app.paper_service import get_city_stations, get_city_volume_summary
+    from app.paper_trading.live_market_data import station_day_summary
+    from app.paper_trading.recommendation_alerts import city_hashtag, format_temp
+    from app.paper_trading.weather_peaks import city_timezone
+
+    stations = get_city_stations()
+    if not stations:
+        return "🌡️ Belum ada data stasiun. Tunggu satu siklus Market Collector (±5 menit) lalu coba lagi."
+    now = datetime.now(timezone.utc)
+    wib, label = ZoneInfo(settings.NOTIFY_TIMEZONE), settings.NOTIFY_TIMEZONE_LABEL
+
+    def summary(city):
+        tz = city_timezone(city)
+        info = stations[city]
+        return tz, (station_day_summary(info["station"], tz, info["unit"], now=now) if tz else None)
+
+    def stale(s):
+        return s.get("current_at") is not None and now - s["current_at"] > timedelta(minutes=90)
+
+    if query:
+        city = _match_city(query, stations)
+        if city is None:
+            return f"🌡️ Kota `{query}` tidak ditemukan di market suhu. Contoh: `/suhu london`, `/suhu hong kong`."
+        tz, s = summary(city)
+        station = stations[city]["station"]
+        if not s:
+            return f"🌡️ {city_hashtag(city)} ({station}) — belum ada observasi hari ini."
+        at = s["current_at"]
+        at_part = f" · {at:%H:%M} waktu lokal ({at.astimezone(wib):%H:%M} {label})" if at else ""
+        lines = [
+            f"🌡️ *{city_hashtag(city)}* — "
+            + ("Hong Kong Observatory (HKO)" if station == "HKO" else f"stasiun {station} ({s['source']})"),
+            f"Sekarang: *{format_temp(s['current'], s['unit'])}*{at_part}" + (" ⚠️ data >90 menit" if stale(s) else ""),
+            f"Hari ini sejak 00:00 lokal: max {format_temp(s['max'], s['unit'])}"
+            + (f" ({s['max_at']:%H:%M})" if s.get("max_at") else "")
+            + f" · min {format_temp(s['min'], s['unit'])}" + (f" ({s['min_at']:%H:%M})" if s.get("min_at") else ""),
+            f"Jam lokal sekarang: {now.astimezone(tz):%H:%M}",
+            f"Sumber: {s['url']}",
+        ]
+        return "\n".join(lines)
+
+    top = [r["city"] for r in get_city_volume_summary(limit=settings.TELEGRAM_RECOMMENDATION_TOP_CITIES or 7)]
+    cities = [c for c in top if c in stations] or sorted(stations)[:7]
+    lines = [f"🌡️ *Suhu terkini* · {'top volume' if top else 'kota market suhu'} (stasiun resolusi)", ""]
+    for i, city in enumerate(cities, start=1):
+        tz, s = summary(city)
+        station = stations[city]["station"]
+        if not s:
+            lines.append(f"{i}. {city_hashtag(city)} ({station}) — belum ada observasi hari ini")
+            continue
+        at = f" {s['current_at']:%H:%M}" if s.get("current_at") else ""
+        source = s["source"] if station == s["source"] else f"{s['source']} · {station}"
+        lines.append(f"{i}. {city_hashtag(city)} — *{format_temp(s['current'], s['unit'])}* ({source}{at})"
+                     f" · max {format_temp(s['max'], s['unit'])} · min {format_temp(s['min'], s['unit'])}"
+                     + (" ⚠️" if stale(s) else ""))
+    lines += ["", "Jam = waktu lokal kota. Max/min sejak 00:00 lokal. Detail & link sumber: `/suhu <kota>`."]
+    return "\n".join(lines)
+
+
 def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Optional[str] = None) -> Optional[str]:
     """
     Memproses teks perintah dari pengguna dan menghasilkan respon balasan.
@@ -343,6 +421,8 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
         return build_performance_message(strategy=strat)
     elif cmd in ("/rekomendasi", "/recommendations"):
         return build_recommendations_message()
+    elif cmd in ("/suhu", "/temp"):
+        return build_current_temp_message(" ".join(args) or None)
     elif cmd in ("/stats", "/statistik"):  # /statistik = nama lama
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
         return build_stats_message(days=days)

@@ -9,7 +9,8 @@ kali (juga setelah restart). Hanya kota dengan total volume market suhu terbesar
     BUY #Paris di suhu 28°C (YES) in odd 57¢ peak hour akan terjadi di jam 21:15–22:15 WIB.
        Suhu tertinggi · puncak 16:15–17:15 waktu lokal · Vol $12K
        Order book: bid 55¢ / ask 57¢ (spread 2¢)
-       Terukur di LFPB: max 26°C (13:30) · terakhir 26°C (14:00) waktu lokal
+       🌡️ Sekarang 26°C (NOAA · LFPB 14:00) · max hari ini 26°C (13:30)
+       https://www.weather.gov/wrh/timeseries?site=lfpb
        Alternatif: 27°C (22¢), 29°C (15¢)
 
 Odds = harga ask order book (harga yang benar-benar bisa dibeli); event tanpa bracket likuid
@@ -71,6 +72,23 @@ def top_volume_events(events: List[Dict[str, Any]], now: Optional[datetime] = No
     return [e for e in events if e["city"] in allowed]
 
 
+def format_temp(value: Optional[float], unit: str) -> str:
+    return "-" if value is None else f"{value:g}°{unit}"
+
+
+def format_observation_line(obs: Dict[str, Any], kind: str) -> str:
+    """'🌡️ Sekarang 22°C (NOAA · RKSI 13:00) · max hari ini 23°C (12:20)' — jam lokal kota."""
+    source = obs.get("source") or "NOAA"
+    if obs["station"] != source:
+        source = f"{source} · {obs['station']}"
+    now_part = (f"🌡️ Sekarang {format_temp(obs['current'], obs['unit'])} "
+                f"({source}{' ' + format(obs['current_at'], '%H:%M') if obs.get('current_at') else ''})"
+                if obs.get("current") is not None else f"🌡️ {source}")
+    extreme = "max" if kind == "highest" else "min"
+    at = f" ({obs['at']:%H:%M})" if obs.get("at") else ""
+    return f"{now_part} · {extreme} hari ini {format_temp(obs.get('value'), obs['unit'])}{at}"
+
+
 def format_recommendation(event: Dict[str, Any], now: Optional[datetime] = None) -> str:
     """
     Per event: kalimat BUY berisi saran suhu (bracket peluang YES tertinggi) dan jam puncak dalam
@@ -105,11 +123,9 @@ def format_recommendation(event: Dict[str, Any], now: Optional[datetime] = None)
                      "— harga belum bisa dipercaya")
     obs = event.get("observation")
     if obs:
-        extreme = "max" if event["kind"] == "highest" else "min"
-        at = f" ({obs['at']:%H:%M})" if obs.get("at") else ""
-        last = (f" · terakhir {obs['current']:g}°{obs['unit']} ({obs['current_at']:%H:%M})"
-                if obs.get("current") is not None and obs.get("current_at") else "")
-        lines.append(f"   Terukur di {obs['station']}: {extreme} {obs['value']:g}°{obs['unit']}{at}{last} waktu lokal")
+        lines.append("   " + format_observation_line(obs, event["kind"]))
+        if obs.get("url"):
+            lines.append(f"   {obs['url']}")
     alternatives = [m for m in markets[1:3] if entry_price(m) is not None]
     if alternatives:
         lines.append("   Alternatif: " + ", ".join(

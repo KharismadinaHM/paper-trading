@@ -96,7 +96,7 @@ class TestObservations:
                 (datetime(2026, 9, 26, 6, 0, tzinfo=UTC), 23.0),
                 (datetime(2026, 9, 26, 7, 0, tzinfo=UTC), 21.0)]
         obs = live.observed_extreme("highest", "F", HKT, date(2026, 9, 26), rows)
-        assert obs["value"] == 73.4 and obs["current"] == 69.8 and obs["at"].hour == 14
+        assert obs["value"] == 73 and obs["current"] == 70 and obs["at"].hour == 14  # 73.4 / 69.8 → °F bulat
         assert live.observed_extreme("lowest", "C", HKT, date(2026, 9, 26), rows)["value"] == 21.0
 
     def test_apply_observations_uses_event_station(self):
@@ -113,7 +113,8 @@ class TestTelegram:
         ev = event()
         live.apply_liquidity(ev, {"ta": {"ask": 0.52, "bid": 0.49, "ask_size": 20}, "tb": {"ask": 0.33, "bid": 0.3},
                                   "tc": {"ask": 0.11, "bid": 0.09}})
-        ev["observation"] = {"station": "RKSI", "value": 31.0, "unit": "C",
+        ev["observation"] = {"station": "RKSI", "value": 31.0, "unit": "C", "source": "NOAA",
+                             "url": "https://www.weather.gov/wrh/timeseries?site=rksi",
                              "at": datetime(2026, 9, 26, 12, 20, tzinfo=HKT),
                              "current": 30.0, "current_at": datetime(2026, 9, 26, 13, 0, tzinfo=HKT)}
         return ev
@@ -122,7 +123,7 @@ class TestTelegram:
         text = format_recommendation(self._enriched(), now=NOW)
         assert "di suhu 31°C (YES) in odd 52¢ peak hour" in text
         assert "Order book: bid 49¢ / ask 52¢ (spread 3¢)" in text
-        assert "Terukur di RKSI: max 31°C (12:20) · terakhir 30°C (13:00) waktu lokal" in text
+        assert "🌡️ Sekarang 30°C (NOAA · RKSI 13:00) · max hari ini 31°C (12:20)" in text
         assert "Alternatif: 30°C (33¢), 32°C (11¢)" in text
 
     def test_illiquid_event_not_sent_and_ask_is_recorded(self):
@@ -147,3 +148,55 @@ def test_stats_command_renamed():
     help_text = handle_incoming_message("/help", sender_chat_id="1", allowed_chat_id="1")
     assert "/stats" in help_text and "/statistik" not in help_text
     assert "Statistik Saran Bot" in handle_incoming_message("/stats", sender_chat_id="1", allowed_chat_id="1")
+
+
+class TestCurrentTempCommand:
+
+    STATIONS = {"London": {"station": "EGLC", "unit": "C"}, "Hong Kong": {"station": "HKO", "unit": "C"},
+                "New York City": {"station": "KLGA", "unit": "F"}}
+
+    def _summary(self, station, tz, unit, local_date=None, now=None):
+        now = datetime.now(timezone.utc)
+        return {"station": station, "source": live.station_source(station), "url": live.station_url(station),
+                "unit": unit, "current": 15.0, "current_at": now.astimezone(tz), "max": 17.0,
+                "max_at": now.astimezone(tz), "min": 11.0, "min_at": now.astimezone(tz)}
+
+    def test_list_of_top_volume_cities(self):
+        with patch("app.paper_service.get_city_stations", return_value=self.STATIONS), \
+             patch("app.paper_service.get_city_volume_summary", return_value=[{"city": "London"}, {"city": "Oslo"}]), \
+             patch.object(live, "station_day_summary", side_effect=self._summary):
+            reply = handle_incoming_message("/suhu", sender_chat_id="1", allowed_chat_id="1")
+        assert "1. #London — *15°C* (NOAA · EGLC" in reply and "max 17°C · min 11°C" in reply
+        assert "Oslo" not in reply  # tidak punya data stasiun
+
+    @pytest.mark.parametrize("query,city,station", [
+        ("london", "#London", "EGLC"), ("hong kong", "#HongKong", "HKO"), ("nyc", "#NewYorkCity", "KLGA"),
+        ("york", "#NewYorkCity", "KLGA"),
+    ])
+    def test_single_city_detail_with_source_link(self, query, city, station):
+        with patch("app.paper_service.get_city_stations", return_value=self.STATIONS), \
+             patch.object(live, "station_day_summary", side_effect=self._summary):
+            reply = handle_incoming_message(f"/suhu {query}", sender_chat_id="1", allowed_chat_id="1")
+        assert f"*{city}* — " in reply and station in reply
+        assert "Sekarang: *15°" in reply and live.station_url(station) in reply
+
+    def test_unknown_city(self):
+        with patch("app.paper_service.get_city_stations", return_value=self.STATIONS):
+            reply = handle_incoming_message("/suhu atlantis", sender_chat_id="1", allowed_chat_id="1")
+        assert "tidak ditemukan" in reply
+
+    def test_station_urls(self):
+        assert live.station_url("RKSI") == "https://www.weather.gov/wrh/timeseries?site=rksi"
+        assert live.station_url("HKO").startswith("https://www.hko.gov.hk/")
+
+    def test_help_mentions_suhu(self):
+        assert "/suhu" in handle_incoming_message("/help", sender_chat_id="1", allowed_chat_id="1")
+
+
+def test_hko_csv_station_name():
+    csv_text = ("Date time,Automatic Weather Station,Max,Min\n"
+                "202609281350,Chek Lap Kok,33.6,26.4\n202609281350,HK Observatory,32.3,28.3\n")
+    current = '{"temperature": {"data": [{"place": "Hong Kong Observatory", "value": 32}]}}'
+    with patch.object(live, "_http", side_effect=lambda url, **kw: csv_text if url.endswith(".csv") else current):
+        obs = live.fetch_hko_observation()
+    assert (obs["max"], obs["min"], obs["current"]) == (32.3, 28.3, 32.0)

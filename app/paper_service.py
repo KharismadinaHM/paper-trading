@@ -656,6 +656,27 @@ def get_city_volume_summary(limit: int = 7, now: Optional[datetime] = None) -> L
     return summary[:limit] if limit > 0 else summary
 
 
+def get_city_stations(now: Optional[datetime] = None) -> Dict[str, Dict[str, str]]:
+    """{kota: {station, unit}} dari market suhu open (stasiun resolusi & satuan bracket-nya)."""
+    from collections import Counter
+
+    from app.paper_trading.cities import resolve_city
+    from app.paper_trading.weather_peaks import _open_temperature_markets, bracket_label
+
+    now = now or datetime.now(timezone.utc)
+    stations: Dict[str, Counter] = {}
+    units: Dict[str, Counter] = {}
+    for m, name, parsed in _open_temperature_markets(get_market_snapshots(now=now, include_resolved=False), now):
+        city = resolve_city(parsed.city)
+        if m.get("resolution_station"):
+            stations.setdefault(city, Counter())[m["resolution_station"]] += 1
+        units.setdefault(city, Counter())["F" if "°F" in bracket_label(name) else "C"] += 1
+    return {
+        city: {"station": counter.most_common(1)[0][0], "unit": units[city].most_common(1)[0][0]}
+        for city, counter in stations.items()
+    }
+
+
 def get_recommendation_schedule(now: Optional[datetime] = None, limit: int = 10) -> List[Dict[str, Any]]:
     """Jadwal jendela rekomendasi berikutnya per kota (untuk ditampilkan saat belum ada yang aktif)."""
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
