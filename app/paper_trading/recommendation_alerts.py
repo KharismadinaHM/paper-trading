@@ -6,8 +6,14 @@ sebagai satu pesan daftar, lalu dicatat di tabel recommendation_alerts agar tida
 kali (juga setelah restart). Hanya kota dengan total volume market suhu terbesar
 (TELEGRAM_RECOMMENDATION_TOP_CITIES, default 7) yang dikirim. Format per event:
 
-    BUY #Paris di suhu 28°C (YES) in odd 56.8¢ peak hour akan terjadi di jam 21:15–22:15 WIB.
+    BUY #Paris di suhu 28°C (YES) in odd 57¢ peak hour akan terjadi di jam 21:15–22:15 WIB.
        Suhu tertinggi · puncak 16:15–17:15 waktu lokal · Vol $12K
+       Order book: bid 55¢ / ask 57¢ (spread 2¢)
+       Terukur di LFPB: max 26°C (13:30) · terakhir 26°C (14:00) waktu lokal
+       Alternatif: 27°C (22¢), 29°C (15¢)
+
+Odds = harga ask order book (harga yang benar-benar bisa dibeli); event tanpa bracket likuid
+(spread > RECOMMENDATION_MAX_SPREAD) tidak dikirim.
        Alternatif: 27°C (22¢), 29°C (15¢)
 """
 import re
@@ -18,6 +24,7 @@ from zoneinfo import ZoneInfo
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
+from app.paper_trading.live_market_data import entry_price
 from app.paper_trading.models import RecommendationAlert, RecommendationAlertMarket
 
 logger = get_logger("recommendation_alerts")
@@ -84,18 +91,31 @@ def format_recommendation(event: Dict[str, Any], now: Optional[datetime] = None)
 
     lines = [
         f"BUY {city_hashtag(event['city'])} di suhu {top.get('bracket')} ({yes_label.upper()}) "
-        f"in odd {_format_odd(top.get('price_yes'))} "
+        f"in odd {_format_odd(entry_price(top))} "
         f"peak hour akan terjadi di jam {peak_start:%H:%M}–{peak_end:%H:%M} {label}{day_note}.",
         f"   {KIND_LABELS.get(event['kind'], event['kind']).capitalize()} · "
         f"puncak {peak_start_city:%H:%M}–{peak_end_city:%H:%M} waktu lokal"
         + (f" · Vol {_format_volume(event['volume'])}" if event.get("volume") else ""),
     ]
-    alternatives = [m for m in markets[1:3] if m.get("price_yes") is not None]
+    if top.get("ask") is not None or top.get("bid") is not None:
+        spread = f" (spread {_format_odd(top['spread'])})" if top.get("spread") is not None else ""
+        lines.append(f"   Order book: bid {_format_odd(top.get('bid'))} / ask {_format_odd(top.get('ask'))}{spread}")
+    if event.get("liquid") is False:
+        lines.append(f"   ⚠️ Tidak ada bracket likuid (spread > {_format_odd(settings.RECOMMENDATION_MAX_SPREAD)}) "
+                     "— harga belum bisa dipercaya")
+    obs = event.get("observation")
+    if obs:
+        extreme = "max" if event["kind"] == "highest" else "min"
+        at = f" ({obs['at']:%H:%M})" if obs.get("at") else ""
+        last = (f" · terakhir {obs['current']:g}°{obs['unit']} ({obs['current_at']:%H:%M})"
+                if obs.get("current") is not None and obs.get("current_at") else "")
+        lines.append(f"   Terukur di {obs['station']}: {extreme} {obs['value']:g}°{obs['unit']}{at}{last} waktu lokal")
+    alternatives = [m for m in markets[1:3] if entry_price(m) is not None]
     if alternatives:
         lines.append("   Alternatif: " + ", ".join(
-            f"{m.get('bracket')} ({_format_odd(m.get('price_yes'))})" for m in alternatives))
+            f"{m.get('bracket')} ({_format_odd(entry_price(m))})" for m in alternatives))
     ties = sum(1 for m in markets if m.get("price_yes") == top.get("price_yes"))
-    if ties > 1:
+    if ties > 1 and event.get("liquid") is None:
         lines.append(f"   ⚠️ {ties} bracket berharga sama ({_format_odd(top.get('price_yes'))}) — market sepi, "
                      "saran suhu kurang dapat diandalkan")
     return "\n".join(lines)
@@ -107,7 +127,8 @@ def build_recommendation_message(events: List[Dict[str, Any]], title: str = "�
     for event in events:
         lines.append(format_recommendation(event, now=now))
     lines.append("")
-    lines.append("Saran suhu = bracket dengan peluang YES tertinggi saat ini. Paper trading, bukan saran finansial.")
+    lines.append("Saran suhu = bracket likuid dengan peluang YES tertinggi saat ini; odds = harga ask. "
+                 "Paper trading, bukan saran finansial.")
     return "\n".join(lines)
 
 
@@ -123,7 +144,9 @@ def send_new_recommendation_alerts(now: Optional[datetime] = None) -> List[str]:
     from app.paper_service import get_market_suggestions
     from app.paper_trading.telegram import send_telegram_message
 
-    events = top_volume_events([e for e in get_market_suggestions(now=now) if e.get("markets")], now=now)
+    # Event tanpa bracket likuid dilewati (dicoba lagi siklus berikutnya selama jendela berjalan)
+    events = top_volume_events([e for e in get_market_suggestions(now=now)
+                                if e.get("markets") and e.get("liquid") is not False], now=now)
     if not events:
         return []
 
@@ -145,7 +168,7 @@ def send_new_recommendation_alerts(now: Optional[datetime] = None) -> List[str]:
             top = e["markets"][0]
             db.add(RecommendationAlert(
                 event_key=e["event_key"], city=e["city"], kind=e["kind"], local_date=e["local_date"],
-                market_id=top.get("market_id"), price_yes=top.get("price_yes"), sent_at=sent_at,
+                market_id=top.get("market_id"), price_yes=entry_price(top), sent_at=sent_at,
                 bracket=top.get("bracket"),
             ))
             # Semua bracket saat saran dikirim, supaya nanti terlihat bracket mana yang menang
@@ -153,7 +176,7 @@ def send_new_recommendation_alerts(now: Optional[datetime] = None) -> List[str]:
                 if m.get("market_id"):
                     db.add(RecommendationAlertMarket(
                         event_key=e["event_key"], market_id=m["market_id"], bracket=m.get("bracket"),
-                        rank=rank, price_yes=m.get("price_yes"),
+                        rank=rank, price_yes=entry_price(m),
                     ))
         db.commit()
         logger.info("Notifikasi rekomendasi terkirim: %s", [e["event_key"] for e in new_events])

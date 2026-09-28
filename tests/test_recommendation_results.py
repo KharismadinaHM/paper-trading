@@ -136,13 +136,13 @@ class TestStats:
         self._seed()
         with patch("app.paper_trading.recommendation_results.datetime") as fake_dt:
             fake_dt.now.return_value = LATER
-            reply = handle_incoming_message("/statistik", sender_chat_id="1", allowed_chat_id="1")
+            reply = handle_incoming_message("/stats", sender_chat_id="1", allowed_chat_id="1")
         assert "Win rate 50%" in reply
         assert "ROI per $1: +50%" in reply
         assert "❌ #Madrid max 09-26 · 31°C @ 60¢ → menang: 30°C" in reply
 
     def test_statistik_without_data(self):
-        reply = handle_incoming_message("/statistik", sender_chat_id="1", allowed_chat_id="1")
+        reply = handle_incoming_message("/stats", sender_chat_id="1", allowed_chat_id="1")
         assert "Belum ada saran yang terkirim" in reply
 
     def test_stats_api(self):

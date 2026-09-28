@@ -341,8 +341,11 @@ def filter_peak_time_suggestions(
             "outcome_yes_label": _get(m, "outcome_yes_label") or "Yes",
             "outcome_no_label": _get(m, "outcome_no_label") or "No",
             "volume": _float_or_none(_get(m, "volume")),
+            "yes_token_id": _get(m, "yes_token_id"),
             "polymarket_url": _get(m, "polymarket_url") or "",
         })
+        if not event.get("station") and _get(m, "resolution_station"):
+            event["station"] = _get(m, "resolution_station")
 
     results = [e for e in events.values() if e["markets"]]
     for e in results:

@@ -573,6 +573,8 @@ def _format_market_snapshot(
         "outcome_yes_label": snapshot.outcome_yes_label or "Yes",
         "outcome_no_label": snapshot.outcome_no_label or "No",
         "volume": float(snapshot.volume) if getattr(snapshot, "volume", None) is not None else None,
+        "yes_token_id": getattr(snapshot, "yes_token_id", None),
+        "resolution_station": getattr(snapshot, "resolution_station", None),
         "timestamp": snap_ts,
         "is_stale": is_stale,
         "polymarket_url": get_polymarket_url(str(snapshot.market_id), str(snapshot.market_name)),
@@ -630,7 +632,8 @@ def get_market_suggestions(
     """
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
     events = filter_peak_time_suggestions(markets=raw_markets, min_price=min_price, max_price=max_price, now=now)
-    return _with_city_volume_rank(events, raw_markets, now)
+    from app.paper_trading.live_market_data import enrich_suggestions
+    return enrich_suggestions(_with_city_volume_rank(events, raw_markets, now))
 
 
 def _with_city_volume_rank(items: List[Dict[str, Any]], raw_markets, now: Optional[datetime]) -> List[Dict[str, Any]]:

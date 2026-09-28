@@ -60,7 +60,7 @@ def build_help_message() -> str:
         "📜 `/trades` - Riwayat 5 transaksi terakhir yang selesai\n"
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
-        "🎯 `/statistik` - Win rate saran beli bot (`/statistik 7` untuk 7 hari terakhir)\n"
+        "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
         "❓ `/help` - Tampilkan panduan ini\n\n"
@@ -299,7 +299,7 @@ def build_stats_message(days: Optional[int] = None) -> str:
             lines.append(f"{icons.get(r['result'], '')} {city_hashtag(r['city'])} {kind} {r['local_date'][5:]} · "
                          f"{r['bracket'] or '-'} @ {_format_odd(r['price_yes'])}{winner}")
     lines += ["", "Win rate hanya dari saran utama (bracket peluang tertinggi). "
-              "ROI = seandainya beli $1 YES di odds saat saran dikirim."]
+              "ROI = seandainya beli $1 YES di odds saat saran dikirim (harga ask sejak data order book dipakai)."]
     return "\n".join(lines)
 
 
@@ -343,7 +343,7 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
         return build_performance_message(strategy=strat)
     elif cmd in ("/rekomendasi", "/recommendations"):
         return build_recommendations_message()
-    elif cmd in ("/statistik", "/stats", "/winrate"):
+    elif cmd in ("/stats", "/statistik"):  # /statistik = nama lama
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
         return build_stats_message(days=days)
     elif cmd in ("/volume", "/topvolume"):

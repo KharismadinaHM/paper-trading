@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     RECOMMENDATION_WINDOW_HOURS: float = 1.0
     # Jenis market yang direkomendasikan (dashboard & Telegram): "highest", "lowest", atau keduanya
     RECOMMENDATION_KINDS: str = "highest,lowest"
+    # Bracket dianggap likuid jika selisih ask − bid order book ≤ nilai ini (0.10 = 10¢)
+    RECOMMENDATION_MAX_SPREAD: float = 0.10
     # Jam puncak cadangan untuk kota tanpa koordinat (hanya ditambahkan lewat CITY_TIMEZONE_OVERRIDES)
     TEMP_HIGH_PEAK_HOUR: float = 14.0
     TEMP_LOW_PEAK_HOUR: float = 5.0

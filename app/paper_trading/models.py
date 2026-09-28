@@ -209,7 +209,7 @@ MARKET_DATA_FIELDS = (
 )
 
 # Kolom yang hanya ada di market_latest (tidak ikut histori market_snapshots)
-LATEST_ONLY_FIELDS = ("volume",)
+LATEST_ONLY_FIELDS = ("volume", "yes_token_id", "resolution_station")
 
 
 class MarketLatest(Base):
@@ -236,6 +236,9 @@ class MarketLatest(Base):
     # Volume trading kumulatif (USD) dari Gamma. Hanya disimpan di sini, bukan di histori:
     # volume berubah hampir setiap siklus dan akan membatalkan penulisan histori hemat.
     volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 2), nullable=True)
+    # Token CLOB outcome YES (untuk order book) & stasiun resolusi (ICAO / 'HKO') market suhu
+    yes_token_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    resolution_station: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_snapshot_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

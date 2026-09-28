@@ -131,6 +131,7 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     price_no: Optional[Decimal] = None
     yes_label: Optional[str] = None
     no_label: Optional[str] = None
+    yes_index: Optional[int] = None
 
     for idx, outcome in enumerate(outcomes):
         if idx >= len(prices):
@@ -147,6 +148,7 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if outcome_name in YES_OUTCOME_ALIASES:
             price_yes = price_dec
             yes_label = str(outcome).strip()
+            yes_index = idx
         elif outcome_name in NO_OUTCOME_ALIASES:
             price_no = price_dec
             no_label = str(outcome).strip()
@@ -182,8 +184,40 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "outcome_yes_label": yes_label,
         "outcome_no_label": no_label,
         "volume": _parse_volume(m),
+        "yes_token_id": _parse_token_id(m, yes_index),
+        "resolution_station": parse_resolution_station(m),
         "timestamp": datetime.now(timezone.utc),
     }
+
+
+_STATION_RE = re.compile(r"site=([A-Za-z0-9]{4})\b|/([A-Z]{4})\b")
+
+
+def parse_resolution_station(m: Dict[str, Any]) -> Optional[str]:
+    """
+    Stasiun resolusi market suhu dari deskripsi/resolutionSource: kode ICAO (mis. 'RKSI' dari
+    weather.gov/wrh/timeseries?site=rksi atau URL Wunderground .../RCSS) atau 'HKO'.
+    """
+    text = f"{m.get('resolutionSource') or ''} {m.get('description') or ''}"
+    match = _STATION_RE.search(text)
+    if match:
+        return (match.group(1) or match.group(2)).upper()
+    if "hong kong observatory" in text.lower():
+        return "HKO"
+    return None
+
+
+def _parse_token_id(m: Dict[str, Any], index: Optional[int]) -> Optional[str]:
+    """Token CLOB untuk outcome YES (urutan clobTokenIds sama dengan outcomes)."""
+    raw = m.get("clobTokenIds")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return None
+    if not isinstance(raw, list) or index is None or index >= len(raw):
+        return None
+    return str(raw[index]) or None
 
 
 def _parse_volume(m: Dict[str, Any]) -> Optional[Decimal]:

@@ -1943,14 +1943,20 @@
                 const isHigh = ev.kind === 'highest';
                 const top = ev.markets.slice(0, 4);
                 const rows = top.map(m => {
-                    const pYes = m.price_yes !== null && m.price_yes !== undefined ? safeNumber(m.price_yes) : null;
+                    // Harga beli = ask order book jika ada (mid Gamma "50¢" sering dari order book kosong)
+                    const hasAsk = m.ask !== null && m.ask !== undefined;
+                    const pYes = hasAsk ? safeNumber(m.ask)
+                        : (m.price_yes !== null && m.price_yes !== undefined ? safeNumber(m.price_yes) : null);
+                    const liq = m.liquid === false
+                        ? `<span class="badge bg-dark text-danger border border-danger-subtle ms-1" title="Spread order book ${m.spread !== null && m.spread !== undefined ? Math.round(safeNumber(m.spread) * 100) + '¢' : 'tidak diketahui'}">tidak likuid</span>`
+                        : (m.liquid ? `<span class="small text-muted-poly ms-1" title="bid ${m.bid !== null && m.bid !== undefined ? (safeNumber(m.bid) * 100).toFixed(1) + '¢' : '-'}">ask</span>` : '');
                     const pNo = m.price_no !== null && m.price_no !== undefined ? safeNumber(m.price_no) : null;
                     const name = escapeHtml(m.market_name);
                     const id = escapeHtml(m.market_id);
                     return `
                         <div class="weather-outcome-row">
-                            <span class="weather-outcome-temp">${escapeHtml(m.bracket)}</span>
-                            <span class="weather-outcome-pct">${pYes !== null ? Math.round(pYes * 100) + '%' : '-'}</span>
+                            <span class="weather-outcome-temp">${escapeHtml(m.bracket)}${liq}</span>
+                            <span class="weather-outcome-pct">${m.price_yes !== null && m.price_yes !== undefined ? Math.round(safeNumber(m.price_yes) * 100) + '%' : '-'}</span>
                             <div class="weather-outcome-btns">
                                 <button class="weather-btn-yes" data-market-id="${id}" data-market-name="${name}"
                                     data-price="${pYes ?? 0.5}" data-side="YES" onclick="openPaperBuyModalFromBtn(this)"
@@ -1963,6 +1969,16 @@
                 }).join('');
                 const more = ev.market_count > top.length
                     ? `<div class="small text-muted-poly mt-2">+${ev.market_count - top.length} bracket lainnya</div>` : '';
+                const obs = ev.observation;
+                const hhmm = iso => { const t = String(iso || ''); const m = t.match(/T(\d{2}:\d{2})/); return m ? m[1] : ''; };
+                const obsHtml = obs ? `
+                            <div class="small text-info mb-2" title="Observasi stasiun resolusi market (METAR / HKO), waktu lokal">
+                                <i class="bi bi-broadcast me-1"></i>Terukur di ${escapeHtml(obs.station)}:
+                                ${ev.kind === 'highest' ? 'max' : 'min'} ${safeNumber(obs.value)}°${escapeHtml(obs.unit)}${obs.at ? ' (' + escapeHtml(hhmm(obs.at)) + ')' : ''}
+                                ${obs.current !== null && obs.current !== undefined ? ` · terakhir ${safeNumber(obs.current)}°${escapeHtml(obs.unit)}${obs.current_at ? ' (' + escapeHtml(hhmm(obs.current_at)) + ')' : ''}` : ''}
+                            </div>` : '';
+                const illiquid = ev.liquid === false ? `
+                            <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Tidak ada bracket likuid — harga belum bisa dipercaya</div>` : '';
                 const source = ev.peak_source === 'data' ? 'jam puncak dari data historis kota'
                     : (ev.peak_source === 'override' ? 'jam puncak dari konfigurasi' : 'jam puncak perkiraan model');
                 return `
@@ -1983,6 +1999,7 @@
                                 <span class="ms-1" title="${escapeHtml(source)}">· sekarang ${escapeHtml(ev.local_time)}</span>
                                 ${ev.volume ? `<span class="ms-1" title="Volume trading event ini">· Vol ${formatVolume(ev.volume)}</span>` : ''}
                             </div>
+                            ${obsHtml}${illiquid}
                             <div class="weather-outcomes-list">${rows}</div>
                             ${more}
                         </div>
