@@ -75,10 +75,11 @@ def condition_from_hko(icon: Optional[int]) -> Optional[Dict[str, Any]]:
     return {"emoji": emoji, "label": label, "dim": icon in (53, 54, 60, 61, 62, 63, 64, 65)}
 
 
-def temperature_trend(rows: List[Tuple[datetime, float]], now: datetime, hours: float = 3.0) -> Optional[float]:
-    """Kemiringan least squares (derajat/jam) observasi `hours` terakhir; None jika data < 1 jam."""
+def temperature_trend(rows: List[Tuple[datetime, float]], now: datetime, hours: float = 3.0,
+                      min_span_minutes: int = 55) -> Optional[float]:
+    """Kemiringan least squares (derajat/jam) observasi `hours` terakhir; None jika rentang data terlalu pendek."""
     recent = [(ts, t) for ts, t in rows if now - timedelta(hours=hours) <= ts <= now]
-    if len(recent) < 2 or (recent[-1][0] - recent[0][0]) < timedelta(minutes=55):
+    if len(recent) < 2 or (recent[-1][0] - recent[0][0]) < timedelta(minutes=min_span_minutes):
         return None
     xs = [(ts - recent[0][0]).total_seconds() / 3600 for ts, _ in recent]
     ys = [t for _, t in recent]
@@ -141,6 +142,8 @@ def outlook(kind: str, tz: ZoneInfo, local_date: date, observed: Optional[float]
             offset = current - at_obs  # koreksi bias model terhadap stasiun
     remaining = [(ts, v + offset) for ts, v in forecast if now < ts < day_end]
     if not remaining:
+        if not forecast and now < day_end - timedelta(hours=1):
+            return None  # prakiraan tidak tersedia: jangan simpulkan puncak sudah lewat
         return {"value": observed, "at": observed_at, "passed": True, "reason": "day_end", "source": "observasi"}
     better = max if kind == "highest" else min
     ts, value = better(remaining, key=lambda r: r[1])

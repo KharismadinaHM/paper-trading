@@ -114,3 +114,8 @@ def test_max_carried_from_midnight_is_explained():
     text = wo.describe_outlook("highest", "C", 23.0, None, out, datetime(2026, 9, 28, 12, 10, tzinfo=SEOUL))
     assert text == ("Max hari ini kemungkinan tetap 26°C (tercatat 00:00): perkiraan berikutnya ±24°C sekitar "
                     "jam 14:00, tidak melebihi angka itu.")
+
+
+def test_missing_forecast_is_unknown_not_passed():
+    assert wo.outlook("highest", SEOUL, D, observed=25.0, observed_at=None, current=25.0, current_at=at(11),
+                      forecast_c=[], unit="C", now=at(11, 50)) is None

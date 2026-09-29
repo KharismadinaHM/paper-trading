@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     TELEGRAM_RECOMMENDATION_ALERTS: bool = True
     # Hanya kota dengan total volume market suhu terbesar yang dikirim ke Telegram (0 = semua kota)
     TELEGRAM_RECOMMENDATION_TOP_CITIES: int = 7
+    # Alert lonjakan suhu Hong Kong (data HKO per 10 menit)
+    HKO_ALERTS: bool = True
+    HKO_ALERT_SPIKE_DEGREES: float = 0.8      # kenaikan minimal (°C) dalam jendela di bawah
+    HKO_ALERT_WINDOW_MINUTES: int = 30
+    HKO_ALERT_COOLDOWN_MINUTES: int = 30      # jeda minimal antar alert lonjakan
+    HKO_ALERT_HOURS: str = "7-19"             # jam lokal HK saat alert aktif
     # Zona waktu jam di notifikasi (default WIB)
     NOTIFY_TIMEZONE: str = "Asia/Jakarta"
     NOTIFY_TIMEZONE_LABEL: str = "WIB"

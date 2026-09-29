@@ -61,11 +61,12 @@ def build_help_message() -> str:
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
         "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
+        "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini\n"
         "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
         "❓ `/help` - Tampilkan panduan ini\n\n"
-        "💡 _Notifikasi otomatis sinyal BUY, rekomendasi jam puncak, dan Settlement dikirim ke chat ini secara real-time._"
+        "💡 _Notifikasi otomatis sinyal BUY, rekomendasi jam puncak, lonjakan suhu Hong Kong, dan Settlement dikirim ke chat ini secara real-time._"
     )
 
 
@@ -428,6 +429,9 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
         return build_performance_message(strategy=strat)
     elif cmd in ("/rekomendasi", "/recommendations"):
         return build_recommendations_message()
+    elif cmd in ("/hk", "/hongkong"):
+        from app.paper_trading.hko_alerts import build_hk_command_message
+        return build_hk_command_message()
     elif cmd in ("/suhu", "/temp"):
         return build_current_temp_message(" ".join(args) or None)
     elif cmd in ("/stats", "/statistik"):  # /statistik = nama lama

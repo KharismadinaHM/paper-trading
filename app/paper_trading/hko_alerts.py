@@ -1,0 +1,381 @@
+"""
+Alert lonjakan suhu Hong Kong dari data real-time Hong Kong Observatory (per 10 menit, 0.1°C) —
+stasiun yang sama dengan sumber resolusi market suhu Hong Kong.
+
+Setiap siklus collector:
+1. Bacaan terbaru HKO (suhu + max/min sejak tengah malam) disimpan ke station_readings.
+2. Alert Telegram dikirim bila (pada jam HKO_ALERT_HOURS):
+   - lonjakan: suhu naik ≥ HKO_ALERT_SPIKE_DEGREES dalam HKO_ALERT_WINDOW_MINUTES terakhir
+     (jeda antar alert HKO_ALERT_COOLDOWN_MINUTES), atau
+   - derajat baru: max hari ini menembus derajat bulat baru (mis. 32.9 → 33.0°C = pindah bracket).
+3. Isi alert: perkiraan max hari ini dari prakiraan Open-Meteo yang dikoreksi bacaan HKO dan dari
+   proyeksi laju kenaikan sampai akhir jam puncak, plus harga ask bracket market hari itu.
+"""
+import csv
+import io
+import math
+import re
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
+
+from app.core.config import settings
+from app.core.database import get_db_session
+from app.core.logging import get_logger
+from app.paper_trading.models import StationAlert, StationReading
+
+logger = get_logger("hko_alerts")
+
+STATION = "HKO"
+CITY = "Hong Kong"
+HKT = ZoneInfo("Asia/Hong_Kong")
+TEMP_URL = "https://data.weather.gov.hk/weatherAPI/hko_data/regional-weather/latest_1min_temperature.csv"
+MAXMIN_URL = "https://data.weather.gov.hk/weatherAPI/hko_data/regional-weather/latest_since_midnight_maxmin.csv"
+SOURCE_URL = "https://www.hko.gov.hk/en/wxinfo/currwx/current.htm"
+FLW_URL = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=flw&lang=en"
+WARNSUM_URL = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en"
+# HKO: "very hot" ≈ suhu HK Observatory 33°C atau lebih (ambang Very Hot Weather Warning)
+VERY_HOT_C = 33.0
+MAX_TEMP_RE = re.compile(r"(?:maximum|highest) temperature[^.]*?(\d{2})\s*degrees", re.I)
+STATION_NAMES = ("hk observatory", "hong kong observatory")
+BRACKET_RE = re.compile(r"(-?\d+)\s*°\s*C(?:\s+or\s+(below|lower|higher|above))?", re.I)
+
+
+# --- Data HKO ------------------------------------------------------------------------------
+
+def _station_row(text: str) -> Optional[List[str]]:
+    for row in csv.reader(io.StringIO(text)):
+        if len(row) >= 3 and row[1].strip().lower() in STATION_NAMES:
+            return row
+    return None
+
+
+def fetch_hko_reading() -> Optional[Dict[str, Any]]:
+    """{observed_at, temp, max, min} bacaan terbaru stasiun HK Observatory; None jika gagal."""
+    from app.paper_trading.live_market_data import _http
+
+    try:
+        temp_row = _station_row(_http(TEMP_URL))
+        maxmin_row = _station_row(_http(MAXMIN_URL))
+    except Exception as err:
+        logger.warning("Gagal mengambil data real-time HKO: %s", err)
+        return None
+    if not temp_row:
+        return None
+    reading = {
+        "observed_at": datetime.strptime(temp_row[0], "%Y%m%d%H%M").replace(tzinfo=HKT),
+        "temp": float(temp_row[2]), "max": None, "min": None,
+    }
+    if maxmin_row and len(maxmin_row) >= 4 and maxmin_row[0] == temp_row[0]:
+        reading.update(max=float(maxmin_row[2]), min=float(maxmin_row[3]))
+    return reading
+
+
+def hko_official_forecast() -> Optional[Dict[str, Any]]:
+    """
+    Prakiraan lokal resmi HKO (siang ini/nanti malam) + status Very Hot Weather Warning:
+    {text, period, max_hint, very_hot_warning}. max_hint = angka "maximum temperature ... NN degrees"
+    bila disebut, atau 33°C bila siang ini diprakirakan "very hot".
+    """
+    import json
+
+    from app.paper_trading.live_market_data import _cached, _http
+
+    def load():
+        flw = json.loads(_http(FLW_URL))
+        try:
+            warnings = json.loads(_http(WARNSUM_URL) or "{}")
+        except Exception:
+            warnings = {}
+        text = str(flw.get("forecastDesc") or "").strip()
+        period = str(flw.get("forecastPeriod") or "")
+        max_hint = None
+        today_period = any(w in period.lower() for w in ("this afternoon", "today", "this morning"))
+        match = MAX_TEMP_RE.search(text)
+        if match and today_period:
+            max_hint = float(match.group(1))
+        elif today_period and re.search(r"very hot", text, re.I):
+            max_hint = VERY_HOT_C
+        return {"text": text, "period": period, "max_hint": max_hint,
+                "very_hot_warning": isinstance(warnings, dict) and "WHOT" in warnings}
+
+    try:
+        return _cached("hko_flw", 10 * 60, load)
+    except Exception as err:
+        logger.warning("Gagal mengambil prakiraan resmi HKO: %s", err)
+        return None
+
+
+def record_reading(reading: Dict[str, Any], db) -> bool:
+    """Simpan bacaan jika belum ada (kunci station + observed_at). True jika baris baru."""
+    ts = reading["observed_at"].astimezone(timezone.utc)
+    if db.get(StationReading, (STATION, ts)) is not None:
+        return False
+    db.add(StationReading(
+        station=STATION, observed_at=ts, temp=Decimal(str(reading["temp"])),
+        max_since_midnight=Decimal(str(reading["max"])) if reading.get("max") is not None else None,
+        min_since_midnight=Decimal(str(reading["min"])) if reading.get("min") is not None else None,
+    ))
+    db.flush()
+    return True
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def readings_today(db, now: datetime) -> List[StationReading]:
+    start = datetime.combine(now.astimezone(HKT).date(), datetime.min.time(), tzinfo=HKT).astimezone(timezone.utc)
+    return (db.query(StationReading)
+            .filter(StationReading.station == STATION, StationReading.observed_at >= start)
+            .order_by(StationReading.observed_at).all())
+
+
+# --- Analisis -----------------------------------------------------------------------------
+
+def _parse_bracket(label: str):
+    m = BRACKET_RE.search(label or "")
+    if not m:
+        return None
+    lo = hi = int(m.group(1))
+    tail = (m.group(2) or "").lower()
+    if tail in ("below", "lower"):
+        lo = -math.inf
+    elif tail in ("higher", "above"):
+        hi = math.inf
+    return lo, hi
+
+
+def bracket_for(value: float, labels: List[str]) -> Optional[str]:
+    """Bracket market yang memuat nilai HKO 0.1°C (32.8 → '32°C', diasumsikan 32.0–32.9)."""
+    whole = math.floor(value + 1e-9)
+    for label in labels:
+        b = _parse_bracket(label)
+        if b and b[0] <= whole <= b[1]:
+            return label
+    return None
+
+
+def _today_market(now: datetime) -> List[Dict[str, Any]]:
+    """Bracket market 'highest temperature in Hong Kong' hari ini + harga ask order book."""
+    from app.paper_service import get_market_snapshots
+    from app.paper_trading.cities import resolve_city
+    from app.paper_trading.live_market_data import fetch_order_books
+    from app.paper_trading.weather_peaks import _as_datetime, bracket_label, parse_temperature_market
+
+    today = now.astimezone(HKT).date()
+    markets = []
+    for m in get_market_snapshots(now=now, include_resolved=False):
+        parsed = parse_temperature_market(m["market_name"], _as_datetime(m.get("end_date")), now)
+        if parsed and parsed.kind == "highest" and parsed.local_date == today and resolve_city(parsed.city) == CITY:
+            markets.append({"bracket": bracket_label(m["market_name"]), "yes_token_id": m.get("yes_token_id"),
+                            "price_yes": float(m["price_yes"]) if m.get("price_yes") is not None else None})
+    books = fetch_order_books(m["yes_token_id"] for m in markets)
+    for m in markets:
+        book = books.get(str(m["yes_token_id"])) or {}
+        m.update(ask=book.get("ask"), bid=book.get("bid"))
+    markets.sort(key=lambda m: -(m["price_yes"] or 0))
+    return markets
+
+
+def hko_status(now: Optional[datetime] = None, db=None) -> Optional[Dict[str, Any]]:
+    """
+    Status HK terkini: bacaan, laju °/jam (60 menit), kenaikan dalam jendela alert, perkiraan max
+    (prakiraan terkoreksi & proyeksi tren), estimasi gabungan, dan bracket market hari ini.
+    """
+    from app.paper_trading import weather_outlook as wo
+    from app.paper_trading.weather_peaks import recommendation_window
+
+    now = now or datetime.now(timezone.utc)
+    close = db is None
+    db = db or get_db_session()
+    try:
+        reading = fetch_hko_reading()
+        if reading:
+            record_reading(reading, db)
+            db.commit()
+        rows = readings_today(db, now)
+    finally:
+        if close:
+            db.close()
+    if not rows:
+        return None
+    latest = rows[-1]
+    latest_at = _aware(latest.observed_at)
+    temp = float(latest.temp)
+    series = [(_aware(r.observed_at), float(r.temp)) for r in rows]
+    observed_max = max([float(r.max_since_midnight) for r in rows if r.max_since_midnight is not None]
+                       + [t for _, t in series])
+    window_start = latest_at - timedelta(minutes=settings.HKO_ALERT_WINDOW_MINUTES)
+    window = [t for ts, t in series if ts >= window_start]
+    rise = round(temp - min(window), 1) if window else 0.0
+    rate = wo.temperature_trend(series, now=latest_at, hours=1.0, min_span_minutes=20)  # HKO per 10 menit
+
+    local_date = now.astimezone(HKT).date()
+    peak = recommendation_window(CITY, "highest", local_date)
+    peak_passed = peak is not None and now >= peak.peak_end and (rate is None or rate <= 0.1)
+    forecast = wo.fetch_hourly_forecast(*wo.HKO_COORDS)
+    out = wo.outlook("highest", HKT, local_date, observed_max, None, temp, latest_at, forecast, "C", now,
+                     peak_passed_hint=peak_passed)
+
+    projection = None
+    if rate and rate > 0 and peak is not None and now < peak.peak_end:
+        hours = min((peak.peak_end - now).total_seconds() / 3600, 4.0)
+        projection = {"value": round(temp + rate * hours, 1), "until": peak.peak_end.astimezone(HKT), "rate": rate}
+
+    official = hko_official_forecast()
+    official_hint = (official or {}).get("max_hint") if not (out and out.get("reason") == "peak") else None
+    # Untuk HK, prakiraan resmi HKO lebih diutamakan daripada Open-Meteo
+    model_value = official_hint if official_hint is not None else (
+        (out or {}).get("value") if out and not out["passed"] else None)
+    candidates = [c for c in (model_value, (projection or {}).get("value")) if c is not None]
+    peak_passed = bool(out and out["passed"] and out.get("reason") in ("peak", "day_end"))
+    settled = bool(out and out["passed"]) and official_hint is None  # sisa hari tak melampaui max tercatat
+    if candidates:
+        estimate = round(max(observed_max, sum(candidates) / len(candidates)), 1)
+    else:
+        estimate = observed_max if settled else None  # tanpa prakiraan & tren: belum bisa diperkirakan
+    try:
+        market = _today_market(now)
+    except Exception as err:
+        logger.warning("Gagal mengambil market Hong Kong hari ini: %s", err)
+        market = []
+    return {
+        "observed_at": latest_at.astimezone(HKT), "temp": temp, "max": observed_max,
+        "min": float(latest.min_since_midnight) if latest.min_since_midnight is not None else min(t for _, t in series),
+        "rise": rise, "rate": rate, "outlook": out, "projection": projection, "estimate": estimate,
+        "official": official, "official_hint": official_hint,
+        "peak": peak, "peak_passed": peak_passed, "market": market,
+        "previous_max": max([float(r.max_since_midnight) for r in rows[:-1] if r.max_since_midnight is not None]
+                            + [float(r.temp) for r in rows[:-1]], default=None),
+    }
+
+
+# --- Pesan & pengiriman -------------------------------------------------------------------
+
+def _odd(price: Optional[float]) -> str:
+    from app.paper_trading.recommendation_alerts import _format_odd
+    return _format_odd(price)
+
+
+def format_hko_message(status: Dict[str, Any], reasons: List[str]) -> str:
+    wib = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    label = settings.NOTIFY_TIMEZONE_LABEL
+    at = status["observed_at"]
+    rate = f" · laju {status['rate']:+.1f}°/jam" if status.get("rate") is not None else ""
+    lines = reasons + [
+        f"Sekarang {status['temp']:.1f}°C (HKO {at:%H:%M} HKT / {at.astimezone(wib):%H:%M} {label})"
+        f" · max hari ini {status['max']:.1f}°C{rate}",
+    ]
+    labels = [m["bracket"] for m in status["market"]]
+    est_bracket = bracket_for(status["estimate"], labels) if labels and status["estimate"] is not None else None
+    if status["estimate"] is None:
+        lines.append("🧭 Perkiraan max: belum bisa dihitung (prakiraan tidak tersedia & data tren belum cukup)")
+    else:
+        lines.append(f"🧭 Perkiraan max hari ini ±{status['estimate']:.1f}°C"
+                     + (f" (bracket ≈ {est_bracket})" if est_bracket else ""))
+    out, proj = status.get("outlook"), status.get("projection")
+    official = status.get("official") or {}
+    if official.get("text"):
+        hint = f" (≈{status['official_hint']:.0f}°C)" if status.get("official_hint") is not None else ""
+        lines.append(f"   • Prakiraan resmi HKO: \"{official['text']}\"{hint}")
+    if official.get("very_hot_warning"):
+        lines.append("   • ⚠️ Very Hot Weather Warning sedang berlaku")
+    if status["peak_passed"]:
+        lines.append(f"   • Puncak kemungkinan sudah lewat — max kemungkinan tetap {status['max']:.1f}°C")
+    elif out and not out["passed"] and out.get("at"):
+        lines.append(f"   • Prakiraan Open-Meteo + koreksi HKO: {out['value']:.1f}°C sekitar {out['at']:%H:%M}")
+    elif out and out.get("reason") == "forecast" and out.get("next_at"):
+        lines.append(f"   • Prakiraan Open-Meteo + koreksi HKO: ±{out['next_value']:.1f}°C sekitar "
+                     f"{out['next_at']:%H:%M}, tidak melebihi max tercatat")
+    if proj:
+        lines.append(f"   • Proyeksi tren ({proj['rate']:+.1f}°/jam s/d {proj['until']:%H:%M}): {proj['value']:.1f}°C")
+    if status["market"]:
+        top = status["market"][:4]
+        lines.append("Market: " + " · ".join(
+            f"{'👉 ' if m['bracket'] == est_bracket else ''}{m['bracket']} "
+            + (f"ask {_odd(m['ask'])}" if m.get("ask") is not None else f"mid {_odd(m.get('price_yes'))}")
+            for m in top))
+    lines.append(SOURCE_URL)
+    lines.append("Perkiraan, bukan kepastian. Paper trading, bukan saran finansial.")
+    return "\n".join(lines)
+
+
+def _in_alert_hours(now: datetime) -> bool:
+    try:
+        start, end = (int(x) for x in str(settings.HKO_ALERT_HOURS).split("-", 1))
+    except ValueError:
+        start, end = 7, 19
+    return start <= now.astimezone(HKT).hour <= end
+
+
+def check_hko_alerts(now: Optional[datetime] = None) -> Optional[str]:
+    """Satu siklus: simpan bacaan HKO, kirim alert bila ada lonjakan / derajat baru. Kembalikan teks terkirim."""
+    if not settings.HKO_ALERTS:
+        return None
+    from app.paper_trading.telegram import send_telegram_message
+
+    now = now or datetime.now(timezone.utc)
+    db = get_db_session()
+    try:
+        status = hko_status(now=now, db=db)
+        if status is None or not _in_alert_hours(now):
+            return None
+        if now - status["observed_at"] > timedelta(minutes=20):  # bacaan lama → jangan alert ulang
+            return None
+        local_date = now.astimezone(HKT).date().isoformat()
+        sent_today = db.query(StationAlert).filter_by(station=STATION, local_date=local_date).all()
+        reasons, records = [], []
+
+        last_spike = max((_aware(a.sent_at) for a in sent_today if a.kind == "spike"), default=None)
+        cooldown = timedelta(minutes=settings.HKO_ALERT_COOLDOWN_MINUTES)
+        if status["rise"] >= settings.HKO_ALERT_SPIKE_DEGREES and (last_spike is None or now - last_spike >= cooldown):
+            reasons.append(f"🚨 #HongKong suhu melonjak +{status['rise']:.1f}°C dalam "
+                           f"{settings.HKO_ALERT_WINDOW_MINUTES} menit")
+            records.append(("spike", status["rise"]))
+
+        degree = math.floor(status["max"] + 1e-9)
+        prev = status.get("previous_max")
+        alerted_degrees = {int(a.value) for a in sent_today if a.kind == "degree" and a.value is not None}
+        if prev is not None and degree > math.floor(prev + 1e-9) and degree not in alerted_degrees:
+            reasons.append(f"🔺 #HongKong max hari ini menembus {degree}°C ({prev:.1f} → {status['max']:.1f}°C)")
+            records.append(("degree", degree))
+
+        if not reasons:
+            return None
+        text = format_hko_message(status, reasons)
+        result = send_telegram_message(text)
+        if not result.get("success"):
+            logger.warning("Alert HKO tidak terkirim: %s", result.get("error"))
+            return None
+        for kind, value in records:
+            db.add(StationAlert(station=STATION, kind=kind, local_date=local_date,
+                                value=Decimal(str(value)), sent_at=now))
+        db.commit()
+        logger.info("Alert HKO terkirim: %s", [k for k, _ in records])
+        return text
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def run_hko_alerts() -> bool:
+    """Dipanggil dari loop collector; tidak pernah melempar exception."""
+    try:
+        return check_hko_alerts() is not None
+    except Exception as err:
+        logger.error("Gagal memproses alert HKO: %s", err, exc_info=True)
+        return False
+
+
+def build_hk_command_message() -> str:
+    """Balasan /hk: status Hong Kong terkini tanpa menunggu alert."""
+    status = hko_status()
+    if status is None:
+        return "🌡️ Data HKO belum tersedia. Coba lagi beberapa menit lagi."
+    rise = (f"Perubahan {settings.HKO_ALERT_WINDOW_MINUTES} menit terakhir: {status['rise']:+.1f}°C"
+            if status.get("rise") is not None else "")
+    return format_hko_message(status, ["🇭🇰 *Hong Kong · HKO real-time*"] + ([rise] if rise else []))

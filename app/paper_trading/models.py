@@ -345,3 +345,28 @@ class RecommendationAlertMarket(Base):
     rank: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     price_yes: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
     winning_outcome: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # YES / NO / INVALID
+
+
+class StationReading(Base):
+    """Bacaan suhu stasiun real-time (HKO per 10 menit) untuk mendeteksi lonjakan suhu."""
+    __tablename__ = "station_readings"
+
+    station: Mapped[str] = mapped_column(String(20), primary_key=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    temp: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    max_since_midnight: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
+    min_since_midnight: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
+
+
+class StationAlert(Base):
+    """Alert lonjakan suhu yang sudah dikirim (throttle & dedupe per derajat per hari)."""
+    __tablename__ = "station_alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    station: Mapped[str] = mapped_column(String(20), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # spike / degree
+    local_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    value: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("idx_station_alerts_station_date", "station", "local_date"),)

@@ -21,6 +21,7 @@ from app.market_collector.collector import (
     run_collection_cycle,
 )
 from app.paper_trading.recommendation_alerts import run_recommendation_alerts
+from app.paper_trading.hko_alerts import run_hko_alerts
 from app.paper_trading.recommendation_results import run_recommendation_tracking
 from app.paper_trading.settlement_worker import run_settlement_cycle
 
@@ -81,6 +82,7 @@ def main():
         run_settlement_cycle()
         run_recommendation_alerts()
         run_recommendation_tracking()
+        run_hko_alerts()
         logger.info("Mode --once selesai. Total snapshot tersimpan: %d", count)
         sys.exit(0)
 
@@ -93,6 +95,7 @@ def main():
             run_settlement_cycle()
             run_recommendation_alerts()
             run_recommendation_tracking()
+            run_hko_alerts()
             prune_market_snapshots()
         except Exception as loop_err:
             logger.error("Error tak tertangani pada runner loop: %s", str(loop_err), exc_info=True)
