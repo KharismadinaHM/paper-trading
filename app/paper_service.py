@@ -625,13 +625,15 @@ def get_market_suggestions(
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     now: Optional[datetime] = None,
+    phase: str = "pre",
 ) -> List[Dict[str, Any]]:
     """
     Rekomendasi per event suhu (kota + highest/lowest + tanggal) yang sedang berada di jendela
     menjelang jam puncak suhu lokal kotanya. Tanpa filter harga kecuali min/max diberikan.
     """
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
-    events = filter_peak_time_suggestions(markets=raw_markets, min_price=min_price, max_price=max_price, now=now)
+    events = filter_peak_time_suggestions(markets=raw_markets, min_price=min_price, max_price=max_price, now=now,
+                                          phase=phase)
     from app.paper_trading.live_market_data import enrich_suggestions
     return enrich_suggestions(_with_city_volume_rank(events, raw_markets, now))
 

@@ -219,6 +219,13 @@ def peak_center(city: str, kind: str, local_date: date) -> Optional[Tuple[dateti
     return _round_to_quarter((anchor + timedelta(hours=float(lag))).astimezone(tz)), source
 
 
+def observation_window(window: RecommendationWindow) -> RecommendationWindow:
+    """Jendela setelah puncak: [awal jam puncak, akhir puncak + AUTOTRADE_WEATHER_POST_HOURS)."""
+    from dataclasses import replace
+    return replace(window, start=window.peak_start,
+                   end=window.peak_end + timedelta(hours=settings.AUTOTRADE_WEATHER_POST_HOURS))
+
+
 def recommendation_window(city: str, kind: str, local_date: date) -> Optional[RecommendationWindow]:
     center = peak_center(city, kind, local_date)
     if center is None:
@@ -290,11 +297,14 @@ def filter_peak_time_suggestions(
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     now: Optional[datetime] = None,
+    phase: str = "pre",
 ) -> List[Dict[str, Any]]:
     """
     Rekomendasi per EVENT (kota + jenis + tanggal) yang sedang berada di jendela menjelang
     jam puncak lokal. Setiap event berisi semua bracket-nya, diurutkan dari peluang YES
     tertinggi. Filter harga opsional (default: tidak ada).
+    phase="post": jendela observasi — dari awal jam puncak sampai akhir puncak +
+    AUTOTRADE_WEATHER_POST_HOURS (suhu ekstrem hari itu sudah/sedang terukur).
     """
     now = now or _utcnow()
     now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
@@ -311,6 +321,8 @@ def filter_peak_time_suggestions(
         event = events.get(key)
         if event is None:
             window = recommendation_window(parsed.city, parsed.kind, parsed.local_date)
+            if window is not None and phase == "post":
+                window = observation_window(window)
             if window is None or not window.contains(now):
                 outside.add(key)
                 continue

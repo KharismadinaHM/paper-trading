@@ -446,3 +446,29 @@ class AutotradeDecision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (Index("idx_autotrade_decisions_day", "local_day"),)
+
+
+class AutotradeLimitOrder(Base):
+    """Limit order paper strategi maker: open → filled / cancelled / expired."""
+    __tablename__ = "autotrade_limit_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    decision_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    outcome: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    limit_price: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+    size_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    model_prob: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("idx_autotrade_limit_orders_status", "status"),)

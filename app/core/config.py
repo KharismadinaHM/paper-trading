@@ -113,7 +113,7 @@ class Settings(BaseSettings):
 
     # Auto paper trader (PAPER saja — tidak pernah mengirim order ke Polymarket)
     AUTOTRADE_ENABLED: bool = False            # status awal; bisa diubah lewat /startbot /stopbot
-    AUTOTRADE_STRATEGIES: str = "weather,btc"
+    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,btc15,maker_btc,maker_btc15"
     AUTOTRADE_ORDER_USD: Decimal = Decimal("5.00")
     AUTOTRADE_MAX_DAILY_USD: Decimal = Decimal("50.00")   # total pembelian per hari (WIB)
     AUTOTRADE_MAX_DAILY_LOSS: Decimal = Decimal("20.00")  # stop hari itu jika rugi terealisasi ≥ ini
@@ -123,10 +123,17 @@ class Settings(BaseSettings):
     AUTOTRADE_FEE_RATE: float = 0.07           # fee taker = rate · p · (1 − p) per share, market ber-fee
     AUTOTRADE_BTC_MIN_EDGE: float = 0.05
     AUTOTRADE_BTC_WINDOW: str = "30-57"        # menit ke- dalam jam saat bot boleh masuk
+    AUTOTRADE_BTC15_WINDOW: str = "7-14"       # menit ke- dalam rentang 15 menit
+    # Maker: limit BUY di (P_model − margin), tanpa fee; terisi bila ask menembus di bawah limit
+    AUTOTRADE_MAKER_WINDOW: str = "15-50"
+    AUTOTRADE_MAKER15_WINDOW: str = "3-12"
+    AUTOTRADE_MAKER_MARGIN: float = 0.04
+    AUTOTRADE_MAKER_MIN_EDGE: float = 0.04
     AUTOTRADE_POLL_SECONDS: int = 10
     AUTOTRADE_WEATHER_MIN_EDGE: float = 0.05
     AUTOTRADE_WEATHER_REQUIRE_AGREEMENT: bool = True  # bracket perkiraan observasi = favorit pasar
     AUTOTRADE_WEATHER_SIGMA_C: float = 0.6     # ketidakpastian dasar perkiraan suhu (°C) + 0.3/jam ke puncak
+    AUTOTRADE_WEATHER_POST_HOURS: float = 3.0  # weather_post: dari awal jam puncak s/d akhir puncak + N jam
     AUTOTRADE_REPORT_HOUR: int = 21            # jam WIB laporan harian
     TELEGRAM_AUTOTRADE_CHAT_ID: Optional[str] = None  # chat/grup terpisah untuk notif auto trade
     # Zona waktu jam di notifikasi (default WIB)

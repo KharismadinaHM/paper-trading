@@ -29,11 +29,16 @@ from sqlalchemy import func
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
-from app.paper_trading.models import AutotradeDecision, AutotradeState, PaperPosition, PaperTrade
+from app.paper_trading.models import (
+    AutotradeDecision, AutotradeLimitOrder, AutotradeState, PaperPosition, PaperTrade,
+)
 
 logger = get_logger("autotrader")
 
-STRATEGY_VERSIONS = {"btc": "auto_btc_v1", "weather": "auto_weather_v1"}
+STRATEGY_VERSIONS = {
+    "btc": "auto_btc_v1", "btc15": "auto_btc15_v1", "maker_btc": "auto_maker_btc_v1",
+    "maker_btc15": "auto_maker_btc15_v1", "weather": "auto_weather_v1", "weather_post": "auto_weather_post_v1",
+}
 BINANCE = "https://data-api.binance.vision"
 ET = ZoneInfo("America/New_York")
 
@@ -168,6 +173,13 @@ def execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Optiona
         logger.info("Auto trade ditolak (%s): %s", decision["key"], reason)
         return None
     size = Decimal(str(decision["size"]))
+    if not decision["strategy"].startswith("weather"):
+        # Market BTC tidak dikumpulkan collector: segarkan snapshot agar tidak ditolak sebagai stale
+        try:
+            from app.market_collector.collector import sync_markets_by_condition_ids
+            sync_markets_by_condition_ids([decision["market_id"]])
+        except Exception as err:
+            logger.warning("Gagal menyegarkan market %s: %s", decision["market_id"], err)
     try:
         order = create_paper_order(
             market_id=decision["market_id"], side=decision["side"], position_size=size,
@@ -217,7 +229,18 @@ def _book_side(token: str, usd: float) -> Optional[Dict[str, float]]:
     return {"price": fill["price"], "fee": taker_fee(fill["price"], rate), "spread": spread, "shares": fill["shares"]}
 
 
-# --- Strategi BTC per jam -----------------------------------------------------------------
+# --- Strategi BTC Up/Down (1 jam & 15 menit) ------------------------------------------------
+#
+# Seri 1 jam  : candle 1H BTC/USDT Binance (Up jika close ≥ open), slug bitcoin-up-or-down-…-<jam>-et.
+# Seri 15 menit: TWAP Chainlink BTC/USD di akhir rentang vs harga awal, slug btc-updown-15m-<unix>.
+#   Diuji pada 160 market: "close Binance ≥ open Binance" cocok 93.8% dengan hasil resolusi (rata-rata
+#   sepanjang rentang hanya 85.6%), jadi keduanya dimodelkan dengan harga akhir vs harga awal.
+
+BTC_SERIES = {
+    "btc": {"minutes": 60, "window": lambda: settings.AUTOTRADE_BTC_WINDOW, "label": "1 jam"},
+    "btc15": {"minutes": 15, "window": lambda: settings.AUTOTRADE_BTC15_WINDOW, "label": "15 menit"},
+}
+
 
 def hourly_slug(start_utc: datetime) -> str:
     et = start_utc.astimezone(ET)
@@ -225,10 +248,22 @@ def hourly_slug(start_utc: datetime) -> str:
     return f"bitcoin-up-or-down-{et:%B}-{et.day}-{et.year}-{hour}{'am' if et.hour < 12 else 'pm'}-et".lower()
 
 
-def _btc_market(hour_start: datetime) -> Optional[Dict[str, Any]]:
+def series_slug(series: str, start_utc: datetime) -> str:
+    if series == "btc15":
+        return f"btc-updown-15m-{int(start_utc.timestamp())}"
+    return hourly_slug(start_utc)
+
+
+def series_start(series: str, now: datetime) -> datetime:
+    minutes = BTC_SERIES[series]["minutes"]
+    base = now.replace(second=0, microsecond=0)
+    return base.replace(minute=(base.minute // minutes) * minutes) if minutes < 60 else base.replace(minute=0)
+
+
+def _btc_market(start: datetime, series: str = "btc") -> Optional[Dict[str, Any]]:
     from app.paper_trading.live_market_data import _cached, _http
 
-    slug = hourly_slug(hour_start)
+    slug = series_slug(series, start)
 
     def load():
         events = json.loads(_http(f"https://gamma-api.polymarket.com/events?slug={slug}") or "[]")
@@ -242,7 +277,7 @@ def _btc_market(hour_start: datetime) -> Optional[Dict[str, Any]]:
         return {"condition_id": m["conditionId"], "title": events[0]["title"], "up": tokens[0], "down": tokens[1],
                 "accepting": bool(m.get("acceptingOrders")) and not m.get("closed"), "slug": slug}
 
-    return _cached(f"btc_market:{slug}", 120, load)
+    return _cached(f"btc_market:{slug}", 60, load)
 
 
 def _btc_klines() -> List[List[float]]:
@@ -252,20 +287,21 @@ def _btc_klines() -> List[List[float]]:
         rows = json.loads(_http(f"{BINANCE}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=130"))
         return [[int(r[0]), float(r[1]), float(r[4])] for r in rows]
 
-    return _cached("btc_klines", 8, load)
+    return _cached("btc_klines", 5, load)
 
 
-def _window(spec: str) -> Tuple[int, int]:
+def _window(spec: str) -> Tuple[float, float]:
     try:
-        a, b = (int(x) for x in str(spec).split("-", 1))
+        a, b = (float(x) for x in str(spec).split("-", 1))
         return a, b
     except ValueError:
-        return 30, 57
+        return 30.0, 57.0
 
 
-def btc_model(klines: List[List[float]], hour_start: datetime, now: datetime) -> Optional[Dict[str, float]]:
-    """P(Up) untuk candle 1H yang dimulai hour_start, dari candle 1 menit (baris terakhir = menit berjalan)."""
-    start_ms = int(hour_start.timestamp() * 1000)
+def btc_model(klines: List[List[float]], start: datetime, now: datetime,
+              duration_minutes: int = 60) -> Optional[Dict[str, float]]:
+    """P(Up) untuk rentang yang dimulai `start`, dari candle 1 menit (baris terakhir = menit berjalan)."""
+    start_ms = int(start.timestamp() * 1000)
     opening = next((k for k in klines if k[0] == start_ms), None)
     if opening is None or len(klines) < 62:
         return None
@@ -275,27 +311,41 @@ def btc_model(klines: List[List[float]], hour_start: datetime, now: datetime) ->
     if not sigma:
         return None
     price = klines[-1][2]
-    minutes_left = max((hour_start + timedelta(hours=1) - now).total_seconds() / 60, 0.25)
+    minutes_left = max((start + timedelta(minutes=duration_minutes) - now).total_seconds() / 60, 0.25)
     change = math.log(price / opening[1])
     return {"p_up": phi(change / (sigma * math.sqrt(minutes_left))), "price": price, "open": opening[1],
             "change_pct": (price / opening[1] - 1) * 100, "minutes_left": minutes_left}
 
 
-def btc_tick(now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
-    now = now or datetime.now(timezone.utc)
-    hour_start = now.replace(minute=0, second=0, microsecond=0)
-    lo, hi = _window(settings.AUTOTRADE_BTC_WINDOW)
-    minute = (now - hour_start).total_seconds() / 60
-    if not lo <= minute <= hi:
+def _btc_context(series: str, now: datetime, window: Tuple[float, float]) -> Optional[Dict[str, Any]]:
+    """Market + model untuk seri BTC bila sekarang berada di jendela menit yang diminta."""
+    start = series_start(series, now)
+    minute = (now - start).total_seconds() / 60
+    if not window[0] <= minute <= window[1]:
         return None
-    market = _btc_market(hour_start)
+    market = _btc_market(start, series)
     if not market or not market["accepting"]:
         return None
-    key = f"btc|{market['condition_id']}"
-    if already_decided(key):
-        return None
-    model = btc_model(_btc_klines(), hour_start, now)
+    model = btc_model(_btc_klines(), start, now, BTC_SERIES[series]["minutes"])
     if model is None:
+        return None
+    return {"series": series, "start": start, "market": market, "model": model}
+
+
+def _btc_detail(model: Dict[str, float]) -> str:
+    return (f"BTC {model['price']:,.1f} ({model['change_pct']:+.2f}% dari open {model['open']:,.1f}) · "
+            f"sisa {model['minutes_left']:.0f} menit")
+
+
+def btc_tick(now: Optional[datetime] = None, series: str = "btc") -> Optional[Dict[str, Any]]:
+    """Taker: beli sisi dengan P_model − (VWAP ask + fee) ≥ edge minimum, sekali per market."""
+    now = now or datetime.now(timezone.utc)
+    ctx = _btc_context(series, now, _window(BTC_SERIES[series]["window"]()))
+    if ctx is None:
+        return None
+    market, model = ctx["market"], ctx["model"]
+    key = f"{series}|{market['condition_id']}"
+    if already_decided(key):
         return None
     usd = float(settings.AUTOTRADE_ORDER_USD)
     best = None
@@ -312,15 +362,140 @@ def btc_tick(now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
     if best is None or best["edge"] < settings.AUTOTRADE_BTC_MIN_EDGE:
         return None
     decision = {
-        "key": key, "strategy": "btc", "market_id": market["condition_id"], "title": market["title"],
+        "key": key, "strategy": series, "market_id": market["condition_id"], "title": market["title"],
         "label": f"{market['title']} · {best['outcome']}", "side": best["side"], "outcome": best["outcome"],
         "prob": best["prob"], "price": best["price"], "fee": best["fee"], "edge": best["edge"], "size": usd,
-        "detail": (f"BTC {model['price']:,.1f} ({model['change_pct']:+.2f}% dari open {model['open']:,.1f}) · "
-                   f"sisa {model['minutes_left']:.0f} menit"),
-        "url": f"https://polymarket.com/event/{market['slug']}",
+        "detail": _btc_detail(model), "url": f"https://polymarket.com/event/{market['slug']}",
     }
     execute(decision, now)
     return decision
+
+
+# --- Strategi maker (limit order paper) ---------------------------------------------------
+#
+# Pasang limit BUY di bawah harga wajar model (P − AUTOTRADE_MAKER_MARGIN), tanpa biaya taker.
+# Simulasi fill konservatif: terisi hanya jika ask terbaik turun DI BAWAH harga limit (ada penjual
+# yang melewati harga kita — antrian di harga yang sama dianggap tidak terisi). Order dibatalkan bila
+# edge model hilang, dan kedaluwarsa di akhir jendela. Rebate maker tidak dihitung (konservatif).
+
+MAKER_WINDOWS = {"btc": lambda: settings.AUTOTRADE_MAKER_WINDOW, "btc15": lambda: settings.AUTOTRADE_MAKER15_WINDOW}
+
+
+def _open_limit_orders(db=None) -> List[AutotradeLimitOrder]:
+    close = db is None
+    db = db or get_db_session()
+    try:
+        return db.query(AutotradeLimitOrder).filter_by(status="open").all()
+    finally:
+        if close:
+            db.close()
+
+
+def reserved_usd() -> float:
+    return sum(float(o.size_usd or 0) for o in _open_limit_orders())
+
+
+def maker_place(now: Optional[datetime] = None, series: str = "btc") -> Optional[Dict[str, Any]]:
+    """Pasang satu limit order per market pada sisi dengan edge terbesar."""
+    from app.paper_trading.live_market_data import fetch_order_books
+
+    now = now or datetime.now(timezone.utc)
+    ctx = _btc_context(series, now, _window(MAKER_WINDOWS[series]()))
+    if ctx is None:
+        return None
+    market, model = ctx["market"], ctx["model"]
+    key = f"maker|{series}|{market['condition_id']}"
+    db = get_db_session()
+    try:
+        if db.query(AutotradeLimitOrder.id).filter_by(decision_key=key).first() or already_decided(key):
+            return None
+    finally:
+        db.close()
+    books = fetch_order_books([market["up"], market["down"]])
+    best = None
+    for outcome, token, prob, side in (("UP", market["up"], model["p_up"], "YES"),
+                                       ("DOWN", market["down"], 1 - model["p_up"], "NO")):
+        book = books.get(str(token))
+        if not book or book.get("ask") is None:
+            continue
+        limit = math.floor(round((prob - settings.AUTOTRADE_MAKER_MARGIN) * 100, 6)) / 100  # 65.9999… → 66
+        limit = min(limit, round(book["ask"] - 0.01, 2))  # tetap di sisi maker (tidak menyilang ask)
+        if not 0.05 <= limit <= settings.AUTOTRADE_MAX_PRICE:
+            continue
+        edge = round(prob - limit, 4)
+        # Edge sama (keduanya = margin) → pilih sisi dengan peluang model lebih tinggi (varian lebih kecil)
+        if edge >= settings.AUTOTRADE_MAKER_MIN_EDGE and (best is None or (edge, prob) > (best["edge"], best["prob"])):
+            best = {"outcome": outcome, "side": side, "token": token, "prob": prob, "limit": limit, "edge": edge}
+    if best is None:
+        return None
+    usd = float(settings.AUTOTRADE_ORDER_USD)
+    ok, reason = risk_check(usd + reserved_usd(), now)
+    if not ok:
+        return None
+    end = ctx["start"] + timedelta(minutes=_window(MAKER_WINDOWS[series]())[1])
+    db = get_db_session()
+    try:
+        db.add(AutotradeLimitOrder(
+            decision_key=key, strategy=f"maker_{series}", market_id=market["condition_id"], token_id=best["token"],
+            side=best["side"], outcome=best["outcome"], label=f"{market['title']} · {best['outcome']}"[:255],
+            limit_price=Decimal(str(best["limit"])), size_usd=Decimal(str(usd)),
+            model_prob=Decimal(str(round(best["prob"], 4))), status="open", created_at=now, updated_at=now,
+            expires_at=end, detail=_btc_detail(model), url=f"https://polymarket.com/event/{market['slug']}"))
+        db.commit()
+    finally:
+        db.close()
+    logger.info("Maker order dipasang: %s %s @ %.2f (P %.3f)", market["title"], best["outcome"], best["limit"], best["prob"])
+    return best
+
+
+def maker_manage(now: Optional[datetime] = None) -> List[str]:
+    """Cek order terbuka: isi (ask menembus limit), batalkan (edge hilang), atau kedaluwarsa."""
+    from app.paper_trading.live_market_data import fetch_order_books
+
+    now = now or datetime.now(timezone.utc)
+    orders = _open_limit_orders()
+    if not orders:
+        return []
+    books = fetch_order_books([o.token_id for o in orders])
+    events: List[str] = []
+    klines = None
+    for o in orders:
+        expires = o.expires_at if o.expires_at.tzinfo else o.expires_at.replace(tzinfo=timezone.utc)
+        book = books.get(str(o.token_id)) or {}
+        limit = float(o.limit_price)
+        status, reason = None, None
+        if book.get("ask") is not None and book["ask"] < limit - 1e-9:
+            status = "filled"
+        elif now >= expires:
+            status, reason = "expired", "tidak terisi sampai akhir jendela"
+        else:
+            series = o.strategy.replace("maker_", "")
+            if series in BTC_SERIES:
+                klines = klines if klines is not None else _btc_klines()
+                start = series_start(series, now)
+                model = btc_model(klines, start, now, BTC_SERIES[series]["minutes"])
+                if model is not None:
+                    prob = model["p_up"] if o.outcome == "UP" else 1 - model["p_up"]
+                    if prob - limit < settings.AUTOTRADE_MAKER_MIN_EDGE / 2:
+                        status, reason = "cancelled", f"edge hilang (model {prob * 100:.0f}%)"
+        if status is None:
+            continue
+        db = get_db_session()
+        try:
+            row = db.get(AutotradeLimitOrder, o.id)
+            row.status, row.reason, row.updated_at = status, reason, now
+            db.commit()
+        finally:
+            db.close()
+        if status == "filled":
+            decision = {"key": o.decision_key, "strategy": o.strategy, "market_id": o.market_id, "title": o.label,
+                        "label": o.label, "side": o.side, "outcome": o.outcome, "prob": float(o.model_prob or 0),
+                        "price": limit, "fee": 0.0, "edge": float(o.model_prob or 0) - limit,
+                        "size": float(o.size_usd), "detail": f"MAKER fill (limit {limit * 100:.0f}¢, tanpa fee) · {o.detail or ''}",
+                        "url": o.url}
+            execute(decision, now)
+        events.append(f"{o.decision_key}:{status}")
+    return events
 
 
 # --- Strategi cuaca gabungan --------------------------------------------------------------
@@ -394,10 +569,11 @@ def weather_estimate(event: Dict[str, Any], now: datetime) -> Optional[Dict[str,
             "decimal": obs.get("station") == "HKO", "source": out.get("source") or "observasi"}
 
 
-def weather_decision(event: Dict[str, Any], now: datetime) -> Optional[Dict[str, Any]]:
+def weather_decision(event: Dict[str, Any], now: datetime, phase: str = "pre") -> Optional[Dict[str, Any]]:
     from app.paper_trading.recommendation_alerts import city_hashtag
 
-    key = f"weather|{event['event_key']}"
+    strategy = "weather" if phase == "pre" else "weather_post"
+    key = f"{strategy}|{event['event_key']}"
     if already_decided(key) or event.get("liquid") is False:
         return None
     est = weather_estimate(event, now)
@@ -430,7 +606,7 @@ def weather_decision(event: Dict[str, Any], now: datetime) -> Optional[Dict[str,
         return None
     kind = "max" if event["kind"] == "highest" else "min"
     return {
-        "key": key, "strategy": "weather", "market_id": target["market_id"],
+        "key": key, "strategy": strategy, "market_id": target["market_id"],
         "title": f"{city_hashtag(event['city'])} {kind} {event['local_date']} · {target['bracket']}",
         "label": f"{event['city']} {event['kind']} {event['local_date']} · {target['bracket']}",
         "side": "YES", "outcome": "YES", "prob": prob, "price": book["price"], "fee": book["fee"], "edge": edge,
@@ -442,16 +618,17 @@ def weather_decision(event: Dict[str, Any], now: datetime) -> Optional[Dict[str,
     }
 
 
-def weather_tick(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+def weather_tick(now: Optional[datetime] = None, phase: str = "pre") -> List[Dict[str, Any]]:
+    """phase 'pre' = jendela rekomendasi menjelang puncak; 'post' = jendela observasi setelah puncak."""
     from app.paper_service import get_market_suggestions
     from app.paper_trading.recommendation_alerts import top_volume_events
 
     now = now or datetime.now(timezone.utc)
-    events = top_volume_events([e for e in get_market_suggestions(now=now) if e.get("markets")], now=now)
+    events = top_volume_events([e for e in get_market_suggestions(now=now, phase=phase) if e.get("markets")], now=now)
     made = []
     for event in events:
         try:
-            decision = weather_decision(event, now)
+            decision = weather_decision(event, now, phase=phase)
         except Exception as err:
             logger.warning("Gagal mengevaluasi %s: %s", event.get("event_key"), err)
             continue
@@ -469,10 +646,17 @@ def run_autotrade_tick(include_weather: bool = False) -> None:
         if not is_enabled():
             return
         strategies = enabled_strategies()
-        if "btc" in strategies:
-            btc_tick()
-        if include_weather and "weather" in strategies:
-            weather_tick()
+        for series in BTC_SERIES:
+            if series in strategies:
+                btc_tick(series=series)
+            if f"maker_{series}" in strategies:
+                maker_place(series=series)
+        maker_manage()  # order yang sudah terpasang tetap dikelola walau strategi dimatikan
+        if include_weather:
+            if "weather" in strategies:
+                weather_tick(phase="pre")
+            if "weather_post" in strategies:
+                weather_tick(phase="post")
         maybe_send_daily_report()
     except Exception as err:
         logger.error("Auto trader gagal: %s", err, exc_info=True)
@@ -526,8 +710,14 @@ def status_summary(now: Optional[datetime] = None) -> Dict[str, Any]:
                        "max_open_usd": float(settings.AUTOTRADE_MAX_OPEN_USD),
                        "max_price": settings.AUTOTRADE_MAX_PRICE, "btc_min_edge": settings.AUTOTRADE_BTC_MIN_EDGE,
                        "weather_min_edge": settings.AUTOTRADE_WEATHER_MIN_EDGE,
-                       "btc_window": settings.AUTOTRADE_BTC_WINDOW},
-            "stats": strategy_stats(now=now), "recent": recent_decisions()}
+                       "btc_window": settings.AUTOTRADE_BTC_WINDOW, "btc15_window": settings.AUTOTRADE_BTC15_WINDOW,
+                       "maker_window": settings.AUTOTRADE_MAKER_WINDOW,
+                       "maker15_window": settings.AUTOTRADE_MAKER15_WINDOW,
+                       "maker_margin": settings.AUTOTRADE_MAKER_MARGIN},
+            "stats": strategy_stats(now=now), "recent": recent_decisions(),
+            "open_orders": [{"strategy": o.strategy, "label": o.label, "limit": float(o.limit_price),
+                             "prob": float(o.model_prob or 0), "size": float(o.size_usd), "expires_at": o.expires_at}
+                            for o in _open_limit_orders()]}
 
 
 def format_status(days: Optional[int] = None) -> str:
@@ -538,9 +728,14 @@ def format_status(days: Optional[int] = None) -> str:
         f"Hari ini ({t['day']}): {t['trades']} trade · beli ${t['spent']:.2f}/{lim['max_daily_usd']:.0f} · "
         f"PnL terealisasi {t['realized_pnl']:+.2f} (stop di -{lim['max_daily_loss']:.0f}) · terbuka ${t['open_usd']:.2f}",
         f"Aturan: ${lim['order_usd']:.0f}/order · harga ≤{lim['max_price'] * 100:.0f}¢ · edge BTC ≥{lim['btc_min_edge'] * 100:.0f}¢ "
-        f"(menit {lim['btc_window']}) · edge cuaca ≥{lim['weather_min_edge'] * 100:.0f}¢",
-        "",
+        f"(1 jam menit {lim['btc_window']}, 15 menit menit {lim['btc15_window']}) · maker limit P−{lim['maker_margin'] * 100:.0f}¢ "
+        f"· edge cuaca ≥{lim['weather_min_edge'] * 100:.0f}¢",
     ]
+    if s["open_orders"]:
+        lines.append(f"Limit order maker terbuka: {len(s['open_orders'])}")
+        for o in s["open_orders"][:5]:
+            lines.append(f"  • {o['label']} @ {o['limit'] * 100:.0f}¢ (model {o['prob'] * 100:.0f}%)")
+    lines.append("")
     stats = strategy_stats(days=days)
     label = f"{days} hari" if days else "semua waktu"
     lines.append(f"*Hasil ({label})*")

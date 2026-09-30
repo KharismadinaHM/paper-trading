@@ -22,13 +22,14 @@ from app.paper_trading.telegram_bot import handle_incoming_message
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
 
-def seed_market(market_id="0xbtc", name="Bitcoin Up or Down - test", price="0.50"):
+def seed_market(market_id="0xbtc", name="Bitcoin Up or Down - test", price="0.50", at=None):
+    at = at or NOW
     record_market_observations([{
         "market_id": market_id, "market_name": name, "category": "Crypto", "status": "open", "is_resolved": False,
         "resolution_time": NOW + timedelta(hours=1), "end_date": NOW + timedelta(hours=1),
         "price_yes": Decimal(price), "price_no": Decimal("1") - Decimal(price), "current_price": Decimal(price),
-        "outcome_yes_label": "Up", "outcome_no_label": "Down", "timestamp": NOW,
-    }], now=NOW)
+        "outcome_yes_label": "Up", "outcome_no_label": "Down", "timestamp": at,
+    }], now=at)
 
 
 def decision(key="btc|0xbtc", market_id="0xbtc", size=5.0, prob=0.7, price=0.55, fee=0.017):
@@ -140,12 +141,12 @@ class TestRiskAndExecution:
 class TestStrategies:
 
     def test_btc_tick_buys_side_with_edge(self, funded, sent, monkeypatch):
-        seed_market("0xbtc")
         hour = NOW.replace(minute=0, second=0)
         now = hour + timedelta(minutes=45)
-        monkeypatch.setattr(at, "_btc_market", lambda h: {"condition_id": "0xbtc", "title": "Bitcoin Up or Down - test",
+        seed_market("0xbtc", at=now)
+        monkeypatch.setattr(at, "_btc_market", lambda h, series="btc": {"condition_id": "0xbtc", "title": "Bitcoin Up or Down - test",
                                                           "up": "tu", "down": "td", "accepting": True, "slug": "s"})
-        monkeypatch.setattr(at, "btc_model", lambda k, h, n: {"p_up": 0.80, "price": 1, "open": 1, "change_pct": 0.2,
+        monkeypatch.setattr(at, "btc_model", lambda k, h, n, d=60: {"p_up": 0.80, "price": 1, "open": 1, "change_pct": 0.2,
                                                               "minutes_left": 15})
         monkeypatch.setattr(at, "_btc_klines", lambda: [])
         books = {"tu": {"price": 0.62, "fee": 0.016, "spread": 0.01, "shares": 8},
@@ -159,10 +160,10 @@ class TestStrategies:
     def test_btc_tick_outside_window_or_small_edge(self, monkeypatch):
         hour = NOW.replace(minute=0, second=0)
         assert at.btc_tick(hour + timedelta(minutes=10)) is None
-        monkeypatch.setattr(at, "_btc_market", lambda h: {"condition_id": "0xq", "title": "t", "up": "tu", "down": "td",
+        monkeypatch.setattr(at, "_btc_market", lambda h, series="btc": {"condition_id": "0xq", "title": "t", "up": "tu", "down": "td",
                                                           "accepting": True, "slug": "s"})
         monkeypatch.setattr(at, "_btc_klines", lambda: [])
-        monkeypatch.setattr(at, "btc_model", lambda k, h, n: {"p_up": 0.52, "price": 1, "open": 1, "change_pct": 0,
+        monkeypatch.setattr(at, "btc_model", lambda k, h, n, d=60: {"p_up": 0.52, "price": 1, "open": 1, "change_pct": 0,
                                                               "minutes_left": 20})
         monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.50, "fee": 0.0175, "spread": 0.01, "shares": 10})
         assert at.btc_tick(hour + timedelta(minutes=40)) is None
@@ -207,15 +208,17 @@ class TestControls:
 
     def test_enabled_flag_and_tick(self, monkeypatch):
         calls = []
-        monkeypatch.setattr(at, "btc_tick", lambda now=None: calls.append("btc"))
-        monkeypatch.setattr(at, "weather_tick", lambda now=None: calls.append("weather"))
+        monkeypatch.setattr(at, "btc_tick", lambda now=None, series="btc": calls.append(series))
+        monkeypatch.setattr(at, "maker_place", lambda now=None, series="btc": calls.append(f"maker_{series}"))
+        monkeypatch.setattr(at, "maker_manage", lambda now=None: calls.append("manage"))
+        monkeypatch.setattr(at, "weather_tick", lambda now=None, phase="pre": calls.append(f"weather_{phase}"))
         monkeypatch.setattr(at, "maybe_send_daily_report", lambda now=None: False)
         monkeypatch.setattr(settings, "AUTOTRADE_ENABLED", False)
         at.run_autotrade_tick(include_weather=True)
         assert calls == []
         at.set_enabled(True)
         at.run_autotrade_tick(include_weather=True)
-        assert calls == ["btc", "weather"]
+        assert calls == ["btc", "maker_btc", "btc15", "maker_btc15", "manage", "weather_pre", "weather_post"]
 
     def test_telegram_start_stop_status(self):
         assert "🟢 Auto paper trader dijalankan" in handle_incoming_message("/startbot", sender_chat_id="1", allowed_chat_id="1")
@@ -242,3 +245,88 @@ class TestControls:
         assert client.post("/api/autotrade/stop").json()["enabled"] is False
         assert client.post("/api/autotrade/boom").status_code == 404
         assert 'id="autotradeContainer"' in client.get("/").text
+
+
+class TestBtc15AndMaker:
+
+    def test_series_slugs_and_starts(self):
+        t = datetime(2026, 9, 30, 2, 7, 30, tzinfo=timezone.utc)
+        assert at.series_start("btc15", t) == datetime(2026, 9, 30, 2, 0, tzinfo=timezone.utc)
+        assert at.series_start("btc", t) == datetime(2026, 9, 30, 2, 0, tzinfo=timezone.utc)
+        assert at.series_start("btc15", t.replace(minute=52)) == datetime(2026, 9, 30, 2, 45, tzinfo=timezone.utc)
+        assert at.series_slug("btc15", datetime(2026, 9, 30, 2, 0, tzinfo=timezone.utc)) == "btc-updown-15m-1790733600"
+        assert at.series_slug("btc", datetime(2026, 9, 30, 1, 0, tzinfo=timezone.utc)) == "bitcoin-up-or-down-september-29-2026-9pm-et"
+
+    def test_btc15_uses_15_minute_horizon(self, funded, sent, monkeypatch):
+        start = NOW.replace(minute=(NOW.minute // 15) * 15, second=0)
+        now = start + timedelta(minutes=10)
+        seed_market("0x15", at=now)
+        seen = {}
+        monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": {"condition_id": "0x15", "title": "BTC 15m",
+                                                                         "up": "tu", "down": "td", "accepting": True, "slug": "s"})
+        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: seen.setdefault("d", d) and
+                            {"p_up": 0.2, "price": 1, "open": 1, "change_pct": -0.1, "minutes_left": 5})
+        monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.70 if token == "tu" else 0.30,
+                                                                   "fee": 0.015, "spread": 0.01, "shares": 10})
+        d = at.btc_tick(now, series="btc15")
+        assert seen["d"] == 15 and d["outcome"] == "DOWN" and d["strategy"] == "btc15"
+        assert get_open_positions()[0]["strategy_version"] == "auto_btc15_v1"
+
+    def _maker_setup(self, monkeypatch, p_up=0.70, book_ask=0.72):
+        hour = NOW.replace(minute=0, second=0)
+        now = hour + timedelta(minutes=20)
+        seed_market("0xmk", at=now)
+        state = {"books": {"tu": {"ask": book_ask, "bid": book_ask - 0.01}, "td": {"ask": 0.30, "bid": 0.29}},
+                 "p_up": p_up}
+        monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": {"condition_id": "0xmk", "title": "BTC maker",
+                                                                         "up": "tu", "down": "td", "accepting": True, "slug": "s"})
+        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: {"p_up": state["p_up"], "price": 1, "open": 1,
+                                                                    "change_pct": 0.1, "minutes_left": 40})
+        monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
+                            lambda tokens: {t: state["books"][t] for t in tokens if t in state["books"]})
+        return now, state
+
+    def test_maker_places_below_fair_value_and_fills_on_trade_through(self, funded, sent, monkeypatch):
+        now, state = self._maker_setup(monkeypatch)
+        placed = at.maker_place(now, series="btc")
+        assert placed["outcome"] == "UP" and placed["limit"] == 0.66  # floor(0.70 − 0.04)
+        assert at.maker_place(now, series="btc") is None  # satu order per market
+        assert at.maker_manage(now + timedelta(minutes=1)) == []  # ask 72¢ belum menembus
+        state["books"]["tu"] = {"ask": 0.66, "bid": 0.65}
+        assert at.maker_manage(now + timedelta(minutes=2)) == []  # ask sama dengan limit: antrian, belum terisi
+        state["books"]["tu"] = {"ask": 0.65, "bid": 0.64}
+        assert at.maker_manage(now + timedelta(minutes=3)) == ["maker|btc|0xmk:filled"]
+        pos = get_open_positions()[0]
+        assert pos["strategy_version"] == "auto_maker_btc_v1" and Decimal(str(pos["entry_price"])) == Decimal("0.66")
+        assert "MAKER fill" in sent[-1]
+
+    def test_maker_cancels_when_edge_disappears_and_expires(self, funded, monkeypatch):
+        now, state = self._maker_setup(monkeypatch)
+        at.maker_place(now, series="btc")
+        state["p_up"] = 0.67  # edge 1¢ < setengah edge minimum
+        assert at.maker_manage(now + timedelta(minutes=1)) == ["maker|btc|0xmk:cancelled"]
+        assert at.reserved_usd() == 0
+
+    def test_maker_expires_at_window_end(self, funded, monkeypatch):
+        now, state = self._maker_setup(monkeypatch)
+        at.maker_place(now, series="btc")
+        assert at.reserved_usd() == 5.0
+        assert at.maker_manage(now + timedelta(minutes=40)) == ["maker|btc|0xmk:expired"]
+
+
+class TestWeatherPostPhase:
+
+    def test_observation_window_spans_peak_and_after(self):
+        from app.paper_trading import weather_peaks as wp
+        w = wp.recommendation_window("Hong Kong", "highest", datetime(2026, 9, 30).date())
+        post = wp.observation_window(w)
+        assert post.start == w.peak_start and post.end == w.peak_end + timedelta(hours=settings.AUTOTRADE_WEATHER_POST_HOURS)
+        assert post.contains(w.peak_end) and not w.contains(w.peak_end)
+
+    def test_post_phase_uses_separate_strategy(self, monkeypatch):
+        monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.25, "fee": 0.0131, "spread": 0.02, "shares": 20})
+        ev = TestStrategies()._event()
+        d = at.weather_decision(ev, NOW, phase="post")
+        assert d["strategy"] == "weather_post" and d["key"].startswith("weather_post|")
