@@ -2,7 +2,10 @@
 Modul Telegram Notification untuk Paper Trading.
 Menyediakan formatting pesan dan pengiriman ke Telegram Bot API via requests.
 """
+import json
 import os
+import re
+import urllib.request
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Dict, Optional, Union
@@ -11,8 +14,6 @@ try:
     import requests
 except ImportError:
     requests = None
-    import json
-    import urllib.request
 
 
 @dataclass
@@ -168,6 +169,23 @@ except ImportError:
     pass
 
 
+_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+
+def redact_token(text: Any) -> str:
+    """Samarkan token bot di pesan error/log (URL Telegram memuat token: .../bot<token>/sendMessage)."""
+    return _TOKEN_RE.sub("bot<token>", str(text))
+
+
+def _telegram_error(resp) -> str:
+    """Penjelasan dari Telegram (mis. 'Bad Request: chat not found') tanpa URL yang memuat token."""
+    try:
+        description = resp.json().get("description")
+    except Exception:
+        description = None
+    return f"Telegram HTTP {resp.status_code}: {description or 'permintaan ditolak'}"
+
+
 def send_telegram_message(
     text: str,
     bot_token: Optional[str] = None,
@@ -206,10 +224,11 @@ def send_telegram_message(
     if requests is not None:
         try:
             resp = requests.post(url, json=payload, timeout=timeout)
-            resp.raise_for_status()
+            if not resp.ok:
+                return {"success": False, "error": _telegram_error(resp)}
             return {"success": True, "response": resp.json()}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": redact_token(e)}
 
     # Fallback ke standard library urllib
     try:
@@ -224,7 +243,7 @@ def send_telegram_message(
             res_body = json.loads(response.read().decode("utf-8"))
             return {"success": True, "response": res_body}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": redact_token(e)}
 
 
 def answer_callback_query(callback_id: str, text: str = "", bot_token: Optional[str] = None,
@@ -238,7 +257,7 @@ def answer_callback_query(callback_id: str, text: str = "", bot_token: Optional[
                              json={"callback_query_id": callback_id, "text": text[:190]}, timeout=timeout)
         return {"success": resp.ok}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": redact_token(e)}
 
 
 def notify_paper_buy(

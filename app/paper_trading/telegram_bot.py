@@ -582,11 +582,13 @@ def start_bot_polling(
                     )
 
         except requests.exceptions.RequestException as e:
-            logger.warning("Jaringan bermasalah saat getUpdates: %s", e)
+            from app.paper_trading.telegram import redact_token
+            logger.warning("Jaringan bermasalah saat getUpdates: %s", redact_token(e))
             time.sleep(3)
         except KeyboardInterrupt:
             print("\n🛑 Telegram Bot Polling dihentikan oleh pengguna.")
             break
         except Exception as e:
-            logger.exception("Terjadi error tak terduga pada loop bot: %s", e)
+            from app.paper_trading.telegram import redact_token
+            logger.error("Terjadi error tak terduga pada loop bot: %s", redact_token(e))
             time.sleep(3)

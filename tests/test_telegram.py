@@ -151,3 +151,23 @@ class TestTelegramNotification(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_errors_never_contain_bot_token():
+    from unittest.mock import MagicMock, patch
+    import requests
+    from app.paper_trading.telegram import redact_token, send_telegram_message
+
+    token = "8818703861:AAH-secret_token-value"
+    assert token not in redact_token(f"400 Client Error for url: https://api.telegram.org/bot{token}/sendMessage")
+
+    resp = MagicMock(ok=False, status_code=400)
+    resp.json.return_value = {"ok": False, "description": "Bad Request: chat not found"}
+    with patch("app.paper_trading.telegram.requests.post", return_value=resp):
+        result = send_telegram_message("x", bot_token=token, chat_id="5574514764")
+    assert result == {"success": False, "error": "Telegram HTTP 400: Bad Request: chat not found"}
+
+    boom = requests.exceptions.ConnectionError(f"Max retries exceeded with url: /bot{token}/sendMessage")
+    with patch("app.paper_trading.telegram.requests.post", side_effect=boom):
+        result = send_telegram_message("x", bot_token=token, chat_id="1")
+    assert token not in result["error"] and "bot<token>" in result["error"]
