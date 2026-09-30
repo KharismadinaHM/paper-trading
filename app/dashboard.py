@@ -220,6 +220,22 @@ def get_current_weather_api(limit: int = 7, city: Optional[str] = None):
     return get_current_weather(limit=max(1, min(limit, 20)), city=city or None)
 
 
+@app.get("/api/autotrade", dependencies=[Depends(require_auth)])
+def autotrade_status_api():
+    """Status auto paper trader: aktif/berhenti, pemakaian hari ini, aturan, hasil per strategi, keputusan terbaru."""
+    from app.paper_trading.autotrader import status_summary
+    return status_summary()
+
+
+@app.post("/api/autotrade/{action}", dependencies=[Depends(require_auth)])
+def autotrade_toggle_api(action: str):
+    from app.paper_trading.autotrader import set_enabled, status_summary
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=404, detail="Aksi tidak dikenal")
+    set_enabled(action == "start")
+    return status_summary()
+
+
 @app.get("/api/my-wallet", dependencies=[Depends(require_auth)])
 def my_wallet_api(refresh: bool = False):
     """Portfolio Polymarket sendiri (read-only). configured=False jika alamat wallet belum diatur."""

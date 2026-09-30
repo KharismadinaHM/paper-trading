@@ -71,6 +71,7 @@ def _summarize_book(book: Dict[str, Any]) -> Dict[str, Optional[float]]:
         "ask": best_ask[0] if best_ask else None,
         "ask_size": best_ask[1] if best_ask else None,
         "bid": best_bid[0] if best_bid else None,
+        "asks": sorted(asks)[:30],  # level ask termurah dulu, untuk VWAP sesuai ukuran order
     }
 
 
@@ -122,6 +123,37 @@ def apply_liquidity(event: Dict[str, Any], books: Dict[str, Dict[str, Optional[f
         top = liquid[0]  # markets sudah urut dari peluang (mid) tertinggi
         event["markets"].remove(top)
         event["markets"].insert(0, top)
+
+
+def vwap_for_usd(asks: List[tuple], usd: float) -> Optional[Dict[str, float]]:
+    """
+    Harga rata-rata membeli senilai `usd` dengan menyusuri level ask (termurah dulu).
+    None jika kedalaman order book tidak cukup.
+    """
+    remaining, shares, spent = float(usd), 0.0, 0.0
+    for price, size in sorted(asks):
+        if price <= 0:
+            continue
+        take = min(size, remaining / price)
+        shares += take
+        spent += take * price
+        remaining -= take * price
+        if remaining <= 1e-9:
+            return {"price": spent / shares, "shares": shares, "worst": price}
+    return None
+
+
+def fetch_fee_rate(token_id: str) -> float:
+    """Tarif fee taker untuk token (0 jika market tanpa fee). Dari /fee-rate CLOB, cache 1 jam."""
+    def load():
+        data = json.loads(_http(f"https://clob.polymarket.com/fee-rate?token_id={token_id}") or "{}")
+        return float(settings.AUTOTRADE_FEE_RATE) if float(data.get("base_fee") or 0) > 0 else 0.0
+
+    try:
+        return _cached(f"fee:{token_id}", 3600, load)
+    except Exception as err:
+        logger.warning("Gagal mengambil fee rate %s: %s — memakai tarif default", token_id, err)
+        return float(settings.AUTOTRADE_FEE_RATE)
 
 
 def entry_price(market: Dict[str, Any]) -> Optional[float]:

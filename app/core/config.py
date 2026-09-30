@@ -110,6 +110,25 @@ class Settings(BaseSettings):
     POLYMARKET_API_PASSPHRASE: Optional[str] = None
     POLYMARKET_SIGNER_ADDRESS: Optional[str] = None  # alamat pembuat API key (default = wallet address)
     POLYMARKET_SIGNATURE_TYPE: int = 1               # 1 = akun email/Magic, 2 = browser wallet, 0 = EOA
+
+    # Auto paper trader (PAPER saja — tidak pernah mengirim order ke Polymarket)
+    AUTOTRADE_ENABLED: bool = False            # status awal; bisa diubah lewat /startbot /stopbot
+    AUTOTRADE_STRATEGIES: str = "weather,btc"
+    AUTOTRADE_ORDER_USD: Decimal = Decimal("5.00")
+    AUTOTRADE_MAX_DAILY_USD: Decimal = Decimal("50.00")   # total pembelian per hari (WIB)
+    AUTOTRADE_MAX_DAILY_LOSS: Decimal = Decimal("20.00")  # stop hari itu jika rugi terealisasi ≥ ini
+    AUTOTRADE_MAX_OPEN_USD: Decimal = Decimal("100.00")   # total posisi terbuka akun
+    AUTOTRADE_MAX_PRICE: float = 0.90          # jangan beli di atas harga ini (ruang untung habis)
+    AUTOTRADE_MAX_SPREAD: float = 0.05
+    AUTOTRADE_FEE_RATE: float = 0.07           # fee taker = rate · p · (1 − p) per share, market ber-fee
+    AUTOTRADE_BTC_MIN_EDGE: float = 0.05
+    AUTOTRADE_BTC_WINDOW: str = "30-57"        # menit ke- dalam jam saat bot boleh masuk
+    AUTOTRADE_POLL_SECONDS: int = 10
+    AUTOTRADE_WEATHER_MIN_EDGE: float = 0.05
+    AUTOTRADE_WEATHER_REQUIRE_AGREEMENT: bool = True  # bracket perkiraan observasi = favorit pasar
+    AUTOTRADE_WEATHER_SIGMA_C: float = 0.6     # ketidakpastian dasar perkiraan suhu (°C) + 0.3/jam ke puncak
+    AUTOTRADE_REPORT_HOUR: int = 21            # jam WIB laporan harian
+    TELEGRAM_AUTOTRADE_CHAT_ID: Optional[str] = None  # chat/grup terpisah untuk notif auto trade
     # Zona waktu jam di notifikasi (default WIB)
     NOTIFY_TIMEZONE: str = "Asia/Jakarta"
     NOTIFY_TIMEZONE_LABEL: str = "WIB"

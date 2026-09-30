@@ -411,3 +411,38 @@ class WalletAlertLog(Base):
     asset: Mapped[str] = mapped_column(String(100), primary_key=True)
     address: Mapped[str] = mapped_column(String(42), nullable=False)
     timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class AutotradeState(Base):
+    """Status runtime auto trader (mis. enabled on/off lewat /startbot /stopbot, laporan terakhir)."""
+    __tablename__ = "autotrade_state"
+
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AutotradeDecision(Base):
+    """
+    Keputusan auto trader yang dieksekusi (filled) atau ditolak risk engine (rejected).
+    decision_key unik per strategi + market/event → paling banyak satu entri per market.
+    """
+    __tablename__ = "autotrade_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    decision_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    model_prob: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)   # VWAP ask
+    fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)     # biaya taker per share
+    edge: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    size_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)                   # filled / rejected
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    local_day: Mapped[str] = mapped_column(String(10), nullable=False)                # hari WIB
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("idx_autotrade_decisions_day", "local_day"),)

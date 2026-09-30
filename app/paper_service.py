@@ -882,9 +882,17 @@ def create_paper_order(
     strategy_version: str = "manual",
     db_session: Optional[Session] = None,
     now: Optional[datetime] = None,
+    execution_price: Optional[Decimal] = None,
+    risk_limits: Optional[Dict[str, Decimal]] = None,
+    notify: bool = True,
+    reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Membuat paper order manual dengan proteksi Anti Stale Price.
+    Membuat paper order dengan proteksi Anti Stale Price.
+
+    Auto trader memakai `execution_price` = harga dari order book live (VWAP level ask sesuai ukuran
+    order + biaya taker) sebagai harga eksekusi, dan `risk_limits` (max_position_size,
+    max_market_exposure, max_total_exposure) sebagai pengganti batas order manual.
 
     Urutan proses WAJIB:
     1. Fetch harga real-time terbaru dari Market Collector untuk market_id ini.
@@ -964,13 +972,19 @@ def create_paper_order(
         warning_message = f"{warning_message} | {stale_msg}" if warning_message else stale_msg
         logger.warning(f"Anti-Stale Notice: Market '{market_id}' menggunakan data snapshot stale (ts: {ts_str})")
 
-    # 3. apply_slippage_and_spread menggunakan harga real-time
-    execution_price = apply_slippage_and_spread(
-        historical_mid_price=real_time_price,
-        spread_bps=int(settings.SPREAD_BPS),
-        slippage_bps=int(settings.SLIPPAGE_BPS),
-        is_buy=True,
-    )
+    # 3. apply_slippage_and_spread menggunakan harga real-time (kecuali harga order book diberikan)
+    if execution_price is not None:
+        execution_price = Decimal(str(execution_price))
+        if not Decimal("0") < execution_price < Decimal("1"):
+            raise ValueError(f"Harga eksekusi tidak valid: {execution_price}")
+    else:
+        execution_price = apply_slippage_and_spread(
+            historical_mid_price=real_time_price,
+            spread_bps=int(settings.SPREAD_BPS),
+            slippage_bps=int(settings.SLIPPAGE_BPS),
+            is_buy=True,
+        )
+    limits = risk_limits or {}
 
     market_name = market.get("market_name", market_id)
     order_uuid = uuid.uuid4()
@@ -982,12 +996,12 @@ def create_paper_order(
             is_approved, rejection_reason = evaluate_risk_and_rules(
                 position_size=position_size,
                 available_balance=Decimal(str(account.current_balance)),
-                max_position_size=Decimal(str(settings.MAX_POSITION_SIZE)),
+                max_position_size=Decimal(str(limits.get("max_position_size", settings.MAX_POSITION_SIZE))),
                 historical_price_available=True,
                 current_market_exposure=_open_exposure(db, account, market_id),
-                max_market_exposure=Decimal(str(settings.MAX_EXPOSURE_PER_MARKET)),
+                max_market_exposure=Decimal(str(limits.get("max_market_exposure", settings.MAX_EXPOSURE_PER_MARKET))),
                 current_total_exposure=_open_exposure(db, account),
-                max_total_exposure=Decimal(str(settings.MAX_TOTAL_EXPOSURE)),
+                max_total_exposure=Decimal(str(limits.get("max_total_exposure", settings.MAX_TOTAL_EXPOSURE))),
             )
             if not is_approved:
                 logger.warning(f"Paper order rejected by risk control: {rejection_reason}")
@@ -1070,16 +1084,17 @@ def create_paper_order(
         "warning": warning_message,
         "polymarket_url": get_polymarket_url(market_id, market_name),
     }
-    _notify_async("notify_paper_buy", {
-        "market": market_name,
-        "side": normalized_side,
-        "entry_price": execution_price,
-        "position_size": position_size,
-        "shares": shares,
-        "expected_peak": "-",
-        "reason": f"Manual paper order ({strategy_version})",
-        "polymarket_url": order_data["polymarket_url"],
-    })
+    if notify:
+        _notify_async("notify_paper_buy", {
+            "market": market_name,
+            "side": normalized_side,
+            "entry_price": execution_price,
+            "position_size": position_size,
+            "shares": shares,
+            "expected_peak": "-",
+            "reason": reason or f"Manual paper order ({strategy_version})",
+            "polymarket_url": order_data["polymarket_url"],
+        })
     return order_data
 
 

@@ -24,6 +24,7 @@ from app.paper_trading.recommendation_alerts import run_recommendation_alerts
 from app.paper_trading.hko_alerts import run_hko_alerts
 from app.paper_trading.recommendation_results import run_recommendation_tracking
 from app.paper_trading.settlement_worker import run_settlement_cycle
+from app.paper_trading.autotrader import run_autotrade_tick
 from app.paper_trading.wallets import run_wallet_maintenance, run_wallet_polling
 
 logger = get_logger("market_collector_runner")
@@ -99,6 +100,7 @@ def main():
             run_hko_alerts()
             run_wallet_maintenance()
             run_wallet_polling()
+            run_autotrade_tick(include_weather=True)
             prune_market_snapshots()
         except Exception as loop_err:
             logger.error("Error tak tertangani pada runner loop: %s", str(loop_err), exc_info=True)
@@ -109,16 +111,21 @@ def main():
         logger.info("Menunggu siklus berikutnya dalam %.1f detik...", sleep_duration)
 
         # Selama menunggu, cek transaksi wallet yang diikuti tiap WALLET_POLL_SECONDS (alert real-time)
-        slept, since_wallet_poll = 0.0, 0.0
+        slept, since_wallet_poll, since_autotrade = 0.0, 0.0, 0.0
         wallet_every = max(15, settings.WALLET_POLL_SECONDS)
+        autotrade_every = max(5, settings.AUTOTRADE_POLL_SECONDS)
         while _running and slept < sleep_duration:
             step = min(1.0, sleep_duration - slept)
             time.sleep(step)
             slept += step
             since_wallet_poll += step
+            since_autotrade += step
             if since_wallet_poll >= wallet_every:
                 since_wallet_poll = 0.0
                 run_wallet_polling()
+            if since_autotrade >= autotrade_every:  # BTC per jam: cek model vs order book tiap beberapa detik
+                since_autotrade = 0.0
+                run_autotrade_tick()
 
     logger.info("Market Collector Service dihentikan dengan aman.")
 
