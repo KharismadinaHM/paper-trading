@@ -61,7 +61,7 @@ def build_help_message() -> str:
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
         "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
-        "🤖 `/autobot` - Status auto paper trader · `/startbot` · `/stopbot` · `/autostats 7`\n"
+        "🤖 `/autobot` - Status auto paper trader · `/startbot` · `/stopbot` · `/autostats 7` · `/tesnotif`\n"
         "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover` - Rekomendasi wallet Polymarket menarik (tombol Ikuti / Skip)\n"
         "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"
@@ -448,6 +448,9 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
         from app.paper_trading.autotrader import format_status
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
         return format_status(days=days)
+    elif cmd in ("/tesnotif", "/testnotif"):
+        from app.paper_trading.autotrader import send_test_notification
+        return send_test_notification()
     elif cmd in ("/startbot", "/stopbot"):
         from app.paper_trading.autotrader import format_status, set_enabled
         set_enabled(cmd == "/startbot")

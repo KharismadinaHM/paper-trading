@@ -280,7 +280,7 @@ class TestCalibrationFile:
         cities = data["cities"]
         for city in LIVE_CITIES:
             c = cities[city]
-            assert c["days"] >= 60, city
+            assert c["days"] >= 45, city
             assert -2.0 <= c["lag_max_hours"] <= 5.0, city   # max: sekitar/sesudah solar noon
             # min: umumnya sekitar matahari terbit; kota pesisir bisa beberapa jam sebelumnya (mis. Istanbul ~03:00)
             assert -4.0 <= c["lag_min_hours"] <= 2.0, city

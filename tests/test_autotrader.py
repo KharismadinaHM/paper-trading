@@ -134,8 +134,8 @@ class TestRiskAndExecution:
 
     def test_insufficient_paper_balance_is_rejected_cleanly(self, sent):
         seed_market()
-        assert at.execute(decision(size=500.0), NOW) is None  # saldo awal $20
-        assert sent == []
+        assert at.execute(decision(size=30.0), NOW) is None  # saldo awal $20
+        assert len(sent) == 1 and "Deposit" in sent[0]
 
 
 class TestStrategies:
@@ -330,3 +330,22 @@ class TestWeatherPostPhase:
         ev = TestStrategies()._event()
         d = at.weather_decision(ev, NOW, phase="post")
         assert d["strategy"] == "weather_post" and d["key"].startswith("weather_post|")
+
+
+class TestNotifications:
+
+    def test_rejection_notified_once_per_reason_per_day(self, sent):
+        seed_market("0xr1")
+        seed_market("0xr2")
+        at.execute(decision("btc|0xr1", "0xr1", size=30.0), NOW)  # saldo paper $20 tidak cukup
+        at.execute(decision("btc|0xr2", "0xr2", size=30.0), NOW)
+        assert len(sent) == 1 and "AUTO TRADE DITOLAK" in sent[0] and "Deposit" in sent[0]
+
+    def test_test_notification_reports_success_and_error(self, monkeypatch):
+        monkeypatch.setattr(settings, "TELEGRAM_AUTOTRADE_CHAT_ID", "-100123")
+        with patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": True}) as fake:
+            assert "✅ Pesan uji terkirim ke -100123" in handle_incoming_message("/tesnotif", sender_chat_id="1", allowed_chat_id="1")
+        assert fake.call_args.kwargs["chat_id"] == "-100123"
+        with patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": False, "error": "chat not found"}):
+            reply = handle_incoming_message("/tesnotif", sender_chat_id="1", allowed_chat_id="1")
+        assert "❌ Gagal" in reply and "chat not found" in reply

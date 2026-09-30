@@ -152,12 +152,46 @@ def _record(decision: Dict[str, Any], status: str, reason: Optional[str], now: d
         db.close()
 
 
-def notify(text: str) -> None:
+def notify(text: str) -> Dict[str, Any]:
     from app.paper_trading.telegram import send_telegram_message
 
     result = send_telegram_message(text, chat_id=settings.TELEGRAM_AUTOTRADE_CHAT_ID or None)
     if not result.get("success"):
         logger.warning("Notifikasi auto trade tidak terkirim: %s", result.get("error"))
+    return result
+
+
+def _reason_group(reason: str) -> str:
+    """Kelompok alasan penolakan untuk dedupe notifikasi (angka dibuang)."""
+    import re
+    return re.sub(r"[\d$.,:%]+", "#", str(reason or ""))[:60]
+
+
+def notify_rejection(decision: Dict[str, Any], reason: str, now: datetime) -> bool:
+    """Kabari penolakan sekali per jenis alasan per hari (mis. saldo paper tidak cukup, batas harian)."""
+    key = f"rej:{_local_day(now)}:{_reason_group(reason)}"
+    if _get_state(key):
+        return False
+    _set_state(key, "1", now)
+    hint = ""
+    if "balance" in reason.lower() or "saldo" in reason.lower():
+        hint = "\nTambah saldo paper lewat tombol Deposit di dashboard."
+    notify(f"⚠️ AUTO TRADE DITOLAK (paper) · {decision['title']}\n"
+           f"Alasan: {reason}\n"
+           f"Sinyal: {decision.get('outcome') or decision['side']} · model {decision['prob'] * 100:.0f}% vs biaya "
+           f"{(decision['price'] + decision['fee']) * 100:.1f}¢{hint}\n"
+           "(Penolakan jenis ini hanya dikabarkan sekali per hari.)")
+    return True
+
+
+def send_test_notification() -> str:
+    """/tesnotif: kirim pesan uji ke chat auto trade dan laporkan hasilnya."""
+    target = settings.TELEGRAM_AUTOTRADE_CHAT_ID or "chat utama (TELEGRAM_CHAT_ID)"
+    result = notify("🧪 Tes notifikasi auto trader — kalau pesan ini muncul, notifikasi auto trade masuk ke sini.")
+    if result.get("success"):
+        return f"✅ Pesan uji terkirim ke {target}."
+    return (f"❌ Gagal mengirim ke {target}: {result.get('error')}\n"
+            "Cek: bot sudah jadi anggota grup, ID grup diawali '-100', dan container sudah di-restart setelah .env diubah.")
 
 
 def execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
@@ -171,6 +205,7 @@ def execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Optiona
     if not ok:
         _record(decision, "rejected", reason, now)
         logger.info("Auto trade ditolak (%s): %s", decision["key"], reason)
+        notify_rejection(decision, reason, now)
         return None
     size = Decimal(str(decision["size"]))
     if not decision["strategy"].startswith("weather"):
@@ -192,6 +227,7 @@ def execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Optiona
     except ValueError as err:
         _record(decision, "rejected", str(err)[:500], now)
         logger.info("Auto trade ditolak paper engine (%s): %s", decision["key"], err)
+        notify_rejection(decision, str(err)[:300], now)
         return None
     _record(decision, "filled", None, now)
     notify(format_decision(decision, order))
