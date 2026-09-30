@@ -191,7 +191,8 @@ def send_test_notification() -> str:
     if result.get("success"):
         return f"✅ Pesan uji terkirim ke {target}."
     return (f"❌ Gagal mengirim ke {target}: {result.get('error')}\n"
-            "Cek: bot sudah jadi anggota grup, ID grup diawali '-100', dan container sudah di-restart setelah .env diubah.")
+            "Cek: bot sudah jadi anggota grup, ID grup diawali '-' (grup biasa -55…, supergroup -100…), "
+            "dan container sudah di-restart setelah .env diubah.")
 
 
 def execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:

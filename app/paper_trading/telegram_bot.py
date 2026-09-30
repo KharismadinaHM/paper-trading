@@ -410,7 +410,10 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
     # /chatid boleh dari chat mana pun: hanya membalas ID chat itu sendiri (untuk mengisi
     # TELEGRAM_AUTOTRADE_CHAT_ID dengan ID grup), tanpa data atau kendali lain.
     if cmd == "/chatid":
-        return f"🆔 Chat ID ini: `{sender_chat_id}`"
+        tip = ("\nIsi di .env: `TELEGRAM_AUTOTRADE_CHAT_ID=" + str(sender_chat_id) + "`\n"
+               "Perintah lain (mis. /tesnotif) diketik di chat pribadi dengan bot, bukan di grup.") \
+            if str(sender_chat_id).startswith("-") else ""
+        return f"🆔 Chat ID ini: `{sender_chat_id}`{tip}"
 
     # Keamanan opsional: batasi hanya chat_id yang diizinkan jika dikonfigurasi
     if allowed_chat_id:
