@@ -76,7 +76,7 @@ Run pertama sempat menunjukkan "edge" +15–40% yang ternyata artefak (riwayat h
 ### Perkiraan suhu akhir (di stasiun resolusi market)
 | Kota | Sumber |
 |---|---|
-| Hong Kong | HKO real-time (per 10 menit, 0.1°C). Prakiraan resmi HKO diutamakan ("maximum temperature … NN degrees", atau "very hot" = 33°C), digabung proyeksi tren (laju °/jam sampai akhir jam puncak). Tidak pernah di bawah max terukur |
+| Hong Kong | HKO real-time (per 10 menit, 0.1°C). Prakiraan resmi HKO diutamakan ("maximum temperature … NN degrees", atau "very hot" = 33°C), digabung proyeksi tren (laju °/jam sampai akhir jam puncak; setelah puncak sampai batas final, maks 2 jam). Tidak pernah di bawah max terukur. **Max tidak dianggap final sebelum 17:00 HKT** (`HKO_FINAL_HOUR`) kecuali suhu sudah turun ≥ 1°C dari max (`HKO_FINAL_DROP`) |
 | Kota lain | Prakiraan per jam Open-Meteo di koordinat stasiun, dikoreksi selisih observasi METAR/NOAA terakhir − prakiraan. Tidak pernah di bawah max terukur (atau di atas min terukur). Bila jam puncak sudah lewat dan suhu tidak naik lagi (tren ≤ +0.1°/jam), max dianggap final |
 
 ### Peluang bracket
@@ -118,7 +118,7 @@ alasan per hari. Posisi di-settle otomatis saat market resolve (Up = YES, Down =
 | Fitur | Aturan | Setting |
 |---|---|---|
 | Rekomendasi BUY | Jendela 2–1 jam sebelum jam puncak; bracket **likuid** (spread ≤ 10¢) dengan peluang pasar tertinggi; harga = ask; hanya 7 kota top volume | `RECOMMENDATION_MAX_SPREAD`, `TELEGRAM_RECOMMENDATION_TOP_CITIES` |
-| Alert Hong Kong | Suhu naik ≥ 0.8°C dalam 30 menit, atau max hari ini menembus derajat bulat baru (sekali per derajat per hari); pukul 07–19 HKT; jeda 30 menit antar alert lonjakan; bacaan > 20 menit tidak memicu alert | `HKO_ALERT_*` |
+| Alert Hong Kong | Suhu naik ≥ 0.8°C dalam 30 menit; max hari ini menembus derajat bulat baru; **max mendekati derajat berikutnya** (≥ X.7°C, masih naik/bertahan dekat max, sebelum batas final) dengan harga bracket berikutnya; **risiko posisi** bila bracket YES yang Anda pegang (wallet `/porto` atau paper) mendekati batas atasnya. Masing-masing sekali per derajat per hari; pukul 07–19 HKT; jeda 30 menit antar alert lonjakan; bacaan > 20 menit tidak memicu alert | `HKO_ALERT_*`, `HKO_NEAR_DEGREE_FRACTION`, `HKO_FINAL_HOUR` |
 | Alert wallet | Transaksi baru wallet yang diikuti, dicek tiap 60 detik, minimal $5 (opsional hanya market cuaca) | `WALLET_POLL_SECONDS`, `WALLET_ALERT_MIN_USDC`, `WALLET_ALERT_WEATHER_ONLY` |
 | Rekomendasi wallet | Leaderboard Weather bulan ini; skor = ½ win rate (dihaluskan) + ½ margin PnL/volume; minimal 15 posisi selesai & aktif 7 hari terakhir | `WALLET_DISCOVERY_*` |
 
@@ -146,6 +146,9 @@ lengkap — lalu hasilnya diisi otomatis setelah market resolve (`app/paper_trad
 - Model cuaca bergantung pada kualitas prakiraan; selisih 1–2°C sudah cukup untuk pindah bracket.
 - Fill maker adalah simulasi; di pasar nyata ada antrian dan adverse selection yang bisa lebih buruk.
 - Aturan resolusi market bisa berubah — cek deskripsi market bila hasil tampak tidak cocok.
+- Suhu bisa naik lagi setelah jam puncak khas. Contoh 30 Sep 2026 (Hong Kong): pasar memberi 33°C 98.5¢
+  pukul 14:40 HKT, lalu HKO mencatat 34.2°C sekitar 15:50 — karena itu aturan final HK & alert "mendekati
+  derajat berikutnya". Riwayat bacaan HKO per 10 menit: `/hk riwayat [YYYY-MM-DD]` atau `/api/hk/readings.csv`.
 
 ## 9. Command Telegram terkait
 

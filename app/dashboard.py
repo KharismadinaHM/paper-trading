@@ -227,6 +227,21 @@ def autotrade_status_api():
     return status_summary()
 
 
+@app.get("/api/hk/readings.csv", dependencies=[Depends(require_auth)])
+def hk_readings_csv_api(date: Optional[str] = None):
+    """Bacaan HKO tersimpan (per 10 menit) untuk satu hari HKT (default hari ini), sebagai CSV."""
+    from datetime import date as _date
+    from fastapi.responses import Response
+    from app.paper_trading.hko_alerts import readings_csv
+    try:
+        day = _date.fromisoformat(date) if date else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format tanggal: YYYY-MM-DD")
+    name = f"hko_{(day.isoformat() if day else 'today')}.csv"
+    return Response(content=readings_csv(day), media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={name}"})
+
+
 @app.get("/api/autotrade/research", dependencies=[Depends(require_auth)])
 def autotrade_research_api(days: Optional[int] = None):
     """Riset auto trader: kalibrasi, ROI per rentang edge/menit/kota, fill rate maker, saran ambang."""

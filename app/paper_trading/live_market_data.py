@@ -347,6 +347,9 @@ def add_weather_outlook(summary: Dict[str, Any], kinds, tz: ZoneInfo, local_date
         window = recommendation_window(city, "highest", local_date)
         peak_passed = (window is not None and now >= window.peak_end
                        and (trend is None or trend <= 0.1) and (station == "HKO" or trend is not None))
+        if station == "HKO":
+            from app.paper_trading.hko_alerts import can_be_final
+            peak_passed = peak_passed and can_be_final(now, summary.get("current"), summary.get("max"))
     for kind in kinds:
         observed = summary.get("max") if kind == "highest" else summary.get("min")
         observed_at = summary.get("max_at") if kind == "highest" else summary.get("min_at")

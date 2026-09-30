@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     HKO_ALERT_WINDOW_MINUTES: int = 30
     HKO_ALERT_COOLDOWN_MINUTES: int = 30      # jeda minimal antar alert lonjakan
     HKO_ALERT_HOURS: str = "7-19"             # jam lokal HK saat alert aktif
+    # Max HK tidak dianggap final sebelum jam ini (HKT), kecuali suhu sudah turun ≥ HKO_FINAL_DROP dari max.
+    # Kasus 30 Sep: pasar memberi 33°C 98.5¢ pukul 14:40, lalu HKO naik ke 34.2°C sekitar 15:50.
+    HKO_FINAL_HOUR: int = 17
+    HKO_FINAL_DROP: float = 1.0
+    # Alert "mendekati derajat berikutnya": max ≥ X + fraksi ini (mis. 33.7 → risiko bracket 34°C)
+    HKO_NEAR_DEGREE_FRACTION: float = 0.7
 
     # Wallet tracker Polymarket
     WALLET_STATS_DAYS: int = 30                # periode win rate & PnL

@@ -74,7 +74,8 @@ def test_spike_alert_with_estimate_and_market(env):
     assert "Market: " in text and "33°C ask 47¢" in text
 
 
-def test_spike_cooldown(env):
+def test_spike_cooldown(env, monkeypatch):
+    monkeypatch.setattr(settings, "HKO_NEAR_DEGREE_FRACTION", 0.99)  # uji lonjakan saja
     for minute, temp in ((0, 30.0), (10, 30.5), (20, 31.0)):
         step(env, hkt(10, minute), temp)
     assert len(env["sent"]) == 1
@@ -86,10 +87,12 @@ def test_spike_cooldown(env):
 
 def test_new_whole_degree_alert_once(env, monkeypatch):
     monkeypatch.setattr(settings, "HKO_ALERT_SPIKE_DEGREES", 5.0)  # hanya uji derajat baru
+    monkeypatch.setattr(settings, "HKO_NEAR_DEGREE_FRACTION", 0.99)
     step(env, hkt(13, 0), 32.8)
     text = step(env, hkt(13, 10), 33.0)
     assert "🔺 #HongKong max hari ini menembus 33°C (32.8 → 33.0°C)" in text
-    assert "(bracket ≈ 33°C)" in text and "👉 33°C" in text
+    # 13:10 HKT: belum boleh dianggap final (HKO_FINAL_HOUR) dan tren belum cukup → tidak menebak bracket
+    assert "belum bisa dihitung" in text and "👉" not in text
     step(env, hkt(13, 20), 32.9, max_=33.0)
     step(env, hkt(13, 30), 33.2)
     assert len(env["sent"]) == 1  # 33°C sudah dialertkan hari ini
@@ -168,3 +171,72 @@ def test_official_forecast_parsing(period, desc, hint):
         result = hk.hko_official_forecast()
     live.clear_cache()
     assert result["max_hint"] == hint and result["very_hot_warning"] is True
+
+
+
+class TestLateRiseCase:
+    """Kasus 30 Sep: 33°C 98.5¢ pukul 14:40, HKO naik ke 34.2°C sekitar 15:50."""
+
+    MARKET = [{"bracket": "33°C", "yes_token_id": "t33", "price_yes": 0.9, "ask": 0.91, "bid": 0.9},
+              {"bracket": "34°C", "yes_token_id": "t34", "price_yes": 0.15, "ask": 0.16, "bid": 0.14},
+              {"bracket": "35°C or higher", "yes_token_id": "t35", "price_yes": 0.01, "ask": 0.02, "bid": 0.01}]
+
+    def test_near_next_degree_alert_before_final_hour(self, env, monkeypatch):
+        monkeypatch.setattr(hk, "_today_market", lambda now: [dict(m) for m in self.MARKET])
+        monkeypatch.setattr(settings, "HKO_ALERT_SPIKE_DEGREES", 5.0)
+        step(env, hkt(15, 0), 33.5)
+        text = step(env, hkt(15, 10), 33.8)
+        assert "⚠️ #HongKong max 33.8°C — tinggal 0.2°C ke 34°C (bracket 34°C ask 16¢)" in text
+        assert "Belum final sebelum 17:00 HKT" in text
+        step(env, hkt(15, 20), 33.9)
+        assert len(env["sent"]) == 1  # sekali per derajat per hari
+
+    def test_not_final_before_17_even_after_peak(self, env):
+        step(env, hkt(15, 0), 33.4)
+        status = hk.hko_status(now=hkt(15, 32).astimezone(timezone.utc))
+        env["reading"] = {"observed_at": hkt(15, 30), "temp": 33.3, "max": 33.4, "min": 28.0}
+        status = hk.hko_status(now=hkt(15, 32).astimezone(timezone.utc))
+        assert status["final_ok"] is False and status["peak_passed"] is False
+        assert "Puncak kemungkinan sudah lewat" not in hk.format_hko_message(status, [])
+        assert hk.can_be_final(hkt(17, 5).astimezone(timezone.utc), 33.3, 33.4) is True
+        assert hk.can_be_final(hkt(15, 30).astimezone(timezone.utc), 32.3, 33.4) is True  # sudah turun ≥1°C
+
+    def test_position_risk_alert(self, env, monkeypatch):
+        monkeypatch.setattr(hk, "_today_market", lambda now: [dict(m) for m in self.MARKET])
+        monkeypatch.setattr(settings, "HKO_ALERT_SPIKE_DEGREES", 5.0)
+        monkeypatch.setattr(settings, "HKO_NEAR_DEGREE_FRACTION", 0.7)
+        monkeypatch.setattr(hk, "held_hk_positions", lambda now: [{"bracket": "33°C", "shares": 12.0, "source": "wallet"}])
+        step(env, hkt(15, 0), 33.5)
+        text = step(env, hkt(15, 10), 33.8)
+        assert "🛑 Posisi wallet Anda: 33°C YES (12.0 shares) berisiko — max 33.8°C, tinggal 0.2°C ke 34°C" in text
+        assert "33°C ask 91¢" in text
+
+    def test_held_positions_from_wallet_and_paper(self, monkeypatch):
+        from datetime import date
+        today = datetime.now(HKT).date()
+        title = f"Will the highest temperature in Hong Kong be 33°C on {today:%B} {today.day}?"
+        monkeypatch.setattr(settings, "POLYMARKET_WALLET_ADDRESS", "0x" + "e" * 40)
+        monkeypatch.setattr("app.paper_trading.wallets._get", lambda path, **kw: [
+            {"title": title, "outcome": "Yes", "size": 12},
+            {"title": title.replace("33°C", "34°C"), "outcome": "No", "size": 3},
+            {"title": "Will the highest temperature in Tokyo be 25°C?", "outcome": "Yes", "size": 1}])
+        monkeypatch.setattr("app.paper_service.get_open_positions", lambda: [
+            {"market_name": title.replace("33°C", "34°C"), "side": "YES", "shares": 5}])
+        held = hk.held_hk_positions(datetime.now(timezone.utc))
+        assert {(h["bracket"], h["source"]) for h in held} == {("33°C", "wallet"), ("34°C", "paper")}
+
+
+def test_history_command_and_csv(env):
+    for minute, temp in ((0, 31.0), (10, 31.4), (20, 32.1)):
+        step(env, hkt(9, minute), temp)
+    text = hk.format_history(datetime(2026, 9, 29).date())
+    assert "Riwayat HKO" in text and "`09:10  31.4  31.4  +0.4`" in text and "Max hari ini 32.1°C" in text
+    reply = handle_incoming_message("/hk riwayat 2026-09-29", sender_chat_id="1", allowed_chat_id="1")
+    assert "Riwayat HKO* 29 Sep 2026" in reply
+    assert "Format tanggal" in handle_incoming_message("/hk riwayat kemarin", sender_chat_id="1", allowed_chat_id="1")
+    csv_text = hk.readings_csv(datetime(2026, 9, 29).date())
+    assert csv_text.splitlines()[0].startswith("observed_at_hkt,temp_c") and len(csv_text.strip().splitlines()) == 4
+    from fastapi.testclient import TestClient
+    from app.dashboard import app
+    assert TestClient(app).get("/api/hk/readings.csv?date=2026-09-29").text == csv_text
+    assert TestClient(app).get("/api/hk/readings.csv?date=bad").status_code == 400
