@@ -62,6 +62,7 @@ def build_help_message() -> str:
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
         "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
         "🤖 `/autobot` - Status auto paper trader · `/startbot` · `/stopbot` · `/tesnotif`\n"
+        "🔬 `/autoresearch` - Riset auto trade: kalibrasi, ROI per edge, saran ambang (`/autoresearch 14`)\n"
         "🏅 `/autostats` - Win rate, PnL & ROI auto trade per strategi (`/autostats 7` untuk 7 hari)\n"
         "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover` - Rekomendasi wallet Polymarket menarik (tombol Ikuti / Skip)\n"
@@ -452,6 +453,10 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
         from app.paper_trading.autotrader import format_status
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
         return format_status(days=days)
+    elif cmd in ("/autoresearch", "/riset"):
+        from app.paper_trading.autotrade_research import format_research
+        days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return format_research(days=days)
     elif cmd in ("/tesnotif", "/testnotif"):
         from app.paper_trading.autotrader import send_test_notification
         return send_test_notification()

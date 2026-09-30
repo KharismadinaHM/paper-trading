@@ -442,6 +442,7 @@ class AutotradeDecision(Base):
     size_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)                   # filled / rejected
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    features: Mapped[Optional[str]] = mapped_column(Text, nullable=True)              # JSON konteks keputusan
     local_day: Mapped[str] = mapped_column(String(10), nullable=False)                # hari WIB
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -472,3 +473,37 @@ class AutotradeLimitOrder(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (Index("idx_autotrade_limit_orders_status", "status"),)
+
+
+class AutotradeSignal(Base):
+    """
+    Sampel sinyal yang dievaluasi auto trader — DITRADE maupun DILEWATI — untuk riset penyesuaian.
+    Satu sampel per strategi + market + ember waktu (signal_key). Hasil (outcome) diisi otomatis
+    setelah market resolve, sehingga ambang (edge, harga, waktu masuk) bisa diuji ulang.
+    """
+    __tablename__ = "autotrade_signals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    signal_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    model_prob: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    edge: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    action: Mapped[str] = mapped_column(String(10), nullable=False)          # traded / skipped
+    skip_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    features: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    local_day: Mapped[str] = mapped_column(String(10), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    outcome: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # WIN / LOSS / VOID
+    pnl_per_share: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_autotrade_signals_strategy_created", "strategy", "created_at"),
+        Index("idx_autotrade_signals_pending", "outcome", "created_at"),
+    )

@@ -24,6 +24,7 @@ from app.paper_trading.recommendation_alerts import run_recommendation_alerts
 from app.paper_trading.hko_alerts import run_hko_alerts
 from app.paper_trading.recommendation_results import run_recommendation_tracking
 from app.paper_trading.settlement_worker import run_settlement_cycle
+from app.paper_trading.autotrade_research import run_signal_tracking
 from app.paper_trading.autotrader import run_autotrade_tick
 from app.paper_trading.wallets import run_wallet_maintenance, run_wallet_polling
 
@@ -101,6 +102,7 @@ def main():
             run_wallet_maintenance()
             run_wallet_polling()
             run_autotrade_tick(include_weather=True)
+            run_signal_tracking()
             prune_market_snapshots()
         except Exception as loop_err:
             logger.error("Error tak tertangani pada runner loop: %s", str(loop_err), exc_info=True)

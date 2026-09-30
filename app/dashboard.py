@@ -227,6 +227,22 @@ def autotrade_status_api():
     return status_summary()
 
 
+@app.get("/api/autotrade/research", dependencies=[Depends(require_auth)])
+def autotrade_research_api(days: Optional[int] = None):
+    """Riset auto trader: kalibrasi, ROI per rentang edge/menit/kota, fill rate maker, saran ambang."""
+    from app.paper_trading.autotrade_research import research_report
+    return research_report(days=days if days and days > 0 else None)
+
+
+@app.get("/api/autotrade/signals.csv", dependencies=[Depends(require_auth)])
+def autotrade_signals_csv_api(days: Optional[int] = None):
+    """Semua sampel sinyal (ditrade & dilewati) + konteks + hasil, untuk dianalisis di spreadsheet."""
+    from fastapi.responses import Response
+    from app.paper_trading.autotrade_research import signals_csv
+    return Response(content=signals_csv(days=days if days and days > 0 else None), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=autotrade_signals.csv"})
+
+
 class AutotradeConfigRequest(BaseModel):
     values: dict = Field(default_factory=dict, description="Nama aturan → nilai baru (null = kembali ke default .env)")
 

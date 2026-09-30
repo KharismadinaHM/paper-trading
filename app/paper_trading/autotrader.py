@@ -30,7 +30,7 @@ from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
 from app.paper_trading.models import (
-    AutotradeDecision, AutotradeLimitOrder, AutotradeState, PaperPosition, PaperTrade,
+    AutotradeDecision, AutotradeLimitOrder, AutotradeSignal, AutotradeState, PaperPosition, PaperTrade,
 )
 
 logger = get_logger("autotrader")
@@ -245,10 +245,35 @@ def _record(decision: Dict[str, Any], status: str, reason: Optional[str], now: d
             label=decision["label"][:255], side=decision["side"], model_prob=Decimal(str(round(decision["prob"], 4))),
             price=Decimal(str(round(decision["price"], 6))), fee=Decimal(str(round(decision["fee"], 6))),
             edge=Decimal(str(round(decision["edge"], 4))), size_usd=Decimal(str(decision["size"])),
-            status=status, reason=reason, local_day=_local_day(now), created_at=now))
+            status=status, reason=reason, local_day=_local_day(now), created_at=now,
+            features=json.dumps(decision["features"], default=str) if decision.get("features") else None))
         db.commit()
     finally:
         db.close()
+
+
+def log_signal(decision: Dict[str, Any], signal_key: str, skip_reason: Optional[str], now: datetime) -> bool:
+    """Catat sampel sinyal (sekali per signal_key). Gagal mencatat tidak boleh mengganggu trading."""
+    try:
+        db = get_db_session()
+        try:
+            if db.query(AutotradeSignal.id).filter_by(signal_key=signal_key).first():
+                return False
+            db.add(AutotradeSignal(
+                signal_key=signal_key[:255], strategy=decision["strategy"], market_id=decision["market_id"],
+                label=(decision.get("label") or "")[:255], side=decision["side"],
+                model_prob=Decimal(str(round(decision["prob"], 4))), price=Decimal(str(round(decision["price"], 6))),
+                fee=Decimal(str(round(decision["fee"], 6))), edge=Decimal(str(round(decision["edge"], 4))),
+                action="skipped" if skip_reason else "traded", skip_reason=skip_reason,
+                features=json.dumps(decision.get("features") or {}, default=str),
+                local_day=_local_day(now), created_at=now))
+            db.commit()
+            return True
+        finally:
+            db.close()
+    except Exception as err:
+        logger.warning("Gagal mencatat sinyal %s: %s", signal_key, err)
+        return False
 
 
 def notify(text: str) -> Dict[str, Any]:
@@ -448,7 +473,7 @@ def btc_model(klines: List[List[float]], start: datetime, now: datetime,
     minutes_left = max((start + timedelta(minutes=duration_minutes) - now).total_seconds() / 60, 0.25)
     change = math.log(price / opening[1])
     return {"p_up": phi(change / (sigma * math.sqrt(minutes_left))), "price": price, "open": opening[1],
-            "change_pct": (price / opening[1] - 1) * 100, "minutes_left": minutes_left}
+            "change_pct": (price / opening[1] - 1) * 100, "minutes_left": minutes_left, "sigma": sigma}
 
 
 def _btc_context(series: str, now: datetime, window: Tuple[float, float]) -> Optional[Dict[str, Any]]:
@@ -471,36 +496,56 @@ def _btc_detail(model: Dict[str, float]) -> str:
             f"sisa {model['minutes_left']:.0f} menit")
 
 
+SIGNAL_BUCKET_MINUTES = {"btc": 5, "btc15": 2}
+
+
 def btc_tick(now: Optional[datetime] = None, series: str = "btc") -> Optional[Dict[str, Any]]:
-    """Taker: beli sisi dengan P_model − (VWAP ask + fee) ≥ edge minimum, sekali per market."""
+    """
+    Taker: beli sisi dengan P_model − (VWAP ask + fee) ≥ edge minimum, sekali per market.
+    Setiap evaluasi dicatat sebagai sampel sinyal (per ember waktu), termasuk yang dilewati.
+    """
     now = now or datetime.now(timezone.utc)
     ctx = _btc_context(series, now, _window(BTC_SERIES[series]["window"]()))
     if ctx is None:
         return None
     market, model = ctx["market"], ctx["model"]
     key = f"{series}|{market['condition_id']}"
-    if already_decided(key):
-        return None
     usd = float(cfg("ORDER_USD"))
-    best = None
+    sides = []
     for outcome, token, prob, side in (("UP", market["up"], model["p_up"], "YES"),
                                        ("DOWN", market["down"], 1 - model["p_up"], "NO")):
         book = _book_side(token, usd)
-        if not book or book["price"] > cfg("MAX_PRICE"):
-            continue
-        if book["spread"] is not None and book["spread"] > cfg("MAX_SPREAD"):
-            continue
-        edge = prob - (book["price"] + book["fee"])
-        if best is None or edge > best["edge"]:
-            best = {"outcome": outcome, "side": side, "prob": prob, "edge": edge, **book}
-    if best is None or best["edge"] < cfg("BTC_MIN_EDGE"):
+        if book:
+            sides.append({"outcome": outcome, "side": side, "prob": prob,
+                          "edge": prob - (book["price"] + book["fee"]), **book})
+    if not sides:
         return None
+    best = max(sides, key=lambda x: x["edge"])
+    minute = (now - ctx["start"]).total_seconds() / 60
+    if already_decided(key):
+        reason = "sudah trade di market ini"
+    elif best["price"] > cfg("MAX_PRICE"):
+        reason = "harga di atas maksimum"
+    elif best["spread"] is not None and best["spread"] > cfg("MAX_SPREAD"):
+        reason = "spread terlalu lebar"
+    elif best["edge"] < cfg("BTC_MIN_EDGE"):
+        reason = "edge di bawah minimum"
+    else:
+        reason = None
+    features = {"minute": round(minute, 2), "minutes_left": round(model["minutes_left"], 2),
+                "change_pct": round(model["change_pct"], 4), "sigma_1m": model.get("sigma"),
+                "btc": model["price"], "open": model["open"], "spread": best["spread"], "depth_shares": best["shares"],
+                "other_side_edge": round(min(sides, key=lambda x: x["edge"])["edge"], 4) if len(sides) > 1 else None}
+    bucket = int(minute // SIGNAL_BUCKET_MINUTES[series])
     decision = {
         "key": key, "strategy": series, "market_id": market["condition_id"], "title": market["title"],
         "label": f"{market['title']} · {best['outcome']}", "side": best["side"], "outcome": best["outcome"],
         "prob": best["prob"], "price": best["price"], "fee": best["fee"], "edge": best["edge"], "size": usd,
-        "detail": _btc_detail(model), "url": f"https://polymarket.com/event/{market['slug']}",
+        "detail": _btc_detail(model), "url": f"https://polymarket.com/event/{market['slug']}", "features": features,
     }
+    log_signal(decision, f"{key}|{bucket}", reason, now)
+    if reason is not None:
+        return None
     execute(decision, now)
     return decision
 
@@ -703,13 +748,15 @@ def weather_estimate(event: Dict[str, Any], now: datetime) -> Optional[Dict[str,
             "decimal": obs.get("station") == "HKO", "source": out.get("source") or "observasi"}
 
 
-def weather_decision(event: Dict[str, Any], now: datetime, phase: str = "pre") -> Optional[Dict[str, Any]]:
+def weather_evaluate(event: Dict[str, Any], now: datetime, phase: str = "pre") -> Optional[Dict[str, Any]]:
+    """
+    Evaluasi satu event cuaca → dict keputusan dengan "skip_reason" (None = layak dibeli), atau None
+    jika tidak ada perkiraan/bracket sama sekali. Dipakai untuk trade dan untuk sampel riset.
+    """
     from app.paper_trading.recommendation_alerts import city_hashtag
 
     strategy = "weather" if phase == "pre" else "weather_post"
     key = f"{strategy}|{event['event_key']}"
-    if already_decided(key) or event.get("liquid") is False:
-        return None
     est = weather_estimate(event, now)
     if est is None:
         return None
@@ -725,31 +772,53 @@ def weather_decision(event: Dict[str, Any], now: datetime, phase: str = "pre") -
     prob, target = max(scored, key=lambda x: x[0])
     favorite = event["markets"][0]  # bracket likuid dengan peluang pasar tertinggi (apply_liquidity)
     agree = target.get("market_id") == favorite.get("market_id")
-    if cfg("WEATHER_REQUIRE_AGREEMENT") and not agree:
-        return None
-    if target.get("liquid") is False or not target.get("yes_token_id"):
-        return None
     usd = float(cfg("ORDER_USD"))
-    book = _book_side(target["yes_token_id"], usd)
-    if not book or book["price"] > cfg("MAX_PRICE"):
-        return None
-    if book["spread"] is not None and book["spread"] > cfg("MAX_SPREAD"):
-        return None
-    edge = prob - (book["price"] + book["fee"])
-    if edge < cfg("WEATHER_MIN_EDGE"):
-        return None
+    book = _book_side(target["yes_token_id"], usd) if target.get("yes_token_id") else None
+    price = book["price"] if book else (target.get("ask") or target.get("price_yes") or 0.0)
+    fee = book["fee"] if book else 0.0
+    edge = prob - (price + fee)
+    peak_end = datetime.fromisoformat(event["peak_start"]) + timedelta(hours=settings.TEMP_PEAK_DURATION_HOURS)
+
+    if already_decided(key):
+        reason = "sudah trade di event ini"
+    elif event.get("liquid") is False or target.get("liquid") is False or not book:
+        reason = "tidak likuid"
+    elif cfg("WEATHER_REQUIRE_AGREEMENT") and not agree:
+        reason = "beda dengan favorit pasar"
+    elif price > cfg("MAX_PRICE"):
+        reason = "harga di atas maksimum"
+    elif book["spread"] is not None and book["spread"] > cfg("MAX_SPREAD"):
+        reason = "spread terlalu lebar"
+    elif edge < cfg("WEATHER_MIN_EDGE"):
+        reason = "edge di bawah minimum"
+    else:
+        reason = None
     kind = "max" if event["kind"] == "highest" else "min"
     return {
         "key": key, "strategy": strategy, "market_id": target["market_id"],
         "title": f"{city_hashtag(event['city'])} {kind} {event['local_date']} · {target['bracket']}",
         "label": f"{event['city']} {event['kind']} {event['local_date']} · {target['bracket']}",
-        "side": "YES", "outcome": "YES", "prob": prob, "price": book["price"], "fee": book["fee"], "edge": edge,
-        "size": usd,
+        "side": "YES", "outcome": "YES", "prob": prob, "price": price, "fee": fee, "edge": edge, "size": usd,
         "detail": (f"Perkiraan {kind} {est['estimate']:.1f}°{est['unit']} ±{est['sigma']:.1f} ({est['source']})"
                    + (f" · terukur {est['observed']:g}°{est['unit']}" if est.get("observed") is not None else "")
                    + (" · sepakat dengan favorit pasar" if agree else " · beda dengan favorit pasar")),
         "url": target.get("polymarket_url"),
+        "skip_reason": reason,
+        "features": {
+            "city": event["city"], "kind": event["kind"], "phase": phase, "estimate": est["estimate"],
+            "sigma": round(est["sigma"], 3), "observed": est.get("observed"), "unit": est["unit"],
+            "source": est["source"], "agree": agree, "favorite": favorite.get("bracket"),
+            "favorite_price": favorite.get("ask") or favorite.get("price_yes"), "bracket": target.get("bracket"),
+            "hours_to_peak_end": round((peak_end - now).total_seconds() / 3600, 2),
+            "spread": book["spread"] if book else None, "station": (event.get("observation") or {}).get("station"),
+        },
     }
+
+
+def weather_decision(event: Dict[str, Any], now: datetime, phase: str = "pre") -> Optional[Dict[str, Any]]:
+    """Keputusan beli untuk event cuaca, atau None jika dilewati."""
+    result = weather_evaluate(event, now, phase)
+    return result if result and result["skip_reason"] is None else None
 
 
 def weather_tick(now: Optional[datetime] = None, phase: str = "pre") -> List[Dict[str, Any]]:
@@ -762,7 +831,11 @@ def weather_tick(now: Optional[datetime] = None, phase: str = "pre") -> List[Dic
     made = []
     for event in events:
         try:
-            decision = weather_decision(event, now, phase=phase)
+            evaluated = weather_evaluate(event, now, phase=phase)
+            if evaluated:
+                bucket = int(now.timestamp() // 1800)  # satu sampel per event per 30 menit
+                log_signal(evaluated, f"{evaluated['key']}|{bucket}", evaluated["skip_reason"], now)
+            decision = evaluated if evaluated and evaluated["skip_reason"] is None else None
         except Exception as err:
             logger.warning("Gagal mengevaluasi %s: %s", event.get("event_key"), err)
             continue
@@ -855,11 +928,16 @@ def status_summary(now: Optional[datetime] = None) -> Dict[str, Any]:
                             for o in _open_limit_orders()]}
 
 
+def md(text: Any) -> str:
+    from app.paper_trading.wallet_bot import md as _md
+    return _md(text)
+
+
 def format_status(days: Optional[int] = None) -> str:
     s = status_summary()
     t, lim = s["today"], s["limits"]
     lines = [
-        f"🤖 *Auto paper trader* — {'🟢 AKTIF' if s['enabled'] else '🔴 BERHENTI'} · strategi: {', '.join(s['strategies']) or '-'}",
+        f"🤖 *Auto paper trader* — {'🟢 AKTIF' if s['enabled'] else '🔴 BERHENTI'} · strategi: {md(', '.join(s['strategies'])) or '-'}",
         f"Hari ini ({t['day']}): {t['trades']} trade · beli ${t['spent']:.2f}/{lim['max_daily_usd']:.0f} · "
         f"PnL terealisasi {t['realized_pnl']:+.2f} (stop di -{lim['max_daily_loss']:.0f}) · terbuka ${t['open_usd']:.2f}",
         f"Aturan: ${lim['order_usd']:.0f}/order · harga ≤{lim['max_price'] * 100:.0f}¢ · edge BTC ≥{lim['btc_min_edge'] * 100:.0f}¢ "
@@ -869,7 +947,7 @@ def format_status(days: Optional[int] = None) -> str:
     if s["open_orders"]:
         lines.append(f"Limit order maker terbuka: {len(s['open_orders'])}")
         for o in s["open_orders"][:5]:
-            lines.append(f"  • {o['label']} @ {o['limit'] * 100:.0f}¢ (model {o['prob'] * 100:.0f}%)")
+            lines.append(f"  • {md(o['label'])} @ {o['limit'] * 100:.0f}¢ (model {o['prob'] * 100:.0f}%)")
     lines.append("")
     stats = strategy_stats(days=days)
     label = f"{days} hari" if days else "semua waktu"
@@ -888,7 +966,7 @@ def format_status(days: Optional[int] = None) -> str:
     for name, st in stats.items():
         wr = f"{st['win_rate'] * 100:.0f}%" if st["win_rate"] is not None else "-"
         roi = f"{st['roi'] * 100:+.1f}%" if st["roi"] is not None else "-"
-        lines.append(f"• {name}: {st['trades']} trade · selesai {st['settled']} · WR {wr} · "
+        lines.append(f"• {md(name)}: {st['trades']} trade · selesai {st['settled']} · WR {wr} · "
                      f"PnL {st['pnl']:+.2f} · ROI {roi} · terbuka {st['open']}")
     lines += ["", "`/stopbot` hentikan · `/startbot` jalankan · `/autostats 7` hasil 7 hari"]
     return "\n".join(lines)
@@ -901,5 +979,5 @@ def maybe_send_daily_report(now: Optional[datetime] = None) -> bool:
     if local.hour < settings.AUTOTRADE_REPORT_HOUR or _get_state("last_report") == day:
         return False
     _set_state("last_report", day, now)
-    notify("📬 Laporan harian auto trader\n\n" + format_status(days=1).replace("*", "").replace("`", ""))
+    notify("📬 Laporan harian auto trader\n\n" + format_status(days=1).replace("*", "").replace("`", "").replace("\\", ""))
     return True
