@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     HKO_FINAL_DROP: float = 1.0
     # Alert "mendekati derajat berikutnya": max ≥ X + fraksi ini (mis. 33.7 → risiko bracket 34°C)
     HKO_NEAR_DEGREE_FRACTION: float = 0.7
+    # "Waspada berbalik": bracket favorit ≥ harga ini tetapi ada indikasi hasil bisa berubah
+    REVERSAL_ALERTS: bool = True
+    REVERSAL_MIN_PRICE: float = 0.90
+    REVERSAL_MOMENTUM: float = 0.08            # bracket sebelah naik ≥ 8¢ dalam 30 menit
 
     # Wallet tracker Polymarket
     WALLET_STATS_DAYS: int = 30                # periode win rate & PnL
