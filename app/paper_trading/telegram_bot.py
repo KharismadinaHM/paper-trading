@@ -407,6 +407,11 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
     cmd = parts[0].split("@")[0].lower()
     args = parts[1:]
 
+    # /chatid boleh dari chat mana pun: hanya membalas ID chat itu sendiri (untuk mengisi
+    # TELEGRAM_AUTOTRADE_CHAT_ID dengan ID grup), tanpa data atau kendali lain.
+    if cmd == "/chatid":
+        return f"🆔 Chat ID ini: `{sender_chat_id}`"
+
     # Keamanan opsional: batasi hanya chat_id yang diizinkan jika dikonfigurasi
     if allowed_chat_id:
         norm_sender = str(sender_chat_id).strip()
