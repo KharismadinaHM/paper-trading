@@ -284,7 +284,7 @@ class TestCalibrationFile:
             assert -2.0 <= c["lag_max_hours"] <= 5.0, city   # max: sekitar/sesudah solar noon
             # min: umumnya sekitar matahari terbit; kota pesisir bisa beberapa jam sebelumnya (mis. Istanbul ~03:00)
             assert -4.0 <= c["lag_min_hours"] <= 2.0, city
-        assert data["source"].startswith("Open-Meteo")
+        assert data["source"].startswith(("Open-Meteo", "METAR"))
 
 
 class TestServiceAndApi:

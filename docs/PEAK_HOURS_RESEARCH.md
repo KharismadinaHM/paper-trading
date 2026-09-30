@@ -115,3 +115,28 @@ Periode data: 24 Jun – 21 Sep 2026 (±89 hari). Kolom "paling sering" = jam (l
 - ERA5 adalah grid ±25 km; di kota pesisir sel grid bisa tercampur laut sehingga jamnya sedikit berbeda dari stasiun bandara. Kota yang dirasa meleset bisa dikoreksi lewat `TEMP_PEAK_HOUR_OVERRIDES`.
 - Data 90 hari musim panas; riset ulang disarankan tiap pergantian musim karena pola awan/angin musiman berubah.
 - Hari dengan front dingin/hujan bisa memiliki puncak di luar pola (mis. suhu terendah tengah malam).
+
+## Pembaruan: kalibrasi dari stasiun resolusi (Okt 2026)
+
+Kalibrasi sekarang dihitung dari **observasi METAR di stasiun resolusi tiap market** (bandara; kode ICAO
+dari deskripsi market; arsip IEM ASOS, 60 hari), bukan grid Open-Meteo di pusat kota:
+
+    python scripts/research_peak_hours.py --source station --days 60
+    python scripts/research_peak_hours.py --source station --days 60 --only-missing   # lanjutkan yang gagal
+
+- 47 dari 59 kota memakai data stasiun (`"source": "station:ICAO"`); Hong Kong (HKO, tidak ada di arsip
+  METAR), Jinan (data stasiun terlalu berlubang) dan kota yang gagal diambil tetap memakai hasil lama.
+- Waktu ekstrem harian memakai **titik tengah** bacaan bernilai ekstrem: METAR dibulatkan ke derajat
+  bulat sehingga nilai ekstrem sering bertahan beberapa jam; mengambil bacaan pertama membuat jam
+  ekstrem (terutama suhu terendah) bergeser terlalu awal.
+- IEM memutus request besar; data diambil per potongan 10 hari dengan jeda dan retry.
+
+Validasi (backtest 17–26 Sep, 490 event tertinggi / 474 terendah, metrik titik tengah yang sama):
+
+| | Grid lama | Stasiun |
+|---|---|---|
+| Tertinggi: jam ekstrem aktual dalam [−1, +2] jam dari awal puncak perkiraan | 70% | **78%** |
+| Tertinggi: median selisih | +0.8 jam | **+0.3 jam** |
+| Terendah: dalam [−1, +2] jam | 49% | **54%** |
+
+Periode validasi sebagian tumpang tindih dengan periode riset, jadi angka cenderung sedikit optimistis.

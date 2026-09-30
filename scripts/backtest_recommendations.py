@@ -226,8 +226,10 @@ def main():
         col = 1 if unit == "C" else 2
         if station_rows and ev["city"] != "Hong Kong":  # HK memakai HKO, bukan METAR
             pick = max if ev["kind"] == "highest" else min
-            actual = pick(station_rows, key=lambda r: r[col])
-            peak_errors[ev["kind"]].append((actual[0] - window.peak_start.timestamp()) / 3600)
+            extreme = pick(r[col] for r in station_rows)
+            tied = [r[0] for r in station_rows if r[col] == extreme]
+            actual_ts = (min(tied) + max(tied)) / 2  # titik tengah plateau bacaan bulat, bukan yang pertama
+            peak_errors[ev["kind"]].append((actual_ts - window.peak_start.timestamp()) / 3600)
         for offset in OFFSETS:
             ts = (peak + timedelta(hours=offset)).timestamp()
             priced = [(price_at(m["history"], ts), m) for m in ev["markets"]]
