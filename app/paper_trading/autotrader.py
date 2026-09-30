@@ -89,8 +89,107 @@ def set_enabled(enabled: bool) -> None:
 
 
 def enabled_strategies() -> List[str]:
-    return [s for s in (x.strip().lower() for x in str(settings.AUTOTRADE_STRATEGIES).split(",")) if s in STRATEGY_VERSIONS]
+    return [s for s in (x.strip().lower() for x in str(cfg("STRATEGIES")).split(",")) if s in STRATEGY_VERSIONS]
 
+
+
+# --- Konfigurasi yang bisa diubah dari dashboard ------------------------------------------
+#
+# Nilai default dari .env (AUTOTRADE_*); override disimpan di autotrade_state["config"] dan langsung
+# berlaku tanpa restart. (tipe, min, max, label)
+EDITABLE_CONFIG: Dict[str, Tuple[str, float, float, str]] = {
+    "ORDER_USD": ("float", 1, 1000, "Ukuran per order ($)"),
+    "MAX_DAILY_USD": ("float", 1, 100000, "Maks pembelian per hari ($)"),
+    "MAX_DAILY_LOSS": ("float", 1, 100000, "Stop hari itu bila rugi terealisasi ≥ ($)"),
+    "MAX_OPEN_USD": ("float", 1, 100000, "Maks total posisi terbuka ($)"),
+    "MAX_PRICE": ("float", 0.05, 0.99, "Harga beli maksimum (0–1)"),
+    "MAX_SPREAD": ("float", 0.01, 0.5, "Spread order book maksimum (0–1)"),
+    "BTC_MIN_EDGE": ("float", 0, 0.5, "Edge minimum BTC taker (0–1)"),
+    "WEATHER_MIN_EDGE": ("float", 0, 0.5, "Edge minimum cuaca (0–1)"),
+    "MAKER_MARGIN": ("float", 0.01, 0.3, "Maker: harga limit = P − margin"),
+    "MAKER_MIN_EDGE": ("float", 0, 0.3, "Maker: edge minimum"),
+    "WEATHER_REQUIRE_AGREEMENT": ("bool", 0, 1, "Cuaca: wajib sepakat dengan favorit pasar"),
+    "STRATEGIES": ("strategies", 0, 0, "Strategi aktif"),
+}
+_config_cache: Dict[str, Any] = {"at": 0.0, "values": {}}
+
+
+def _config_overrides() -> Dict[str, Any]:
+    import time as _time
+    if _time.monotonic() - _config_cache["at"] < 5:
+        return _config_cache["values"]
+    raw = _get_state("config")
+    try:
+        values = json.loads(raw) if raw else {}
+    except ValueError:
+        values = {}
+    _config_cache.update(at=_time.monotonic(), values=values)
+    return values
+
+
+def cfg(name: str) -> Any:
+    """Nilai aturan auto trader: override dashboard bila ada, selain itu AUTOTRADE_<name> dari .env."""
+    overrides = _config_overrides()
+    if name in overrides:
+        return overrides[name]
+    value = getattr(settings, f"AUTOTRADE_{name}")
+    return float(value) if isinstance(value, Decimal) else value
+
+
+def _validate(name: str, value: Any) -> Any:
+    kind, lo, hi, label = EDITABLE_CONFIG[name]
+    if kind == "bool":
+        if isinstance(value, str):
+            value = value.strip().lower() in ("1", "true", "ya", "yes", "on")
+        return bool(value)
+    if kind == "strategies":
+        items = value if isinstance(value, list) else str(value).split(",")
+        items = [x.strip().lower() for x in items if str(x).strip()]
+        unknown = [x for x in items if x not in STRATEGY_VERSIONS]
+        if unknown:
+            raise ValueError(f"Strategi tidak dikenal: {', '.join(unknown)}")
+        return ",".join(items)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label}: harus berupa angka")
+    if not (lo <= number <= hi) or math.isnan(number):
+        raise ValueError(f"{label}: harus antara {lo:g} dan {hi:g}")
+    return number
+
+
+def set_config(updates: Dict[str, Any]) -> Dict[str, Any]:
+    """Validasi lalu simpan override. Nilai None menghapus override (kembali ke .env)."""
+    unknown = [k for k in updates if k not in EDITABLE_CONFIG]
+    if unknown:
+        raise ValueError(f"Pengaturan tidak dikenal: {', '.join(unknown)}")
+    values = dict(_config_overrides())
+    for name, value in updates.items():
+        if value is None or value == "":
+            values.pop(name, None)
+        else:
+            values[name] = _validate(name, value)
+    _set_state("config", json.dumps(values))
+    _config_cache["at"] = 0.0
+    return get_config()
+
+
+def reset_config() -> Dict[str, Any]:
+    _set_state("config", "{}")
+    _config_cache["at"] = 0.0
+    return get_config()
+
+
+def get_config() -> Dict[str, Dict[str, Any]]:
+    overrides = _config_overrides()
+    out = {}
+    for name, (kind, lo, hi, label) in EDITABLE_CONFIG.items():
+        default = getattr(settings, f"AUTOTRADE_{name}")
+        default = float(default) if isinstance(default, Decimal) else default
+        out[name] = {"value": cfg(name), "default": default, "overridden": name in overrides,
+                     "type": kind, "min": lo, "max": hi, "label": label}
+    out["STRATEGIES"]["options"] = list(STRATEGY_VERSIONS)
+    return out
 
 # --- Risk engine --------------------------------------------------------------------------
 
@@ -119,12 +218,12 @@ def today_summary(now: Optional[datetime] = None) -> Dict[str, Any]:
 
 def risk_check(size: float, now: Optional[datetime] = None) -> Tuple[bool, Optional[str]]:
     t = today_summary(now)
-    if t["realized_pnl"] <= -float(settings.AUTOTRADE_MAX_DAILY_LOSS):
+    if t["realized_pnl"] <= -float(cfg("MAX_DAILY_LOSS")):
         return False, f"stop harian: rugi terealisasi hari ini ${-t['realized_pnl']:.2f}"
-    if t["spent"] + size > float(settings.AUTOTRADE_MAX_DAILY_USD) + 1e-9:
-        return False, f"batas harian ${float(settings.AUTOTRADE_MAX_DAILY_USD):.0f} tercapai"
-    if t["open_usd"] + size > float(settings.AUTOTRADE_MAX_OPEN_USD) + 1e-9:
-        return False, f"batas posisi terbuka ${float(settings.AUTOTRADE_MAX_OPEN_USD):.0f} tercapai"
+    if t["spent"] + size > float(cfg("MAX_DAILY_USD")) + 1e-9:
+        return False, f"batas harian ${float(cfg("MAX_DAILY_USD")):.0f} tercapai"
+    if t["open_usd"] + size > float(cfg("MAX_OPEN_USD")) + 1e-9:
+        return False, f"batas posisi terbuka ${float(cfg("MAX_OPEN_USD")):.0f} tercapai"
     return True, None
 
 
@@ -222,7 +321,7 @@ def execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Optiona
             strategy_version=STRATEGY_VERSIONS[decision["strategy"]], now=now,
             execution_price=Decimal(str(round(decision["price"] + decision["fee"], 6))),
             risk_limits={"max_position_size": size, "max_market_exposure": size,
-                         "max_total_exposure": Decimal(str(settings.AUTOTRADE_MAX_OPEN_USD))},
+                         "max_total_exposure": Decimal(str(cfg("MAX_OPEN_USD")))},
             notify=False,
         )
     except ValueError as err:
@@ -245,7 +344,7 @@ def format_decision(d: Dict[str, Any], order: Dict[str, Any]) -> str:
     if d.get("detail"):
         lines.append(d["detail"])
     t = today_summary()
-    lines.append(f"Hari ini: {t['trades']} trade · ${t['spent']:.2f}/{float(settings.AUTOTRADE_MAX_DAILY_USD):.0f} · "
+    lines.append(f"Hari ini: {t['trades']} trade · ${t['spent']:.2f}/{float(cfg("MAX_DAILY_USD")):.0f} · "
                  f"PnL terealisasi {t['realized_pnl']:+.2f}")
     return "\n".join(lines)
 
@@ -382,19 +481,19 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc") -> Optional[Di
     key = f"{series}|{market['condition_id']}"
     if already_decided(key):
         return None
-    usd = float(settings.AUTOTRADE_ORDER_USD)
+    usd = float(cfg("ORDER_USD"))
     best = None
     for outcome, token, prob, side in (("UP", market["up"], model["p_up"], "YES"),
                                        ("DOWN", market["down"], 1 - model["p_up"], "NO")):
         book = _book_side(token, usd)
-        if not book or book["price"] > settings.AUTOTRADE_MAX_PRICE:
+        if not book or book["price"] > cfg("MAX_PRICE"):
             continue
-        if book["spread"] is not None and book["spread"] > settings.AUTOTRADE_MAX_SPREAD:
+        if book["spread"] is not None and book["spread"] > cfg("MAX_SPREAD"):
             continue
         edge = prob - (book["price"] + book["fee"])
         if best is None or edge > best["edge"]:
             best = {"outcome": outcome, "side": side, "prob": prob, "edge": edge, **book}
-    if best is None or best["edge"] < settings.AUTOTRADE_BTC_MIN_EDGE:
+    if best is None or best["edge"] < cfg("BTC_MIN_EDGE"):
         return None
     decision = {
         "key": key, "strategy": series, "market_id": market["condition_id"], "title": market["title"],
@@ -453,17 +552,17 @@ def maker_place(now: Optional[datetime] = None, series: str = "btc") -> Optional
         book = books.get(str(token))
         if not book or book.get("ask") is None:
             continue
-        limit = math.floor(round((prob - settings.AUTOTRADE_MAKER_MARGIN) * 100, 6)) / 100  # 65.9999… → 66
+        limit = math.floor(round((prob - cfg("MAKER_MARGIN")) * 100, 6)) / 100  # 65.9999… → 66
         limit = min(limit, round(book["ask"] - 0.01, 2))  # tetap di sisi maker (tidak menyilang ask)
-        if not 0.05 <= limit <= settings.AUTOTRADE_MAX_PRICE:
+        if not 0.05 <= limit <= cfg("MAX_PRICE"):
             continue
         edge = round(prob - limit, 4)
         # Edge sama (keduanya = margin) → pilih sisi dengan peluang model lebih tinggi (varian lebih kecil)
-        if edge >= settings.AUTOTRADE_MAKER_MIN_EDGE and (best is None or (edge, prob) > (best["edge"], best["prob"])):
+        if edge >= cfg("MAKER_MIN_EDGE") and (best is None or (edge, prob) > (best["edge"], best["prob"])):
             best = {"outcome": outcome, "side": side, "token": token, "prob": prob, "limit": limit, "edge": edge}
     if best is None:
         return None
-    usd = float(settings.AUTOTRADE_ORDER_USD)
+    usd = float(cfg("ORDER_USD"))
     ok, reason = risk_check(usd + reserved_usd(), now)
     if not ok:
         return None
@@ -511,7 +610,7 @@ def maker_manage(now: Optional[datetime] = None) -> List[str]:
                 model = btc_model(klines, start, now, BTC_SERIES[series]["minutes"])
                 if model is not None:
                     prob = model["p_up"] if o.outcome == "UP" else 1 - model["p_up"]
-                    if prob - limit < settings.AUTOTRADE_MAKER_MIN_EDGE / 2:
+                    if prob - limit < cfg("MAKER_MIN_EDGE") / 2:
                         status, reason = "cancelled", f"edge hilang (model {prob * 100:.0f}%)"
         if status is None:
             continue
@@ -626,18 +725,18 @@ def weather_decision(event: Dict[str, Any], now: datetime, phase: str = "pre") -
     prob, target = max(scored, key=lambda x: x[0])
     favorite = event["markets"][0]  # bracket likuid dengan peluang pasar tertinggi (apply_liquidity)
     agree = target.get("market_id") == favorite.get("market_id")
-    if settings.AUTOTRADE_WEATHER_REQUIRE_AGREEMENT and not agree:
+    if cfg("WEATHER_REQUIRE_AGREEMENT") and not agree:
         return None
     if target.get("liquid") is False or not target.get("yes_token_id"):
         return None
-    usd = float(settings.AUTOTRADE_ORDER_USD)
+    usd = float(cfg("ORDER_USD"))
     book = _book_side(target["yes_token_id"], usd)
-    if not book or book["price"] > settings.AUTOTRADE_MAX_PRICE:
+    if not book or book["price"] > cfg("MAX_PRICE"):
         return None
-    if book["spread"] is not None and book["spread"] > settings.AUTOTRADE_MAX_SPREAD:
+    if book["spread"] is not None and book["spread"] > cfg("MAX_SPREAD"):
         return None
     edge = prob - (book["price"] + book["fee"])
-    if edge < settings.AUTOTRADE_WEATHER_MIN_EDGE:
+    if edge < cfg("WEATHER_MIN_EDGE"):
         return None
     kind = "max" if event["kind"] == "highest" else "min"
     return {
@@ -739,16 +838,17 @@ def recent_decisions(limit: int = 20) -> List[Dict[str, Any]]:
 
 def status_summary(now: Optional[datetime] = None) -> Dict[str, Any]:
     return {"enabled": is_enabled(), "strategies": enabled_strategies(), "today": today_summary(now),
-            "limits": {"order_usd": float(settings.AUTOTRADE_ORDER_USD),
-                       "max_daily_usd": float(settings.AUTOTRADE_MAX_DAILY_USD),
-                       "max_daily_loss": float(settings.AUTOTRADE_MAX_DAILY_LOSS),
-                       "max_open_usd": float(settings.AUTOTRADE_MAX_OPEN_USD),
-                       "max_price": settings.AUTOTRADE_MAX_PRICE, "btc_min_edge": settings.AUTOTRADE_BTC_MIN_EDGE,
-                       "weather_min_edge": settings.AUTOTRADE_WEATHER_MIN_EDGE,
+            "limits": {"order_usd": float(cfg("ORDER_USD")),
+                       "max_daily_usd": float(cfg("MAX_DAILY_USD")),
+                       "max_daily_loss": float(cfg("MAX_DAILY_LOSS")),
+                       "max_open_usd": float(cfg("MAX_OPEN_USD")),
+                       "max_price": cfg("MAX_PRICE"), "btc_min_edge": cfg("BTC_MIN_EDGE"),
+                       "weather_min_edge": cfg("WEATHER_MIN_EDGE"),
                        "btc_window": settings.AUTOTRADE_BTC_WINDOW, "btc15_window": settings.AUTOTRADE_BTC15_WINDOW,
                        "maker_window": settings.AUTOTRADE_MAKER_WINDOW,
                        "maker15_window": settings.AUTOTRADE_MAKER15_WINDOW,
-                       "maker_margin": settings.AUTOTRADE_MAKER_MARGIN},
+                       "maker_margin": cfg("MAKER_MARGIN")},
+            "config": get_config(),
             "stats": strategy_stats(now=now), "recent": recent_decisions(),
             "open_orders": [{"strategy": o.strategy, "label": o.label, "limit": float(o.limit_price),
                              "prob": float(o.model_prob or 0), "size": float(o.size_usd), "expires_at": o.expires_at}

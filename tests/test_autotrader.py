@@ -360,3 +360,39 @@ def test_notification_has_no_polymarket_link_and_stats_have_total(funded, sent):
     status = handle_incoming_message("/autostats", sender_chat_id="1", allowed_chat_id="1")
     assert "*Total: 1 trade · belum ada yang selesai*" in status
     assert "/autostats" in handle_incoming_message("/help", sender_chat_id="1", allowed_chat_id="1")
+
+
+class TestEditableConfig:
+
+    def test_override_takes_effect_and_reset(self, monkeypatch):
+        monkeypatch.setattr(settings, "AUTOTRADE_MAX_DAILY_USD", Decimal("50"))
+        assert at.cfg("MAX_DAILY_USD") == 50.0
+        cfg = at.set_config({"MAX_DAILY_USD": 120, "STRATEGIES": ["weather", "btc15"], "WEATHER_REQUIRE_AGREEMENT": False})
+        assert cfg["MAX_DAILY_USD"]["value"] == 120.0 and cfg["MAX_DAILY_USD"]["overridden"] is True
+        assert at.enabled_strategies() == ["weather", "btc15"] and at.cfg("WEATHER_REQUIRE_AGREEMENT") is False
+        monkeypatch.setattr(at, "today_summary", lambda now=None: {"day": "x", "spent": 100.0, "trades": 0,
+                                                                    "realized_pnl": 0, "open_usd": 0})
+        assert at.risk_check(5)[0] is True  # 105 ≤ 120 (default .env 50 akan menolak)
+        at.set_config({"MAX_DAILY_USD": None})
+        assert at.cfg("MAX_DAILY_USD") == 50.0
+        at.set_config({"ORDER_USD": 9})
+        assert at.reset_config()["ORDER_USD"]["overridden"] is False
+
+    @pytest.mark.parametrize("updates,message", [
+        ({"MAX_PRICE": 1.5}, "antara"), ({"ORDER_USD": "abc"}, "angka"), ({"STRATEGIES": "btc,moon"}, "tidak dikenal"),
+        ({"BOGUS": 1}, "tidak dikenal"),
+    ])
+    def test_validation(self, updates, message):
+        with pytest.raises(ValueError, match=message):
+            at.set_config(updates)
+
+    def test_config_api(self):
+        from fastapi.testclient import TestClient
+        from app.dashboard import app
+        client = TestClient(app)
+        data = client.put("/api/autotrade/config", json={"values": {"ORDER_USD": 7, "MAX_OPEN_USD": 200}}).json()
+        assert data["limits"]["order_usd"] == 7.0 and data["limits"]["max_open_usd"] == 200.0
+        assert data["config"]["ORDER_USD"]["overridden"] is True
+        bad = client.put("/api/autotrade/config", json={"values": {"MAX_PRICE": 2}})
+        assert bad.status_code == 400 and "antara" in bad.json()["detail"]
+        assert client.delete("/api/autotrade/config").json()["config"]["ORDER_USD"]["overridden"] is False

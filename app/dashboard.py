@@ -227,6 +227,29 @@ def autotrade_status_api():
     return status_summary()
 
 
+class AutotradeConfigRequest(BaseModel):
+    values: dict = Field(default_factory=dict, description="Nama aturan → nilai baru (null = kembali ke default .env)")
+
+
+@app.put("/api/autotrade/config", dependencies=[Depends(require_auth)])
+def autotrade_config_api(req: AutotradeConfigRequest):
+    """Ubah aturan auto trader (batas dana, filter, strategi aktif); berlaku langsung tanpa restart."""
+    from app.paper_trading.autotrader import set_config, status_summary
+    try:
+        set_config(req.values)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    return status_summary()
+
+
+@app.delete("/api/autotrade/config", dependencies=[Depends(require_auth)])
+def autotrade_config_reset_api():
+    """Kembalikan semua aturan auto trader ke default dari .env."""
+    from app.paper_trading.autotrader import reset_config, status_summary
+    reset_config()
+    return status_summary()
+
+
 @app.post("/api/autotrade/{action}", dependencies=[Depends(require_auth)])
 def autotrade_toggle_api(action: str):
     from app.paper_trading.autotrader import set_enabled, status_summary

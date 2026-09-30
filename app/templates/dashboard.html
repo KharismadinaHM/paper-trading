@@ -2279,7 +2279,67 @@
                 <div class="table-responsive" style="max-height: 320px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0">
                     <thead><tr class="text-muted-poly"><th>Waktu</th><th>Strategi</th><th>Market</th><th>Sisi</th><th class="text-end">Model</th><th class="text-end">Biaya</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th>Status</th></tr></thead>
                     <tbody>${recent}</tbody></table></div>
-                <div class="mt-2">Order dieksekusi di akun paper memakai harga ask order book live (VWAP sesuai ukuran) + fee taker. Posisi di-settle otomatis saat market resolve.</div>`;
+                <div class="mt-2">Order dieksekusi di akun paper memakai harga ask order book live (VWAP sesuai ukuran) + fee taker. Posisi di-settle otomatis saat market resolve.</div>
+                ${buildAutotradeConfigForm(s.config || {})}`;
+        }
+        function buildAutotradeConfigForm(config) {
+            const open = window._autotradeConfigOpen ? 'open' : '';
+            const numeric = Object.entries(config).filter(([, c]) => c.type === 'float').map(([name, c]) => `
+                <div class="col-6 col-md-4 col-xl-3">
+                    <label class="form-label small text-muted-poly mb-1" for="cfg_${name}">${escapeHtml(c.label)}${c.overridden ? ' <span class="text-warning">•</span>' : ''}</label>
+                    <input type="number" step="any" min="${safeNumber(c.min)}" max="${safeNumber(c.max)}" id="cfg_${name}" data-cfg="${name}"
+                           class="form-control form-control-sm bg-dark text-white border-secondary-subtle" value="${safeNumber(c.value)}"
+                           title="Default .env: ${escapeHtml(String(c.default))} · rentang ${safeNumber(c.min)}–${safeNumber(c.max)}">
+                </div>`).join('');
+            const agree = config.WEATHER_REQUIRE_AGREEMENT || {};
+            const strat = config.STRATEGIES || {};
+            const active = String(strat.value || '').split(',');
+            const checks = (strat.options || []).map(opt => `
+                <div class="form-check form-check-inline small">
+                    <input class="form-check-input" type="checkbox" id="cfg_strat_${opt}" data-strategy="${escapeHtml(opt)}" ${active.includes(opt) ? 'checked' : ''}>
+                    <label class="form-check-label" for="cfg_strat_${opt}">${escapeHtml(opt)}</label>
+                </div>`).join('');
+            return `<details class="mt-3" ${open} ontoggle="window._autotradeConfigOpen = this.open; window.pauseAutoReload = this.open">
+                <summary class="fw-semibold text-white" style="cursor:pointer"><i class="bi bi-sliders me-1"></i>Ubah aturan & batas</summary>
+                <div class="row g-2 mt-1">${numeric}</div>
+                <div class="mt-2">
+                    <div class="small text-muted-poly mb-1">${escapeHtml(strat.label || 'Strategi aktif')}${strat.overridden ? ' <span class="text-warning">•</span>' : ''}</div>
+                    ${checks}
+                </div>
+                <div class="form-check small mt-2">
+                    <input class="form-check-input" type="checkbox" id="cfg_WEATHER_REQUIRE_AGREEMENT" ${agree.value ? 'checked' : ''}>
+                    <label class="form-check-label" for="cfg_WEATHER_REQUIRE_AGREEMENT">${escapeHtml(agree.label || '')}</label>
+                </div>
+                <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
+                    <button class="btn btn-sm btn-success py-1 px-3" onclick="saveAutotradeConfig()"><i class="bi bi-save me-1"></i>Simpan</button>
+                    <button class="btn btn-sm poly-btn-secondary py-1 px-3" onclick="resetAutotradeConfig()">Kembalikan ke default .env</button>
+                    <span class="small" id="autotradeConfigMsg"></span>
+                </div>
+                <div class="small text-muted-poly mt-1"><span class="text-warning">•</span> = diubah dari dashboard (default dari .env). Berlaku langsung tanpa restart.</div>
+            </details>`;
+        }
+        async function saveAutotradeConfig() {
+            const values = {};
+            document.querySelectorAll('[data-cfg]').forEach(el => { values[el.dataset.cfg] = el.value === '' ? null : Number(el.value); });
+            values.STRATEGIES = [...document.querySelectorAll('[data-strategy]')].filter(el => el.checked).map(el => el.dataset.strategy);
+            values.WEATHER_REQUIRE_AGREEMENT = document.getElementById('cfg_WEATHER_REQUIRE_AGREEMENT').checked;
+            const msg = document.getElementById('autotradeConfigMsg');
+            try {
+                const res = await fetch('/api/autotrade/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                                                                   body: JSON.stringify({ values }) });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Gagal menyimpan');
+                renderAutotrade(data);
+                const m = document.getElementById('autotradeConfigMsg');
+                if (m) m.innerHTML = '<span class="text-success">Tersimpan.</span>';
+            } catch (err) {
+                if (msg) msg.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`;
+            }
+        }
+        async function resetAutotradeConfig() {
+            if (!confirm('Kembalikan semua aturan auto trader ke default dari .env?')) return;
+            const res = await fetch('/api/autotrade/config', { method: 'DELETE' });
+            if (res.ok) renderAutotrade(await res.json());
         }
         async function fetchAutotrade() {
             try {
