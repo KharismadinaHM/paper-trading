@@ -38,6 +38,7 @@ WARNSUM_URL = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataT
 # HKO: "very hot" ≈ suhu HK Observatory 33°C atau lebih (ambang Very Hot Weather Warning)
 VERY_HOT_C = 33.0
 MAX_TEMP_RE = re.compile(r"(?:maximum|highest) temperature[^.]*?(\d{2})\s*degrees", re.I)
+MIN_TEMP_RE = re.compile(r"(?:minimum|lowest) temperature[^.]*?(\d{2})\s*degrees", re.I)
 STATION_NAMES = ("hk observatory", "hong kong observatory")
 BRACKET_RE = re.compile(r"(-?\d+)\s*°\s*C(?:\s+or\s+(below|lower|higher|above))?", re.I)
 
@@ -72,6 +73,15 @@ def fetch_hko_reading() -> Optional[Dict[str, Any]]:
     return reading
 
 
+def _hint_for_today(pattern, text: str) -> Optional[float]:
+    """Angka suhu dari kalimat prakiraan yang tidak menyebut 'tomorrow' (prakiraan untuk besok diabaikan)."""
+    for sentence in re.split(r"(?<=[.!?])\s+", text or ""):
+        match = pattern.search(sentence)
+        if match and "tomorrow" not in sentence.lower():
+            return float(match.group(1))
+    return None
+
+
 def hko_official_forecast() -> Optional[Dict[str, Any]]:
     """
     Prakiraan lokal resmi HKO (siang ini/nanti malam) + status Very Hot Weather Warning:
@@ -92,12 +102,13 @@ def hko_official_forecast() -> Optional[Dict[str, Any]]:
         period = str(flw.get("forecastPeriod") or "")
         max_hint = None
         today_period = any(w in period.lower() for w in ("this afternoon", "today", "this morning"))
-        match = MAX_TEMP_RE.search(text)
-        if match and today_period:
-            max_hint = float(match.group(1))
+        match = _hint_for_today(MAX_TEMP_RE, text)
+        if match is not None and today_period:
+            max_hint = match
         elif today_period and re.search(r"very hot", text, re.I):
             max_hint = VERY_HOT_C
-        return {"text": text, "period": period, "max_hint": max_hint,
+        min_hint = _hint_for_today(MIN_TEMP_RE, text)  # "tonight"/"this morning" relevan; "tomorrow" tidak
+        return {"text": text, "period": period, "max_hint": max_hint, "min_hint": min_hint,
                 "very_hot_warning": isinstance(warnings, dict) and "WHOT" in warnings}
 
     try:
@@ -157,8 +168,8 @@ def bracket_for(value: float, labels: List[str]) -> Optional[str]:
     return None
 
 
-def _today_market(now: datetime) -> List[Dict[str, Any]]:
-    """Bracket market 'highest temperature in Hong Kong' hari ini + harga ask order book."""
+def _today_market(now: datetime, kind: str = "highest") -> List[Dict[str, Any]]:
+    """Bracket market '<kind> temperature in Hong Kong' hari ini + harga ask order book."""
     from app.paper_service import get_market_snapshots
     from app.paper_trading.cities import resolve_city
     from app.paper_trading.live_market_data import fetch_order_books
@@ -168,7 +179,7 @@ def _today_market(now: datetime) -> List[Dict[str, Any]]:
     markets = []
     for m in get_market_snapshots(now=now, include_resolved=False):
         parsed = parse_temperature_market(m["market_name"], _as_datetime(m.get("end_date")), now)
-        if parsed and parsed.kind == "highest" and parsed.local_date == today and resolve_city(parsed.city) == CITY:
+        if parsed and parsed.kind == kind and parsed.local_date == today and resolve_city(parsed.city) == CITY:
             markets.append({"bracket": bracket_label(m["market_name"]), "yes_token_id": m.get("yes_token_id"),
                             "price_yes": float(m["price_yes"]) if m.get("price_yes") is not None else None})
     books = fetch_order_books(m["yes_token_id"] for m in markets)
@@ -257,12 +268,33 @@ def hko_status(now: Optional[datetime] = None, db=None) -> Optional[Dict[str, An
     except Exception as err:
         logger.warning("Gagal mengambil market Hong Kong hari ini: %s", err)
         market = []
+
+    # Suhu terendah hari kalender: bisa masih turun sampai tengah malam
+    observed_min = min([float(r.min_since_midnight) for r in rows if r.min_since_midnight is not None]
+                       + [t for _, t in series])
+    tied = [ts for ts, t in series if abs(t - observed_min) < 1e-9]
+    min_at = (tied[0] + (tied[-1] - tied[0]) / 2).astimezone(HKT) if tied else None
+    min_out = wo.outlook("lowest", HKT, local_date, observed_min, min_at, temp, latest_at, forecast, "C", now)
+    min_hint = (official or {}).get("min_hint")
+    if min_hint is not None and min_hint < observed_min:
+        min_estimate = min_hint
+    elif min_out and not min_out["passed"]:
+        min_estimate = min_out["value"]
+    else:
+        min_estimate = observed_min if min_out else None
+    try:
+        min_market = _today_market(now, "lowest")
+    except Exception as err:
+        logger.warning("Gagal mengambil market suhu terendah Hong Kong: %s", err)
+        min_market = []
     return {
         "observed_at": latest_at.astimezone(HKT), "temp": temp, "max": observed_max,
         "min": float(latest.min_since_midnight) if latest.min_since_midnight is not None else min(t for _, t in series),
         "rise": rise, "rate": rate, "outlook": out, "projection": projection, "estimate": estimate,
         "official": official, "official_hint": official_hint,
         "peak": peak, "peak_passed": peak_passed, "final_ok": final_ok, "market": market,
+        "min_at": min_at, "min_outlook": min_out, "min_estimate": min_estimate, "min_hint": min_hint,
+        "min_market": min_market,
         "previous_max": max([float(r.max_since_midnight) for r in rows[:-1] if r.max_since_midnight is not None]
                             + [float(r.temp) for r in rows[:-1]], default=None),
     }
@@ -313,9 +345,41 @@ def format_hko_message(status: Dict[str, Any], reasons: List[str]) -> str:
             f"{'👉 ' if m['bracket'] == est_bracket else ''}{m['bracket']} "
             + (f"ask {_odd(m['ask'])}" if m.get("ask") is not None else f"mid {_odd(m.get('price_yes'))}")
             for m in top))
+    lines += _min_lines(status)
     lines.append(SOURCE_URL)
     lines.append("Perkiraan, bukan kepastian. Paper trading, bukan saran finansial.")
     return "\n".join(lines)
+
+
+def _min_lines(status: Dict[str, Any]) -> List[str]:
+    """Bagian suhu terendah hari ini: tercatat, perkiraan sisa hari, prakiraan resmi, market."""
+    if status.get("min") is None:
+        return []
+    at = f" (≈{status['min_at']:%H:%M})" if status.get("min_at") else ""
+    lines = [f"❄️ Min hari ini tercatat {status['min']:.1f}°C{at}"]
+    out = status.get("min_outlook")
+    labels = [m["bracket"] for m in status.get("min_market") or []]
+    estimate = status.get("min_estimate")
+    est_bracket = bracket_for(estimate, labels) if labels and estimate is not None else None
+    if estimate is None:
+        lines.append("🧭 Perkiraan min: belum bisa dihitung (prakiraan tidak tersedia)")
+    else:
+        lines.append(f"🧭 Perkiraan min hari ini ±{estimate:.1f}°C" + (f" (bracket ≈ {est_bracket})" if est_bracket else ""))
+    if status.get("min_hint") is not None:
+        lines.append(f"   • Prakiraan resmi HKO: minimum ±{status['min_hint']:.0f}°C")
+    if out and not out["passed"] and out.get("at"):
+        lines.append(f"   • Prakiraan Open-Meteo + koreksi HKO: {out['value']:.1f}°C sekitar {out['at']:%H:%M} "
+                     "(min hari kalender bisa turun sampai tengah malam)")
+    elif out and out["passed"]:
+        nxt = (f" — prakiraan berikutnya ±{out['next_value']:.1f}°C sekitar {out['next_at']:%H:%M}"
+               if out.get("next_at") else "")
+        lines.append(f"   • Sisa hari diperkirakan tidak lebih dingin: min kemungkinan tetap {status['min']:.1f}°C{nxt}")
+    if status.get("min_market"):
+        lines.append("Market min: " + " · ".join(
+            f"{'👉 ' if m['bracket'] == est_bracket else ''}{m['bracket']} "
+            + (f"ask {_odd(m['ask'])}" if m.get("ask") is not None else f"mid {_odd(m.get('price_yes'))}")
+            for m in status["min_market"][:4]))
+    return lines
 
 
 def _market_price(status: Dict[str, Any], label: Optional[str]) -> Optional[str]:

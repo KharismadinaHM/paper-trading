@@ -34,7 +34,7 @@ def env(monkeypatch):
     flat = [(hkt(h).astimezone(timezone.utc), 31.0) for h in range(24)]  # prakiraan datar 31°C
     monkeypatch.setattr("app.paper_trading.weather_outlook.fetch_hourly_forecast",
                         lambda lat, lon: state.get("forecast", flat))
-    monkeypatch.setattr(hk, "_today_market", lambda now: [dict(m) for m in MARKET])
+    monkeypatch.setattr(hk, "_today_market", lambda now, kind="highest": [dict(m) for m in MARKET] if kind == "highest" else [])
     monkeypatch.setattr(hk, "hko_official_forecast", lambda: state.get("official"))
     monkeypatch.setattr(settings, "HKO_ALERTS", True)
 
@@ -182,7 +182,7 @@ class TestLateRiseCase:
               {"bracket": "35°C or higher", "yes_token_id": "t35", "price_yes": 0.01, "ask": 0.02, "bid": 0.01}]
 
     def test_near_next_degree_alert_before_final_hour(self, env, monkeypatch):
-        monkeypatch.setattr(hk, "_today_market", lambda now: [dict(m) for m in self.MARKET])
+        monkeypatch.setattr(hk, "_today_market", lambda now, kind="highest": [dict(m) for m in self.MARKET] if kind == "highest" else [])
         monkeypatch.setattr(settings, "HKO_ALERT_SPIKE_DEGREES", 5.0)
         step(env, hkt(15, 0), 33.5)
         text = step(env, hkt(15, 10), 33.8)
@@ -202,7 +202,7 @@ class TestLateRiseCase:
         assert hk.can_be_final(hkt(15, 30).astimezone(timezone.utc), 32.3, 33.4) is True  # sudah turun ≥1°C
 
     def test_position_risk_alert(self, env, monkeypatch):
-        monkeypatch.setattr(hk, "_today_market", lambda now: [dict(m) for m in self.MARKET])
+        monkeypatch.setattr(hk, "_today_market", lambda now, kind="highest": [dict(m) for m in self.MARKET] if kind == "highest" else [])
         monkeypatch.setattr(settings, "HKO_ALERT_SPIKE_DEGREES", 5.0)
         monkeypatch.setattr(settings, "HKO_NEAR_DEGREE_FRACTION", 0.7)
         monkeypatch.setattr(hk, "held_hk_positions", lambda now: [{"bracket": "33°C", "shares": 12.0, "source": "wallet"}])
@@ -240,3 +240,51 @@ def test_history_command_and_csv(env):
     from app.dashboard import app
     assert TestClient(app).get("/api/hk/readings.csv?date=2026-09-29").text == csv_text
     assert TestClient(app).get("/api/hk/readings.csv?date=bad").status_code == 400
+
+
+class TestMinPrediction:
+
+    MIN_MARKET = [{"bracket": "27°C", "yes_token_id": "l27", "price_yes": 0.6, "ask": 0.62, "bid": 0.6},
+                  {"bracket": "28°C", "yes_token_id": "l28", "price_yes": 0.3, "ask": 0.31, "bid": 0.3}]
+
+    def test_min_section_with_forecast_dropping_tonight(self, env, monkeypatch):
+        # prakiraan: malam ini lebih dingin (26.5 pukul 23:00) → min belum final
+        env["forecast"] = [(hkt(h).astimezone(timezone.utc), 31.0 if h < 18 else 26.5) for h in range(24)]
+        monkeypatch.setattr(hk, "_today_market", lambda now, kind="highest":
+                            [dict(m) for m in (MARKET if kind == "highest" else self.MIN_MARKET)])
+        env["reading"] = {"observed_at": hkt(12, 0), "temp": 31.0, "max": 31.2, "min": 28.3}
+        status = hk.hko_status(now=hkt(12, 2).astimezone(timezone.utc))
+        assert status["min"] == 28.3 and status["min_estimate"] < 28.3
+        text = hk.format_hko_message(status, [])
+        assert "❄️ Min hari ini tercatat 28.3°C" in text and "Perkiraan min hari ini ±" in text
+        assert "bisa turun sampai tengah malam" in text and "Market min: " in text
+
+    def test_min_kept_when_rest_of_day_warmer(self, env):
+        env["reading"] = {"observed_at": hkt(12, 0), "temp": 31.0, "max": 31.2, "min": 28.3}
+        status = hk.hko_status(now=hkt(12, 2).astimezone(timezone.utc))  # prakiraan datar 31°C
+        assert status["min_estimate"] == 28.3
+        assert "min kemungkinan tetap 28.3°C" in hk.format_hko_message(status, [])
+
+    def test_official_min_hint_parsed(self):
+        import json
+        from app.paper_trading import live_market_data as live
+        live.clear_cache()
+        flw = json.dumps({"forecastPeriod": "Weather forecast for tonight and tomorrow",
+                          "forecastDesc": "Fine. Minimum temperature around 26 degrees."})
+        with patch.object(live, "_http", side_effect=lambda url, **kw: flw if "flw" in url else "{}"):
+            result = hk.hko_official_forecast()
+        live.clear_cache()
+        assert result["min_hint"] == 26.0 and result["max_hint"] is None
+
+
+def test_tomorrow_forecast_numbers_are_ignored():
+    import json
+    from app.paper_trading import live_market_data as live
+    live.clear_cache()
+    flw = json.dumps({"forecastPeriod": "Weather forecast for this afternoon and tonight",
+                      "forecastDesc": "Mainly fine. The minimum temperature will be about 29 degrees tomorrow. "
+                                      "The maximum temperature will be around 35 degrees tomorrow."})
+    with patch.object(live, "_http", side_effect=lambda url, **kw: flw if "flw" in url else "{}"):
+        result = hk.hko_official_forecast()
+    live.clear_cache()
+    assert result["min_hint"] is None and result["max_hint"] is None
