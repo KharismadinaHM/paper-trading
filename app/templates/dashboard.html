@@ -2236,6 +2236,7 @@
             } catch (err) { console.error(err); }
         }
         function renderAutotrade(s) {
+            window._autotradeStatus = s;
             autotradeEnabled = !!s.enabled;
             const badge = document.getElementById('autotradeBadge');
             badge.className = `badge bg-dark border ${s.enabled ? 'text-success border-success-subtle' : 'text-danger border-danger-subtle'}`;
@@ -2287,7 +2288,7 @@
             const numeric = Object.entries(config).filter(([, c]) => c.type === 'float').map(([name, c]) => `
                 <div class="col-6 col-md-4 col-xl-3">
                     <label class="form-label small text-muted-poly mb-1" for="cfg_${name}">${escapeHtml(c.label)}${c.overridden ? ' <span class="text-warning">•</span>' : ''}</label>
-                    <input type="number" step="any" min="${safeNumber(c.min)}" max="${safeNumber(c.max)}" id="cfg_${name}" data-cfg="${name}"
+                    <input type="number" step="any" min="${safeNumber(c.min)}" max="${safeNumber(c.max)}" id="cfg_${name}" data-cfg="${name}" data-original="${safeNumber(c.value)}"
                            class="form-control form-control-sm bg-dark text-white border-secondary-subtle" value="${safeNumber(c.value)}"
                            title="Default .env: ${escapeHtml(String(c.default))} · rentang ${safeNumber(c.min)}–${safeNumber(c.max)}">
                 </div>`).join('');
@@ -2319,10 +2320,22 @@
             </details>`;
         }
         async function saveAutotradeConfig() {
+            // Kirim hanya yang benar-benar diubah, agar sisanya tetap mengikuti default .env
             const values = {};
-            document.querySelectorAll('[data-cfg]').forEach(el => { values[el.dataset.cfg] = el.value === '' ? null : Number(el.value); });
-            values.STRATEGIES = [...document.querySelectorAll('[data-strategy]')].filter(el => el.checked).map(el => el.dataset.strategy);
-            values.WEATHER_REQUIRE_AGREEMENT = document.getElementById('cfg_WEATHER_REQUIRE_AGREEMENT').checked;
+            const config = (window._autotradeStatus || {}).config || {};
+            document.querySelectorAll('[data-cfg]').forEach(el => {
+                if (el.value === '') values[el.dataset.cfg] = null;
+                else if (Number(el.value) !== Number(el.dataset.original)) values[el.dataset.cfg] = Number(el.value);
+            });
+            const strategies = [...document.querySelectorAll('[data-strategy]')].filter(el => el.checked).map(el => el.dataset.strategy);
+            const currentStrategies = String((config.STRATEGIES || {}).value || '').split(',').filter(Boolean).sort().join(',');
+            if ([...strategies].sort().join(',') !== currentStrategies) values.STRATEGIES = strategies;
+            const agree = document.getElementById('cfg_WEATHER_REQUIRE_AGREEMENT').checked;
+            if (agree !== !!(config.WEATHER_REQUIRE_AGREEMENT || {}).value) values.WEATHER_REQUIRE_AGREEMENT = agree;
+            if (!Object.keys(values).length) {
+                document.getElementById('autotradeConfigMsg').innerHTML = '<span class="text-muted-poly">Tidak ada perubahan.</span>';
+                return;
+            }
             const msg = document.getElementById('autotradeConfigMsg');
             try {
                 const res = await fetch('/api/autotrade/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
