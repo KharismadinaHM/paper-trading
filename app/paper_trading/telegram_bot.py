@@ -61,6 +61,7 @@ def build_help_message() -> str:
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
         "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
+        "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover` - Rekomendasi wallet Polymarket menarik (tombol Ikuti / Skip)\n"
         "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"
         "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"

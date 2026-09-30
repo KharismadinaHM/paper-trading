@@ -988,6 +988,21 @@
             </div>
         </div>
 
+        <!-- 2d-0. PORTFOLIO POLYMARKET SAYA (read-only, wallet asli) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-briefcase-fill me-2 text-success"></i>Portfolio Polymarket Saya</h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle">read-only</span>
+                    <span class="small text-muted-poly" id="myWalletAddress"></span>
+                </div>
+                <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchMyWallet(true)">
+                    <i class="bi bi-arrow-repeat"></i> Refresh
+                </button>
+            </div>
+            <div id="myWalletContainer" class="small text-muted-poly">Memuat portfolio…</div>
+        </div>
+
         <!-- 2d. WALLET TRACKER (rekomendasi wallet, tracking, follow + alert Telegram) -->
         <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -2196,6 +2211,95 @@
             fetchStationWeather();
         }
 
+        // --- PORTFOLIO POLYMARKET SAYA (read-only) ---
+        let myWalletTab = 'positions';
+        function setMyWalletTab(tab) { myWalletTab = tab; if (window._myWallet) renderMyWallet(window._myWallet); }
+        function renderMyWallet(s) {
+            const box = document.getElementById('myWalletContainer');
+            const money = v => v === null || v === undefined ? '-' : walletMoney(v);
+            const usd = v => v === null || v === undefined ? '-' : '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const tile = (label, value, cls = 'text-white', hint = '') => `
+                <div class="col-6 col-md-3 col-xl"><div class="border border-secondary-subtle rounded p-2 h-100" ${hint ? `title="${escapeHtml(hint)}"` : ''}>
+                    <div class="text-muted-poly small">${label}</div><div class="fs-6 fw-bold ${cls}">${value}</div></div></div>`;
+            const pnl = s.pnl || {};
+            const st = s.stats || {};
+            document.getElementById('myWalletAddress').innerHTML =
+                `<a class="text-info text-decoration-none" href="https://polymarket.com/profile/${escapeHtml(s.address)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortAddr(s.address))} <i class="bi bi-box-arrow-up-right"></i></a>`;
+            const tiles = [
+                tile('Nilai posisi', usd(s.positions_value)),
+                tile('Cash', s.cash === null || s.cash === undefined ? '<span class="text-muted-poly small">butuh API key</span>' : usd(s.cash), 'text-white', 'Saldo USDC dari CLOB (butuh API key)'),
+                ...[['DAY', 'PnL hari ini'], ['WEEK', 'PnL 7 hari'], ['MONTH', 'PnL 30 hari'], ['ALL', 'PnL all-time']].map(([k, label]) =>
+                    tile(label, money((pnl[k] || {}).pnl), pnlClass((pnl[k] || {}).pnl))),
+                tile('Belum terealisasi', money(s.unrealized_pnl), pnlClass(s.unrealized_pnl), 'PnL posisi aktif jika dijual di harga sekarang'),
+                tile('Siap di-redeem', `${usd(s.claimable.value)} <span class="text-muted-poly small">(${safeNumber(s.claimable.count)})</span>`, s.claimable.count ? 'text-success' : 'text-white'),
+                tile('Win rate', st.win_rate === null || st.win_rate === undefined ? '-' : `${Math.round(st.win_rate * 100)}% <span class="text-muted-poly small">(${safeNumber(st.wins)}/${safeNumber(st.resolved)})</span>`),
+            ].join('');
+            const tips = (s.insights || []).map(t => `<li class="mb-1">${escapeHtml(t)}</li>`).join('');
+            const tab = (key, label, count) => `<button class="btn btn-sm ${myWalletTab === key ? 'btn-light' : 'poly-btn-secondary'} py-0 px-2" onclick="setMyWalletTab('${key}')">${label}${count !== null && count !== undefined ? ` (${count})` : ''}</button>`;
+            let table = '';
+            if (myWalletTab === 'positions') {
+                const rows = (s.positions || []).map(p => `<tr>
+                    <td>${p.url && /^https:\/\//.test(p.url) ? `<a class="text-white text-decoration-none" href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.title)}</a>` : escapeHtml(p.title)}</td>
+                    <td>${escapeHtml(p.outcome || '')}</td><td class="text-end">${Number(p.size).toFixed(1)}</td>
+                    <td class="text-end text-nowrap">${(p.avg_price * 100).toFixed(1)}¢ → ${(p.cur_price * 100).toFixed(1)}¢</td>
+                    <td class="text-end">${usd(p.value)}</td>
+                    <td class="text-end text-nowrap ${pnlClass(p.pnl)}">${money(p.pnl)} (${p.pnl_pct > 0 ? '+' : ''}${Number(p.pnl_pct).toFixed(0)}%)</td>
+                    <td class="text-nowrap">${p.end_date ? escapeHtml(new Date(p.end_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })) : '-'}</td></tr>`).join('')
+                    || '<tr><td colspan="7" class="text-muted-poly">Tidak ada posisi aktif.</td></tr>';
+                table = `<thead><tr class="text-muted-poly"><th>Market</th><th>Outcome</th><th class="text-end">Shares</th><th class="text-end">Beli → Sekarang</th><th class="text-end">Nilai</th><th class="text-end">PnL</th><th>Berakhir</th></tr></thead><tbody>${rows}</tbody>`;
+            } else if (myWalletTab === 'orders') {
+                const orders = s.open_orders;
+                const rows = orders === null || orders === undefined
+                    ? '<tr><td colspan="5" class="text-muted-poly">Open order butuh API key CLOB (POLYMARKET_API_KEY/SECRET/PASSPHRASE) di .env.</td></tr>'
+                    : (orders.map(o => `<tr><td>${escapeHtml(o.side || '')} ${escapeHtml(o.outcome || '')}</td><td class="text-end">${(o.price * 100).toFixed(1)}¢</td>
+                        <td class="text-end">${Number(o.filled)}/${Number(o.size)}</td><td class="text-end">${usd(o.remaining_usdc)}</td>
+                        <td class="small text-muted-poly">${escapeHtml(String(o.market || '').slice(0, 10))}…</td></tr>`).join('')
+                        || '<tr><td colspan="5" class="text-muted-poly">Tidak ada open order.</td></tr>');
+                table = `<thead><tr class="text-muted-poly"><th>Order</th><th class="text-end">Harga</th><th class="text-end">Terisi</th><th class="text-end">Sisa</th><th>Market</th></tr></thead><tbody>${rows}</tbody>`;
+            } else if (myWalletTab === 'claim') {
+                const rows = (s.claimable.items || []).map(p => `<tr><td>${escapeHtml(p.title)}</td><td>${escapeHtml(p.outcome || '')}</td>
+                    <td class="text-end">${usd(p.value)}</td><td class="text-end ${pnlClass(p.pnl)}">${money(p.pnl)}</td></tr>`).join('')
+                    || '<tr><td colspan="4" class="text-muted-poly">Tidak ada posisi yang siap di-redeem.</td></tr>';
+                table = `<thead><tr class="text-muted-poly"><th>Market</th><th>Outcome</th><th class="text-end">Nilai</th><th class="text-end">PnL</th></tr></thead><tbody>${rows}</tbody>`;
+            } else {
+                const rows = (s.activity || []).map(a => {
+                    const when = new Date(a.timestamp * 1000).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                    return `<tr><td class="text-nowrap">${escapeHtml(when)}</td><td>${escapeHtml(a.type || '')} ${escapeHtml(a.side || '')}</td>
+                        <td>${escapeHtml(a.outcome || '')}</td><td>${escapeHtml(a.title || '')}</td>
+                        <td class="text-end">${a.price ? (Number(a.price) * 100).toFixed(1) + '¢' : '-'}</td><td class="text-end">${a.usdc ? usd(a.usdc) : '-'}</td></tr>`;
+                }).join('') || '<tr><td colspan="6" class="text-muted-poly">Belum ada aktivitas.</td></tr>';
+                table = `<thead><tr class="text-muted-poly"><th>Waktu</th><th>Jenis</th><th>Outcome</th><th>Market</th><th class="text-end">Harga</th><th class="text-end">USDC</th></tr></thead><tbody>${rows}</tbody>`;
+            }
+            box.innerHTML = `
+                <div class="row g-2 mb-3">${tiles}</div>
+                ${tips ? `<div class="mb-3"><div class="fw-semibold text-white mb-1"><i class="bi bi-lightbulb me-1 text-warning"></i>Catatan</div><ul class="list-unstyled mb-0 text-muted-poly">${tips}</ul></div>` : ''}
+                <div class="d-flex gap-2 flex-wrap mb-2">
+                    ${tab('positions', 'Posisi aktif', (s.positions || []).length)}
+                    ${tab('claim', 'Siap di-redeem', s.claimable.count)}
+                    ${tab('orders', 'Open order', s.open_orders === null || s.open_orders === undefined ? null : s.open_orders.length)}
+                    ${tab('activity', 'Aktivitas', null)}
+                </div>
+                <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-dark table-sm align-middle small mb-0">${table}</table></div>`;
+        }
+        async function fetchMyWallet(refresh = false) {
+            const box = document.getElementById('myWalletContainer');
+            if (!box) return;
+            try {
+                const res = await fetch('/api/my-wallet' + (refresh ? '?refresh=true' : ''));
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Gagal');
+                if (!data.configured) {
+                    box.innerHTML = `Portfolio belum diatur. Isi <code>POLYMARKET_WALLET_ADDRESS</code> (alamat di profil Polymarket Anda) di <code>.env</code>,
+                        lalu restart container. Opsional: <code>POLYMARKET_API_KEY</code>/<code>SECRET</code>/<code>PASSPHRASE</code> untuk saldo cash & open order.`;
+                    return;
+                }
+                window._myWallet = data.summary;
+                renderMyWallet(data.summary);
+            } catch (err) {
+                box.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`;
+            }
+        }
+
         // --- WALLET TRACKER ---
         function walletMoney(v) {
             if (v === null || v === undefined) return '-';
@@ -2504,6 +2608,7 @@
             fetchRecommendationStats();
             initStationWeather();
             fetchWallets();
+            fetchMyWallet();
         });
     </script>
 

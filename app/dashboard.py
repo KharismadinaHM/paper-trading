@@ -220,6 +220,18 @@ def get_current_weather_api(limit: int = 7, city: Optional[str] = None):
     return get_current_weather(limit=max(1, min(limit, 20)), city=city or None)
 
 
+@app.get("/api/my-wallet", dependencies=[Depends(require_auth)])
+def my_wallet_api(refresh: bool = False):
+    """Portfolio Polymarket sendiri (read-only). configured=False jika alamat wallet belum diatur."""
+    from app.paper_trading import my_wallet
+    try:
+        summary = my_wallet.get_summary(refresh=refresh)
+    except Exception as err:
+        logger.error("Portfolio API gagal: %s", err, exc_info=True)
+        raise HTTPException(status_code=502, detail="Gagal mengambil data dari Polymarket")
+    return {"configured": summary is not None, "summary": summary}
+
+
 # --- Wallet tracker -------------------------------------------------------------------------
 
 class TrackWalletRequest(BaseModel):

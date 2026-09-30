@@ -101,6 +101,15 @@ class Settings(BaseSettings):
     WALLET_POLL_SECONDS: int = 60
     WALLET_ALERT_MIN_USDC: float = 5.0         # abaikan transaksi lebih kecil dari ini
     WALLET_ALERT_WEATHER_ONLY: bool = False    # hanya alert transaksi market cuaca
+
+    # Portfolio Polymarket sendiri (READ-ONLY). Alamat wallet = alamat di profil Polymarket.
+    POLYMARKET_WALLET_ADDRESS: Optional[str] = None
+    # Opsional, untuk saldo cash & open order (GET saja). Jangan pernah isi private key.
+    POLYMARKET_API_KEY: Optional[str] = None
+    POLYMARKET_API_SECRET: Optional[str] = None
+    POLYMARKET_API_PASSPHRASE: Optional[str] = None
+    POLYMARKET_SIGNER_ADDRESS: Optional[str] = None  # alamat pembuat API key (default = wallet address)
+    POLYMARKET_SIGNATURE_TYPE: int = 1               # 1 = akun email/Magic, 2 = browser wallet, 0 = EOA
     # Zona waktu jam di notifikasi (default WIB)
     NOTIFY_TIMEZONE: str = "Asia/Jakarta"
     NOTIFY_TIMEZONE_LABEL: str = "WIB"

@@ -168,6 +168,77 @@ def _do(action: str, query: str) -> BotReply:
     raise ValueError(action)
 
 
+def build_portfolio_message(section: str = "") -> BotReply:
+    """/porto — portfolio Polymarket sendiri (read-only)."""
+    from app.paper_trading import my_wallet
+    from app.paper_trading.wallets import ago, money, short
+
+    summary = my_wallet.get_summary(refresh=True)
+    if summary is None:
+        return BotReply("💼 Portfolio belum diatur. Isi `POLYMARKET_WALLET_ADDRESS` (alamat di profil Polymarket) "
+                        "di `.env`, lalu restart container.")
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    label = settings.NOTIFY_TIMEZONE_LABEL
+    section = section.lower()
+    if section in ("posisi", "positions"):
+        lines = [f"📂 *Posisi aktif* ({len(summary['positions'])})", ""]
+        for p in summary["positions"][:15]:
+            lines.append(f"• {md(p['title'])} — *{md(p['outcome'])}*")
+            lines.append(f"  {p['size']:,.1f} sh · beli {p['avg_price'] * 100:.1f}¢ → {p['cur_price'] * 100:.1f}¢ · "
+                         f"nilai ${p['value']:,.2f} · PnL {money(p['pnl'])} ({p['pnl_pct']:+.0f}%)")
+        if len(summary["positions"]) > 15:
+            lines.append(f"… dan {len(summary['positions']) - 15} posisi lain (lihat dashboard)")
+        if not summary["positions"]:
+            lines.append("(tidak ada posisi aktif)")
+        return BotReply("\n".join(lines))
+    if section in ("aktivitas", "activity"):
+        lines = ["🕘 *Aktivitas terakhir*", ""]
+        for a in summary["activity"][:15]:
+            at = datetime.fromtimestamp(a["timestamp"], tz)
+            price = f" @ {float(a['price']) * 100:.1f}¢" if a.get("price") else ""
+            usdc = f" (${float(a['usdc']):,.2f})" if a.get("usdc") else ""
+            lines.append(f"• {at:%d %b %H:%M} {label} · {md(a.get('type'))} {md(a.get('side') or '')} "
+                         f"{md(a.get('outcome') or '')}{price}{usdc} — {md(a.get('title'))}")
+        return BotReply("\n".join(lines))
+    if section in ("order", "orders"):
+        orders = summary["open_orders"]
+        if orders is None:
+            return BotReply("📝 Open order butuh API key CLOB (`POLYMARKET_API_KEY/SECRET/PASSPHRASE`) di `.env`.")
+        lines = [f"📝 *Open order* ({len(orders)})", ""]
+        for o in orders[:15]:
+            lines.append(f"• {md(o['side'])} {md(o.get('outcome') or '')} @ {o['price'] * 100:.1f}¢ · "
+                         f"terisi {o['filled']:g}/{o['size']:g} · sisa ${o['remaining_usdc']:,.2f}")
+        if not orders:
+            lines.append("(tidak ada open order)")
+        return BotReply("\n".join(lines))
+
+    pnl = summary["pnl"]
+    cash = f"${summary['cash']:,.2f}" if summary["cash"] is not None else "- (butuh API key)"
+    lines = [
+        f"💼 *Portfolio Polymarket* ({short(summary['address'])}) · read-only",
+        "",
+        f"Nilai posisi: *${summary['positions_value']:,.2f}* · Cash: {cash}",
+        "PnL: " + " · ".join(f"{name} {money(pnl[key]['pnl'])}" for key, name in my_wallet.PERIODS),
+        f"PnL belum terealisasi (posisi aktif): {money(summary['unrealized_pnl'])}",
+        f"Posisi aktif: {len(summary['positions'])} · siap di-redeem: {summary['claimable']['count']} "
+        f"({money(summary['claimable']['value']).lstrip('+')})"
+        + (f" · open order: {len(summary['open_orders'])}" if summary["open_orders"] is not None else ""),
+    ]
+    stats = summary.get("stats") or {}
+    if stats.get("win_rate") is not None:
+        lines.append(f"Win rate {stats['win_rate'] * 100:.0f}% ({stats['wins']}/{stats['resolved']}) · "
+                     f"aktif {ago(stats.get('last_trade_ts'))}")
+    if summary["positions"]:
+        lines += ["", "*Posisi terbesar*"]
+        for p in summary["positions"][:3]:
+            lines.append(f"• {md(p['title'])} — {md(p['outcome'])} · ${p['value']:,.2f} · {money(p['pnl'])} "
+                         f"({p['pnl_pct']:+.0f}%)")
+    if summary["insights"]:
+        lines += ["", "💡 *Catatan*"] + [md(t) for t in summary["insights"]]
+    lines += ["", "Detail: `/porto posisi` · `/porto aktivitas` · `/porto order`"]
+    return BotReply("\n".join(lines))
+
+
 def handle_wallet_command(cmd: str, args: List[str]) -> Optional[BotReply]:
     """Balasan untuk command wallet, atau None jika bukan command wallet."""
     from app.paper_trading.wallets import WalletError
@@ -178,6 +249,8 @@ def handle_wallet_command(cmd: str, args: List[str]) -> Optional[BotReply]:
             return build_discover_message(refresh=query.lower() == "refresh")
         if cmd == "/wallets":
             return build_wallets_message()
+        if cmd in ("/porto", "/portfolio"):
+            return build_portfolio_message(query)
         if cmd in ("/wallet", "/track", "/follow", "/unfollow", "/skip", "/untrack"):
             if not query:
                 return BotReply(f"Pakai: `{cmd} <alamat 0x… / nama / nomor dari /discover>`")
