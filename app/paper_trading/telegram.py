@@ -174,9 +174,10 @@ def send_telegram_message(
     chat_id: Optional[str] = None,
     parse_mode: Optional[str] = None,
     timeout: int = 10,
+    reply_markup: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Mengirim pesan teks ke Telegram Bot API via HTTP POST.
+    Mengirim pesan teks ke Telegram Bot API via HTTP POST (opsional reply_markup untuk tombol inline).
     Jika bot_token atau chat_id tidak disertakan, otomatis membaca dari ENV:
     - TELEGRAM_BOT_TOKEN
     - TELEGRAM_CHAT_ID
@@ -198,6 +199,8 @@ def send_telegram_message(
     }
     if parse_mode:
         payload["parse_mode"] = parse_mode
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
 
     # Gunakan library requests jika ada
     if requests is not None:
@@ -220,6 +223,20 @@ def send_telegram_message(
         with urllib.request.urlopen(req, timeout=timeout) as response:
             res_body = json.loads(response.read().decode("utf-8"))
             return {"success": True, "response": res_body}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def answer_callback_query(callback_id: str, text: str = "", bot_token: Optional[str] = None,
+                          timeout: int = 10) -> Dict[str, Any]:
+    """Konfirmasi penekanan tombol inline (menghentikan spinner di Telegram)."""
+    token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token or requests is None:
+        return {"success": False}
+    try:
+        resp = requests.post(f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+                             json={"callback_query_id": callback_id, "text": text[:190]}, timeout=timeout)
+        return {"success": resp.ok}
     except Exception as e:
         return {"success": False, "error": str(e)}
 

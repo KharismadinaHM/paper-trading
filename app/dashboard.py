@@ -220,6 +220,83 @@ def get_current_weather_api(limit: int = 7, city: Optional[str] = None):
     return get_current_weather(limit=max(1, min(limit, 20)), city=city or None)
 
 
+# --- Wallet tracker -------------------------------------------------------------------------
+
+class TrackWalletRequest(BaseModel):
+    address: str = Field(..., min_length=42, max_length=200, description="Alamat 0x… atau URL profil Polymarket")
+    follow: bool = False
+
+
+def _wallet_call(fn, *args, **kwargs):
+    from app.paper_trading.wallets import WalletError
+    try:
+        return fn(*args, **kwargs)
+    except WalletError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except HTTPException:
+        raise
+    except Exception as err:
+        logger.error("Wallet API gagal: %s", err, exc_info=True)
+        raise HTTPException(status_code=502, detail="Gagal mengambil data dari Polymarket")
+
+
+@app.get("/api/wallets", dependencies=[Depends(require_auth)])
+def list_wallets_api():
+    """Wallet yang dilacak + kandidat rekomendasi (dari cache database)."""
+    from app.paper_trading import wallets
+    return {"tracked": wallets.list_tracked(), "candidates": wallets.list_candidates()[:10],
+            "candidates_age_minutes": (lambda a: round(a.total_seconds() / 60) if a else None)(wallets.candidates_age())}
+
+
+@app.post("/api/wallets/discover", dependencies=[Depends(require_auth)])
+def discover_wallets_api():
+    """Hitung ulang rekomendasi wallet menarik (leaderboard + statistik)."""
+    from app.paper_trading import wallets
+    return {"candidates": _wallet_call(wallets.discover_wallets)[:10]}
+
+
+@app.post("/api/wallets", dependencies=[Depends(require_auth)])
+def track_wallet_api(req: TrackWalletRequest):
+    from app.paper_trading import wallets
+    return _wallet_call(wallets.track_wallet, req.address, follow=req.follow)
+
+
+@app.get("/api/wallets/{address}", dependencies=[Depends(require_auth)])
+def wallet_detail_api(address: str):
+    """Statistik (win rate, PnL) + riwayat aktivitas terbaru sebuah wallet."""
+    from app.paper_trading import wallets
+    addr = _wallet_call(wallets.normalize_address, address)
+    return {"stats": _wallet_call(wallets.get_stats, addr),
+            "activity": _wallet_call(wallets.recent_activity, addr, limit=15),
+            "tracked": next((w for w in wallets.list_tracked(include_skipped=True) if w["address"] == addr), None),
+            "profile_url": wallets.profile_url(addr)}
+
+
+@app.post("/api/wallets/{address}/follow", dependencies=[Depends(require_auth)])
+def follow_wallet_api(address: str):
+    from app.paper_trading import wallets
+    return _wallet_call(wallets.set_follow, address, True)
+
+
+@app.post("/api/wallets/{address}/unfollow", dependencies=[Depends(require_auth)])
+def unfollow_wallet_api(address: str):
+    from app.paper_trading import wallets
+    return _wallet_call(wallets.set_follow, address, False)
+
+
+@app.post("/api/wallets/{address}/skip", dependencies=[Depends(require_auth)])
+def skip_wallet_api(address: str):
+    from app.paper_trading import wallets
+    _wallet_call(wallets.skip_wallet, address)
+    return {"skipped": True}
+
+
+@app.delete("/api/wallets/{address}", dependencies=[Depends(require_auth)])
+def untrack_wallet_api(address: str):
+    from app.paper_trading import wallets
+    return {"removed": _wallet_call(wallets.untrack_wallet, address)}
+
+
 @app.get("/api/recommendations/stats", dependencies=[Depends(require_auth)])
 def get_recommendation_stats_api(days: Optional[int] = None):
     """Win rate & ROI saran beli bot (notifikasi rekomendasi Telegram), opsional N hari terakhir."""

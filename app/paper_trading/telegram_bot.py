@@ -61,6 +61,9 @@ def build_help_message() -> str:
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
         "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
         "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
+        "🔎 `/discover` - Rekomendasi wallet Polymarket menarik (tombol Ikuti / Skip)\n"
+        "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"
+        "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"
         "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini\n"
         "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
@@ -415,6 +418,11 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
 
     if cmd in ("/start", "/help"):
         return build_help_message()
+
+    from app.paper_trading.wallet_bot import handle_wallet_command
+    wallet_reply = handle_wallet_command(cmd, args)
+    if wallet_reply is not None:
+        return wallet_reply
     elif cmd == "/status":
         return build_status_message()
     elif cmd == "/positions":
@@ -447,6 +455,25 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
             f"❓ Perintah `{cmd}` tidak dikenal.\n\n"
             "Ketik `/help` untuk melihat daftar perintah yang tersedia."
         )
+
+
+def handle_callback_query(callback: dict, token: Optional[str] = None,
+                          allowed_chat_id: Optional[str] = None) -> Optional[str]:
+    """Tombol inline (Ikuti / Skip / Detail wallet). Hanya dari chat yang diizinkan."""
+    from app.paper_trading.telegram import answer_callback_query
+    from app.paper_trading.wallet_bot import handle_wallet_callback
+
+    chat_id = str(((callback.get("message") or {}).get("chat") or {}).get("id") or "")
+    if allowed_chat_id and chat_id.strip() != str(allowed_chat_id).strip():
+        logger.warning("Tombol ditolak dari unauthorized chat_id: %s", chat_id)
+        answer_callback_query(callback.get("id", ""), "Akses ditolak", bot_token=token)
+        return None
+    reply = handle_wallet_callback(callback.get("data") or "")
+    answer_callback_query(callback.get("id", ""), "OK" if reply else "Tidak dikenal", bot_token=token)
+    if reply and chat_id:
+        send_telegram_message(text=reply, bot_token=token, chat_id=chat_id, parse_mode="Markdown",
+                              reply_markup=getattr(reply, "reply_markup", None))
+    return reply
 
 
 def start_bot_polling(
@@ -486,7 +513,7 @@ def start_bot_polling(
             params = {
                 "offset": offset,
                 "timeout": poll_timeout,
-                "allowed_updates": ["message"],
+                "allowed_updates": ["message", "callback_query"],
             }
             resp = requests.get(url, params=params, timeout=poll_timeout + 5)
             if resp.status_code != 200:
@@ -504,6 +531,11 @@ def start_bot_polling(
             for update in updates:
                 update_id = update["update_id"]
                 offset = update_id + 1
+
+                callback = update.get("callback_query")
+                if callback:
+                    handle_callback_query(callback, token=token, allowed_chat_id=target_chat_id)
+                    continue
 
                 msg = update.get("message")
                 if not msg:
@@ -523,6 +555,7 @@ def start_bot_polling(
                         bot_token=token,
                         chat_id=chat_id,
                         parse_mode="Markdown",
+                        reply_markup=getattr(reply, "reply_markup", None),
                     )
 
         except requests.exceptions.RequestException as e:

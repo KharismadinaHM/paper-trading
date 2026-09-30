@@ -988,6 +988,44 @@
             </div>
         </div>
 
+        <!-- 2d. WALLET TRACKER (rekomendasi wallet, tracking, follow + alert Telegram) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-wallet2 me-2 text-warning"></i>Wallet Tracker</h5>
+                <form class="d-flex gap-2 flex-wrap" onsubmit="event.preventDefault(); trackWalletFromInput();">
+                    <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary-subtle"
+                           id="walletAddressInput" placeholder="Alamat 0x… atau URL profil Polymarket" style="min-width: 260px"
+                           aria-label="Alamat wallet">
+                    <button type="submit" class="btn btn-sm poly-btn-secondary px-3"><i class="bi bi-eye me-1"></i>Lacak</button>
+                </form>
+            </div>
+            <div id="walletMessage" class="small mb-2"></div>
+
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-semibold text-white"><i class="bi bi-stars me-1 text-warning"></i>Rekomendasi wallet menarik
+                    <span class="small text-muted-poly fw-normal" id="walletCandidatesAge"></span></div>
+                <button class="btn btn-sm poly-btn-secondary py-1 px-3" id="walletDiscoverBtn" onclick="rediscoverWallets()">
+                    <i class="bi bi-arrow-repeat"></i> Cari ulang</button>
+            </div>
+            <div class="row g-3 mb-4" id="walletCandidatesContainer"><div class="col-12 small text-muted-poly">Memuat…</div></div>
+
+            <div class="fw-semibold text-white mb-2"><i class="bi bi-bell me-1 text-info"></i>Wallet yang dilacak</div>
+            <div class="table-responsive">
+                <table class="table table-dark table-sm align-middle small mb-0">
+                    <thead><tr class="text-muted-poly">
+                        <th>Wallet</th><th class="text-end">Win rate</th><th class="text-end">PnL 30h</th>
+                        <th class="text-end">All-time</th><th class="text-end">Posisi</th><th>Aktif</th><th class="text-end">Aksi</th>
+                    </tr></thead>
+                    <tbody id="walletTrackedBody"><tr><td colspan="7" class="text-muted-poly">Memuat…</td></tr></tbody>
+                </table>
+            </div>
+            <div id="walletDetail" class="mt-3"></div>
+            <div class="small text-muted-poly mt-3">
+                Win rate = posisi untung / posisi selesai (ditutup atau sudah resolve, termasuk posisi kalah yang tidak di-redeem)
+                dalam 30 hari terakhir. PnL dari leaderboard Polymarket. <b>Ikuti</b> = alert Telegram setiap wallet bertransaksi (dicek tiap menit).
+            </div>
+        </div>
+
         <!-- 3. SEARCH MARKET SECTION - POLYMARKET STYLE WEATHER EVENTS -->
         <div class="poly-card p-4 mb-4">
             <!-- Header: Title + Date Tabs -->
@@ -1387,7 +1425,12 @@
         setInterval(() => {
             countdown--;
             if (timerText) timerText.textContent = `${countdown}s`;
-            if (countdown <= 0) window.location.reload();
+            if (countdown <= 0) {
+                // Tunda reload saat pengguna sedang membaca detail wallet atau mengetik alamat
+                const typing = (document.getElementById('walletAddressInput') || {}).value;
+                if (window.pauseAutoReload || typing) { countdown = 30; return; }
+                window.location.reload();
+            }
         }, 1000);
 
         // --- 4. BALANCE VISIBILITY TOGGLE ---
@@ -2153,6 +2196,186 @@
             fetchStationWeather();
         }
 
+        // --- WALLET TRACKER ---
+        function walletMoney(v) {
+            if (v === null || v === undefined) return '-';
+            const n = Number(v); const a = Math.abs(n);
+            const body = a >= 1e6 ? '$' + (a / 1e6).toFixed(2) + 'M' : (a >= 1e3 ? '$' + (a / 1e3).toFixed(1) + 'K' : '$' + a.toFixed(0));
+            return (n > 0 ? '+' : (n < 0 ? '-' : '')) + body;
+        }
+        function walletAgo(ts) {
+            if (!ts) return '-';
+            const s = Math.max(0, Date.now() / 1000 - Number(ts));
+            return s < 3600 ? Math.floor(s / 60) + ' menit lalu' : (s < 86400 ? Math.floor(s / 3600) + ' jam lalu' : Math.floor(s / 86400) + ' hari lalu');
+        }
+        const shortAddr = a => String(a).slice(0, 6) + '…' + String(a).slice(-4);
+        const walletName = w => w.name ? `${escapeHtml(w.name)} <span class="text-muted-poly">${escapeHtml(shortAddr(w.address))}</span>` : escapeHtml(shortAddr(w.address));
+        const pnlClass = v => Number(v) > 0 ? 'text-success' : (Number(v) < 0 ? 'text-danger' : '');
+        const validAddr = a => /^0x[a-f0-9]{40}$/.test(String(a));
+        function walletNotice(text, isError = false) {
+            const el = document.getElementById('walletMessage');
+            if (el) el.innerHTML = text ? `<span class="${isError ? 'text-danger' : 'text-success'}">${escapeHtml(text)}</span>` : '';
+        }
+        async function walletAction(address, action) {
+            if (!validAddr(address)) return;
+            const url = action === 'untrack' ? `/api/wallets/${address}` : `/api/wallets/${address}/${action}`;
+            try {
+                const res = await fetch(url, { method: action === 'untrack' ? 'DELETE' : 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || 'Gagal');
+                const msg = { follow: 'Wallet diikuti — alert Telegram aktif.', unfollow: 'Berhenti mengikuti (masih dilacak).',
+                              skip: 'Wallet di-skip.', untrack: 'Wallet dihapus dari daftar.' }[action];
+                walletNotice(msg);
+                await fetchWallets();
+            } catch (err) { walletNotice(err.message, true); }
+        }
+        async function trackWalletFromInput() {
+            const input = document.getElementById('walletAddressInput');
+            const address = input.value.trim();
+            if (!address) return;
+            walletNotice('Mengambil statistik wallet…');
+            try {
+                const res = await fetch('/api/wallets', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify({ address }) });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Alamat tidak valid');
+                input.value = '';
+                walletNotice(`Melacak ${data.name || shortAddr(data.address)}.`);
+                await fetchWallets();
+                showWalletDetail(data.address);
+            } catch (err) { walletNotice(err.message, true); }
+        }
+        async function rediscoverWallets() {
+            const btn = document.getElementById('walletDiscoverBtn');
+            if (btn) btn.disabled = true;
+            walletNotice('Menganalisis wallet leaderboard… (±30 detik)');
+            try {
+                const res = await fetch('/api/wallets/discover', { method: 'POST' });
+                if (!res.ok) throw new Error('Gagal mencari wallet');
+                walletNotice('Rekomendasi diperbarui.');
+                await fetchWallets();
+            } catch (err) { walletNotice(err.message, true); }
+            finally { if (btn) btn.disabled = false; }
+        }
+        function walletStatsCells(st) {
+            const wr = st.win_rate === null || st.win_rate === undefined ? '-' : Math.round(st.win_rate * 100) + '%';
+            return { wr: `${wr} <span class="text-muted-poly">(${safeNumber(st.wins)}/${safeNumber(st.resolved)})</span>`,
+                     pnl: `<span class="${pnlClass(st.pnl)}">${walletMoney(st.pnl)}</span>`,
+                     all: `<span class="${pnlClass(st.pnl_all)}">${walletMoney(st.pnl_all)}</span>` };
+        }
+        function renderWalletCandidates(list) {
+            const box = document.getElementById('walletCandidatesContainer');
+            if (!list.length) {
+                box.innerHTML = '<div class="col-12 small text-muted-poly">Belum ada rekomendasi. Klik "Cari ulang".</div>';
+                return;
+            }
+            box.innerHTML = list.slice(0, 6).map(c => {
+                const st = c.stats || {}; const cells = walletStatsCells(st);
+                const addr = escapeHtml(c.address);
+                return `<div class="col-md-6"><div class="weather-event-card h-100">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <h6 class="weather-event-title mb-0">#${safeNumber(c.rank)} ${walletName(c)}</h6>
+                        <a class="small text-info text-decoration-none" href="https://polymarket.com/profile/${addr}" target="_blank" rel="noopener noreferrer">profil <i class="bi bi-box-arrow-up-right"></i></a>
+                    </div>
+                    <div class="small mb-1">WR ${cells.wr} · PnL 30h ${cells.pnl} · all-time ${cells.all}
+                        ${st.margin !== null && st.margin !== undefined ? ` · margin ${(Number(st.margin) * 100).toFixed(1)}%` : ''}
+                        ${st.avg_entry !== null && st.avg_entry !== undefined ? ` · beli rata-rata ${Math.round(Number(st.avg_entry) * 100)}¢` : ''}</div>
+                    <div class="small text-muted-poly mb-2">${escapeHtml(c.reason || '')}</div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button class="btn btn-sm btn-success py-0 px-2" onclick="walletAction('${addr}', 'follow')"><i class="bi bi-bell me-1"></i>Ikuti</button>
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${addr}', 'skip')"><i class="bi bi-skip-forward me-1"></i>Skip</button>
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="showWalletDetail('${addr}')"><i class="bi bi-graph-up me-1"></i>Detail</button>
+                    </div>
+                </div></div>`;
+            }).join('');
+        }
+        function renderWalletTracked(list) {
+            const body = document.getElementById('walletTrackedBody');
+            if (!list.length) {
+                body.innerHTML = '<tr><td colspan="7" class="text-muted-poly">Belum ada. Ikuti dari rekomendasi atau lacak alamat di atas.</td></tr>';
+                return;
+            }
+            body.innerHTML = list.map(w => {
+                const st = w.stats || {}; const cells = walletStatsCells(st);
+                const addr = escapeHtml(w.address);
+                return `<tr>
+                    <td>${w.follow ? '🔔' : '🔕'} ${walletName(w)}</td>
+                    <td class="text-end">${cells.wr}</td><td class="text-end">${cells.pnl}</td><td class="text-end">${cells.all}</td>
+                    <td class="text-end">${safeNumber(st.open_positions)}</td><td>${escapeHtml(walletAgo(st.last_trade_ts))}</td>
+                    <td class="text-end text-nowrap">
+                        ${w.follow
+                            ? `<button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${addr}', 'unfollow')" title="Berhenti ikuti"><i class="bi bi-bell-slash"></i></button>`
+                            : `<button class="btn btn-sm btn-success py-0 px-2" onclick="walletAction('${addr}', 'follow')" title="Ikuti"><i class="bi bi-bell"></i></button>`}
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="showWalletDetail('${addr}')" title="Detail"><i class="bi bi-graph-up"></i></button>
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${addr}', 'untrack')" title="Hapus"><i class="bi bi-trash"></i></button>
+                    </td></tr>`;
+            }).join('');
+        }
+        async function fetchWallets() {
+            try {
+                const res = await fetch('/api/wallets');
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                renderWalletCandidates(data.candidates || []);
+                renderWalletTracked(data.tracked || []);
+                const age = document.getElementById('walletCandidatesAge');
+                if (age) age.textContent = data.candidates_age_minutes !== null && data.candidates_age_minutes !== undefined
+                    ? `· diperbarui ${data.candidates_age_minutes} menit lalu` : '';
+            } catch (err) {
+                console.error(err);
+                document.getElementById('walletCandidatesContainer').innerHTML = '<div class="col-12 small text-muted-poly">Gagal memuat wallet.</div>';
+            }
+        }
+        async function showWalletDetail(address) {
+            if (!validAddr(address)) return;
+            const box = document.getElementById('walletDetail');
+            window.pauseAutoReload = true;  // jangan reload halaman saat detail dibuka
+            box.innerHTML = '<div class="small text-muted-poly">Memuat detail wallet…</div>';
+            try {
+                const res = await fetch(`/api/wallets/${address}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Gagal');
+                const st = data.stats || {}; const cells = walletStatsCells(st);
+                const rows = (data.activity || []).map(a => {
+                    const when = new Date(a.timestamp * 1000).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                    const price = a.price ? (Number(a.price) * 100).toFixed(1) + '¢' : '-';
+                    const usdc = a.usdc ? '$' + Number(a.usdc).toFixed(2) : '-';
+                    return `<tr><td class="text-nowrap">${escapeHtml(when)}</td><td>${escapeHtml(a.type || '')} ${escapeHtml(a.side || '')}</td>
+                        <td>${escapeHtml(a.outcome || '')}</td><td>${escapeHtml(a.title || '')}</td>
+                        <td class="text-end">${price}</td><td class="text-end">${usdc}</td></tr>`;
+                }).join('') || '<tr><td colspan="6" class="text-muted-poly">Belum ada aktivitas.</td></tr>';
+                const t = data.tracked;
+                const following = t && t.follow && t.status === 'tracking';
+                box.innerHTML = `<div class="weather-event-card">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                        <h6 class="weather-event-title mb-0">${walletName({ name: st.name, address })}</h6>
+                        <div class="d-flex gap-2">
+                            ${following
+                                ? `<button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${address}', 'unfollow')"><i class="bi bi-bell-slash me-1"></i>Berhenti ikuti</button>`
+                                : `<button class="btn btn-sm btn-success py-0 px-2" onclick="walletAction('${address}', 'follow')"><i class="bi bi-bell me-1"></i>Ikuti</button>`}
+                            <a class="btn btn-sm poly-btn-secondary py-0 px-2" href="${escapeHtml(data.profile_url)}" target="_blank" rel="noopener noreferrer">Polymarket <i class="bi bi-box-arrow-up-right"></i></a>
+                            <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="closeWalletDetail()" aria-label="Tutup"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                    </div>
+                    <div class="small mb-2">WR ${cells.wr} · PnL 30h ${cells.pnl} · all-time ${cells.all}
+                        ${st.margin !== null && st.margin !== undefined ? ` · margin ${(Number(st.margin) * 100).toFixed(1)}%` : ''}
+                        ${st.avg_entry !== null && st.avg_entry !== undefined ? ` · beli rata-rata ${Math.round(Number(st.avg_entry) * 100)}¢` : ''}
+                        · posisi terbuka ${safeNumber(st.open_positions)}
+                        · cuaca ${st.weather_share !== null && st.weather_share !== undefined ? Math.round(st.weather_share * 100) + '%' : '-'} · aktif ${escapeHtml(walletAgo(st.last_trade_ts))}</div>
+                    <div class="fw-semibold text-white small mb-1">Riwayat aktivitas</div>
+                    <div class="table-responsive"><table class="table table-dark table-sm small mb-0">
+                        <thead><tr class="text-muted-poly"><th>Waktu</th><th>Jenis</th><th>Outcome</th><th>Market</th><th class="text-end">Harga</th><th class="text-end">USDC</th></tr></thead>
+                        <tbody>${rows}</tbody></table></div>
+                </div>`;
+            } catch (err) {
+                box.innerHTML = `<div class="small text-danger">${escapeHtml(err.message)}</div>`;
+            }
+        }
+        function closeWalletDetail() {
+            document.getElementById('walletDetail').innerHTML = '';
+            window.pauseAutoReload = false;
+        }
+
         // --- STATISTIK SARAN BOT ---
         async function fetchRecommendationStats() {
             const container = document.getElementById('recStatsContainer');
@@ -2280,6 +2503,7 @@
             fetchSuggestedMarkets();
             fetchRecommendationStats();
             initStationWeather();
+            fetchWallets();
         });
     </script>
 

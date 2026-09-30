@@ -90,6 +90,17 @@ class Settings(BaseSettings):
     HKO_ALERT_WINDOW_MINUTES: int = 30
     HKO_ALERT_COOLDOWN_MINUTES: int = 30      # jeda minimal antar alert lonjakan
     HKO_ALERT_HOURS: str = "7-19"             # jam lokal HK saat alert aktif
+
+    # Wallet tracker Polymarket
+    WALLET_STATS_DAYS: int = 30                # periode win rate & PnL
+    WALLET_DISCOVERY_CATEGORY: str = "WEATHER" # kategori leaderboard sumber rekomendasi
+    WALLET_DISCOVERY_CANDIDATES: int = 12      # jumlah wallet leaderboard yang dianalisis
+    WALLET_DISCOVERY_MIN_RESOLVED: int = 15    # minimal posisi selesai agar win rate bermakna
+    WALLET_DISCOVERY_REFRESH_HOURS: int = 6
+    WALLET_ALERTS: bool = True                 # alert transaksi wallet yang diikuti
+    WALLET_POLL_SECONDS: int = 60
+    WALLET_ALERT_MIN_USDC: float = 5.0         # abaikan transaksi lebih kecil dari ini
+    WALLET_ALERT_WEATHER_ONLY: bool = False    # hanya alert transaksi market cuaca
     # Zona waktu jam di notifikasi (default WIB)
     NOTIFY_TIMEZONE: str = "Asia/Jakarta"
     NOTIFY_TIMEZONE_LABEL: str = "WIB"

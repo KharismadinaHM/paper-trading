@@ -5,8 +5,8 @@ from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric,
-    String, UniqueConstraint, event
+    BigInteger, Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric,
+    String, Text, UniqueConstraint, event
 )
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.dialects.postgresql import UUID
@@ -370,3 +370,44 @@ class StationAlert(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (Index("idx_station_alerts_station_date", "station", "local_date"),)
+
+
+class TrackedWallet(Base):
+    """
+    Wallet Polymarket yang dilacak. status: 'tracking' (dipantau) / 'skipped' (disembunyikan dari
+    rekomendasi). follow=True → alert Telegram real-time setiap wallet ini bertransaksi.
+    """
+    __tablename__ = "tracked_wallets"
+
+    address: Mapped[str] = mapped_column(String(42), primary_key=True)  # lowercase 0x…
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="tracking")
+    follow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")  # manual / discover
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_activity_ts: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # kursor alert (unix)
+    stats_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stats_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WalletCandidate(Base):
+    """Hasil pencarian wallet menarik (leaderboard + statistik), diperbarui berkala."""
+    __tablename__ = "wallet_candidates"
+
+    address: Mapped[str] = mapped_column(String(42), primary_key=True)
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stats_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class WalletAlertLog(Base):
+    """Transaksi wallet yang sudah dialertkan (dedupe)."""
+    __tablename__ = "wallet_alert_log"
+
+    transaction_hash: Mapped[str] = mapped_column(String(80), primary_key=True)
+    asset: Mapped[str] = mapped_column(String(100), primary_key=True)
+    address: Mapped[str] = mapped_column(String(42), nullable=False)
+    timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)

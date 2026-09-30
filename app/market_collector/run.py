@@ -24,6 +24,7 @@ from app.paper_trading.recommendation_alerts import run_recommendation_alerts
 from app.paper_trading.hko_alerts import run_hko_alerts
 from app.paper_trading.recommendation_results import run_recommendation_tracking
 from app.paper_trading.settlement_worker import run_settlement_cycle
+from app.paper_trading.wallets import run_wallet_maintenance, run_wallet_polling
 
 logger = get_logger("market_collector_runner")
 
@@ -96,6 +97,8 @@ def main():
             run_recommendation_alerts()
             run_recommendation_tracking()
             run_hko_alerts()
+            run_wallet_maintenance()
+            run_wallet_polling()
             prune_market_snapshots()
         except Exception as loop_err:
             logger.error("Error tak tertangani pada runner loop: %s", str(loop_err), exc_info=True)
@@ -105,11 +108,17 @@ def main():
         sleep_duration = max(0.0, float(interval) - elapsed)
         logger.info("Menunggu siklus berikutnya dalam %.1f detik...", sleep_duration)
 
-        slept = 0.0
+        # Selama menunggu, cek transaksi wallet yang diikuti tiap WALLET_POLL_SECONDS (alert real-time)
+        slept, since_wallet_poll = 0.0, 0.0
+        wallet_every = max(15, settings.WALLET_POLL_SECONDS)
         while _running and slept < sleep_duration:
             step = min(1.0, sleep_duration - slept)
             time.sleep(step)
             slept += step
+            since_wallet_poll += step
+            if since_wallet_poll >= wallet_every:
+                since_wallet_poll = 0.0
+                run_wallet_polling()
 
     logger.info("Market Collector Service dihentikan dengan aman.")
 
