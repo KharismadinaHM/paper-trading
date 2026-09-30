@@ -349,3 +349,14 @@ class TestNotifications:
         with patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": False, "error": "chat not found"}):
             reply = handle_incoming_message("/tesnotif", sender_chat_id="1", allowed_chat_id="1")
         assert "❌ Gagal" in reply and "chat not found" in reply
+
+
+def test_notification_has_no_polymarket_link_and_stats_have_total(funded, sent):
+    seed_market()
+    d = decision()
+    d["url"] = "https://polymarket.com/event/x"
+    at.execute(d, NOW)
+    assert "polymarket.com" not in sent[0]
+    status = handle_incoming_message("/autostats", sender_chat_id="1", allowed_chat_id="1")
+    assert "*Total: 1 trade · belum ada yang selesai*" in status
+    assert "/autostats" in handle_incoming_message("/help", sender_chat_id="1", allowed_chat_id="1")

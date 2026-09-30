@@ -247,8 +247,6 @@ def format_decision(d: Dict[str, Any], order: Dict[str, Any]) -> str:
     t = today_summary()
     lines.append(f"Hari ini: {t['trades']} trade · ${t['spent']:.2f}/{float(settings.AUTOTRADE_MAX_DAILY_USD):.0f} · "
                  f"PnL terealisasi {t['realized_pnl']:+.2f}")
-    if d.get("url"):
-        lines.append(d["url"])
     return "\n".join(lines)
 
 
@@ -719,7 +717,7 @@ def strategy_stats(days: Optional[int] = None, now: Optional[datetime] = None) -
             wins = sum(1 for t in closed if float(t.net_pnl or 0) > 0)
             open_positions = db.query(PaperPosition).filter(PaperPosition.strategy_version == version,
                                                             PaperPosition.shares > 0).count()
-            out[name] = {"trades": decisions.count(), "settled": len(closed), "wins": wins,
+            out[name] = {"trades": decisions.count(), "settled": len(closed), "wins": wins, "cost": round(cost, 2),
                          "win_rate": wins / len(closed) if closed else None, "pnl": round(pnl, 2),
                          "roi": pnl / cost if cost else None, "open": open_positions}
         return out
@@ -776,6 +774,17 @@ def format_status(days: Optional[int] = None) -> str:
     stats = strategy_stats(days=days)
     label = f"{days} hari" if days else "semua waktu"
     lines.append(f"*Hasil ({label})*")
+    trades = sum(st["trades"] for st in stats.values())
+    settled = sum(st["settled"] for st in stats.values())
+    wins = sum(st["wins"] for st in stats.values())
+    pnl = sum(st["pnl"] for st in stats.values())
+    cost = sum(st["cost"] for st in stats.values())
+    if settled:
+        roi = f" · ROI {pnl / cost * 100:+.1f}%" if cost else ""
+        lines.append(f"*Total: {trades} trade · selesai {settled} · WR {wins / settled * 100:.0f}% "
+                     f"({wins}/{settled}) · PnL {pnl:+.2f}{roi}*")
+    else:
+        lines.append(f"*Total: {trades} trade · belum ada yang selesai*")
     for name, st in stats.items():
         wr = f"{st['win_rate'] * 100:.0f}%" if st["win_rate"] is not None else "-"
         roi = f"{st['roi'] * 100:+.1f}%" if st["roi"] is not None else "-"
