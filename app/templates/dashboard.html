@@ -536,9 +536,19 @@
                         <option value="weather_v2" {% if current_strategy == 'weather_v2' %}selected{% endif %}>weather_v2</option>
                     </select>
                 </form>
-                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" id="refreshTimer" onclick="window.location.reload()" title="Refresh Data">
-                    <i class="bi bi-arrow-repeat"></i> <span id="refreshTimerText">30s</span>
-                </button>
+                <div class="d-flex align-items-center gap-1">
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="refreshInterval"
+                            onchange="setRefreshInterval(this.value)" aria-label="Interval auto refresh" title="Interval auto refresh">
+                        <option value="30">Auto 30 dtk</option>
+                        <option value="60">Auto 1 mnt</option>
+                        <option value="300">Auto 5 mnt</option>
+                        <option value="600">Auto 10 mnt</option>
+                        <option value="3600">Auto 1 jam</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" id="refreshTimer" onclick="window.location.reload()" title="Refresh sekarang">
+                        <i class="bi bi-arrow-repeat"></i> <span id="refreshTimerText">30s</span>
+                    </button>
+                </div>
                 <div class="d-flex align-items-center gap-2 px-3 py-1 rounded-pill" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);">
                     <span class="spinner-grow spinner-grow-sm text-success" style="width: 8px; height: 8px;" role="status"></span>
                     <span class="text-success small fw-semibold">Live Feed</span>
@@ -1509,17 +1519,40 @@
         });
 
         // --- 3. AUTO REFRESH TIMER ---
-        let countdown = 30;
+        const REFRESH_KEY = 'dashboardRefreshSeconds';
+        const REFRESH_OPTIONS = [30, 60, 300, 600, 3600];
+        let refreshSeconds = 30;
+        try {
+            const saved = parseInt(localStorage.getItem(REFRESH_KEY), 10);
+            if (REFRESH_OPTIONS.includes(saved)) refreshSeconds = saved;
+        } catch (e) { /* abaikan */ }
+        let countdown = refreshSeconds;
         const timerText = document.getElementById('refreshTimerText');
+        const refreshSelect = document.getElementById('refreshInterval');
+        if (refreshSelect) refreshSelect.value = String(refreshSeconds);
+        function formatCountdown(sec) {
+            if (sec >= 3600) return '1j';
+            if (sec >= 60) return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+            return `${sec}s`;
+        }
+        function setRefreshInterval(value) {
+            const sec = parseInt(value, 10);
+            if (!REFRESH_OPTIONS.includes(sec)) return;
+            refreshSeconds = sec;
+            countdown = sec;
+            try { localStorage.setItem(REFRESH_KEY, String(sec)); } catch (e) { /* abaikan */ }
+            if (timerText) timerText.textContent = formatCountdown(countdown);
+        }
+        if (timerText) timerText.textContent = formatCountdown(countdown);
         setInterval(() => {
             countdown--;
-            if (timerText) timerText.textContent = `${countdown}s`;
+            if (timerText) timerText.textContent = formatCountdown(Math.max(countdown, 0));
             if (countdown <= 0) {
                 // Tunda reload saat pengguna sedang membaca detail wallet atau mengetik alamat
                 const active = document.activeElement;
                 const typing = (document.getElementById('walletAddressInput') || {}).value
                     || (active && active.id === 'stationWeatherCity');
-                if (window.pauseAutoReload || typing) { countdown = 30; return; }
+                if (window.pauseAutoReload || typing) { countdown = Math.min(refreshSeconds, 30); return; }
                 window.location.reload();
             }
         }, 1000);
