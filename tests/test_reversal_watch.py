@@ -2,14 +2,18 @@
 Test "waspada berbalik": bracket favorit ≥ 90¢ dengan indikasi hasil bisa berubah.
 """
 import math
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from decimal import Decimal
+
 from app.core.config import settings
+from app.core.database import get_db_session
 from app.paper_trading import reversal_watch as rw
+from app.paper_trading.models import MarketLatest, MarketResolution, ReversalWatch
 
 HKT = ZoneInfo("Asia/Hong_Kong")
 NOW = datetime(2026, 9, 30, 15, 20, tzinfo=HKT).astimezone(timezone.utc)
@@ -19,8 +23,8 @@ def br(label, price, token=None):
     return {"label": label, "range": rw._bracket(label), "price": price, "token": token or f"t{label}", "market_id": f"0x{label}"}
 
 
-def hk_event(fav_price=0.96):
-    return {"city": "Hong Kong", "kind": "highest", "tz": HKT, "date": date(2026, 9, 30), "station": "HKO",
+def hk_event(fav_price=0.96, volume=50000.0):
+    return {"city": "Hong Kong", "kind": "highest", "tz": HKT, "date": date(2026, 9, 30), "station": "HKO", "volume": volume,
             "brackets": [br("32°C", 0.01), br("33°C", fav_price), br("34°C", 0.03), br("35°C or higher", 0.004)]}
 
 
@@ -73,11 +77,34 @@ class TestIndicators:
         assert rw._neighbor(ev, ev["brackets"][3]) is None  # "or higher" tidak punya bracket di atas
 
 
+def clear_watches():
+    db = get_db_session()
+    db.query(ReversalWatch).delete()
+    db.query(MarketLatest).filter(MarketLatest.market_id.like("0x%°%")).delete(synchronize_session=False)
+    db.query(MarketResolution).filter(MarketResolution.market_id.like("0x%°%")).delete(synchronize_session=False)
+    db.commit()
+    db.close()
+
+
+def set_prices(prices):
+    db = get_db_session()
+    for label, price in prices.items():
+        mid = f"0x{label}"
+        row = db.get(MarketLatest, mid) or MarketLatest(market_id=mid, market_name=label, status="open",
+                                                        is_resolved=False, timestamp=NOW)
+        row.price_yes = Decimal(str(price))
+        db.merge(row)
+    db.commit()
+    db.close()
+
+
 class TestCheck:
 
-    def _run(self, monkeypatch, fav_price=0.96, observation=None, momentum=None):
+    def _run(self, monkeypatch, fav_price=0.96, observation=None, momentum=None, volume=50000.0, liquid=True):
         sent = []
-        monkeypatch.setattr(rw, "today_events", lambda now, cities: [hk_event(fav_price)])
+        clear_watches()
+        monkeypatch.setattr(rw, "today_events", lambda now, cities: [hk_event(fav_price, volume)])
+        monkeypatch.setattr(rw, "liquidity", lambda fav: {"spread": 0.01, "bid": 0.95, "bid_depth_usd": 500} if liquid else None)
         monkeypatch.setattr(rw, "observation", lambda event, now: observation)
         monkeypatch.setattr(rw, "price_momentum", lambda token, now: momentum)
         monkeypatch.setattr("app.paper_service.get_city_volume_summary", lambda limit=7, now=None: [])
@@ -109,3 +136,75 @@ class TestCheck:
         monkeypatch.setattr("app.paper_trading.live_market_data._http", lambda url, **kw: history)
         m = rw.price_momentum("tok", NOW)
         assert m["before"] == 0.04 and m["now"] == 0.22 and m["change"] == pytest.approx(0.18)
+
+
+class TestFilterAndFollowUp:
+
+    def test_small_volume_or_illiquid_market_is_ignored(self, monkeypatch):
+        momentum = {"before": 0.028, "now": 0.229, "change": 0.201}
+        assert TestCheck()._run(monkeypatch, observation=obs(33.8, 33.8, 0.6), momentum=momentum, volume=5000) == []
+        assert TestCheck()._run(monkeypatch, observation=obs(33.8, 33.8, 0.6), momentum=momentum, liquid=False) == []
+        assert rw.reversal_history()["summary"]["tracked"] == 0
+
+    def test_liquidity_check_uses_spread_and_bid_depth(self, monkeypatch):
+        books = {"t33°C": {"ask": 0.97, "bid": 0.96, "bid_depth_usd": 450.0}}
+        monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books", lambda tokens: books)
+        fav = br("33°C", 0.965)
+        assert rw.liquidity(fav)["bid_depth_usd"] == 450.0
+        books["t33°C"] = {"ask": 0.99, "bid": 0.90, "bid_depth_usd": 450.0}  # spread 9¢
+        assert rw.liquidity(fav) is None
+        books["t33°C"] = {"ask": 0.97, "bid": 0.96, "bid_depth_usd": 20.0}   # bid tipis
+        assert rw.liquidity(fav) is None
+
+    def test_confirmed_reversal_after_warning(self, monkeypatch):
+        sent = TestCheck()._run(monkeypatch, observation=obs(33.8, 33.8, 0.6),
+                                momentum={"before": 0.028, "now": 0.229, "change": 0.201})
+        assert len(sent) == 1 and "WASPADA BERBALIK" in sent[0]
+        set_prices({"32°C": 0.01, "33°C": 0.12, "34°C": 0.86, "35°C or higher": 0.01})
+        with patch("app.paper_trading.telegram.send_telegram_message",
+                   side_effect=lambda text, **kw: sent.append(text) or {"success": True}):
+            rw.follow_up(NOW)
+            rw.follow_up(NOW)  # sekali saja
+        assert len(sent) == 2
+        flip = sent[1]
+        assert flip.startswith("🔁 BENAR BERBALIK · #HongKong max 2026-09-30")
+        assert "33°C sempat 96¢ → sekarang 12¢" in flip and "Pemimpin baru: 34°C di 86¢" in flip
+        assert "✅ Warning waspada berbalik sudah dikirim" in flip
+        item = rw.reversal_history()["items"][0]
+        assert item["verdict"] == "warning tepat" and item["flip"] == "33°C 12¢ → 34°C 86¢"
+
+    def test_reversal_without_warning_found_at_resolution(self, monkeypatch):
+        sent = TestCheck()._run(monkeypatch, observation=obs(33.0, 32.5, -0.2))  # tenang: tanpa warning
+        assert sent == []
+        set_prices({"32°C": 0.01, "33°C": 0.97, "34°C": 0.02, "35°C or higher": 0.0})
+        db = get_db_session()
+        db.add_all([MarketResolution(market_id="0x33°C", winning_outcome="NO", resolved_at=NOW),
+                    MarketResolution(market_id="0x34°C", winning_outcome="YES", resolved_at=NOW)])
+        db.commit()
+        db.close()
+        monkeypatch.setattr("app.market_collector.collector.sync_markets_by_condition_ids", lambda ids: None)
+        later = NOW + timedelta(days=1)
+        with patch("app.paper_trading.telegram.send_telegram_message",
+                   side_effect=lambda text, **kw: sent.append(text) or {"success": True}):
+            rw.follow_up(later)
+        assert len(sent) == 1 and "saat resolve 0¢" in sent[0] and "Pemimpin baru: 34°C" in sent[0]
+        assert "Tanpa warning sebelumnya" in sent[0]
+        data = rw.reversal_history()
+        assert data["items"][0]["verdict"] == "terlewat" and data["items"][0]["outcome"] == "reversed"
+        assert data["summary"]["reversed"] == 1 and data["summary"]["reversed_warned"] == 0
+        assert "terlewat" in rw.format_reversal_history()
+
+    def test_false_alarm_when_favourite_holds(self, monkeypatch):
+        TestCheck()._run(monkeypatch, observation=obs(33.8, 33.8, 0.6),
+                         momentum={"before": 0.028, "now": 0.229, "change": 0.201})
+        set_prices({"33°C": 0.99, "34°C": 0.01})
+        db = get_db_session()
+        db.merge(MarketResolution(market_id="0x33°C", winning_outcome="YES", resolved_at=NOW))
+        db.commit()
+        db.close()
+        monkeypatch.setattr("app.market_collector.collector.sync_markets_by_condition_ids", lambda ids: None)
+        with patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": True}) as send:
+            rw.follow_up(NOW + timedelta(days=1))
+        assert not send.called
+        item = rw.reversal_history()["items"][0]
+        assert item["outcome"] == "held" and item["verdict"] == "alarm palsu"

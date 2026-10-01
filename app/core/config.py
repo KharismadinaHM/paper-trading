@@ -104,6 +104,13 @@ class Settings(BaseSettings):
     REVERSAL_ALERTS: bool = True
     REVERSAL_MIN_PRICE: float = 0.90
     REVERSAL_MOMENTUM: float = 0.08            # bracket sebelah naik ≥ 8¢ dalam 30 menit
+    # Hanya market volume besar & likuid: volume event hari itu ≥ ini ($), favorit spread ≤ ini dan
+    # kedalaman bid (≤3¢ dari bid terbaik) ≥ ini ($) — supaya posisi benar-benar bisa dijual.
+    REVERSAL_MIN_VOLUME: float = 20000.0
+    REVERSAL_MAX_SPREAD: float = 0.03
+    REVERSAL_MIN_DEPTH_USD: float = 100.0
+    # "Benar berbalik": harga favorit jatuh di bawah ini dan bracket lain memimpin
+    REVERSAL_CONFIRM_PRICE: float = 0.50
 
     # Wallet tracker Polymarket
     WALLET_STATS_DAYS: int = 30                # periode win rate & PnL

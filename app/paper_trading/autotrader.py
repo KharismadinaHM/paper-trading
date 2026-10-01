@@ -31,6 +31,7 @@ from app.core.database import get_db_session
 from app.core.logging import get_logger
 from app.paper_trading.models import (
     AutotradeDecision, AutotradeLimitOrder, AutotradeSignal, AutotradeState, PaperPosition, PaperTrade,
+    PaperTradeStatus,
 )
 
 logger = get_logger("autotrader")
@@ -247,7 +248,8 @@ def _record(decision: Dict[str, Any], status: str, reason: Optional[str], now: d
             price=Decimal(str(round(decision["price"], 6))), fee=Decimal(str(round(decision["fee"], 6))),
             edge=Decimal(str(round(decision["edge"], 4))), size_usd=Decimal(str(decision["size"])),
             status=status, reason=reason, local_day=_local_day(now), created_at=now,
-            features=json.dumps(decision["features"], default=str) if decision.get("features") else None))
+            features=json.dumps({**(decision.get("features") or {}), "detail": decision.get("detail")}, default=str)
+            if decision.get("features") or decision.get("detail") else None))
         db.commit()
     finally:
         db.close()
@@ -914,6 +916,102 @@ def recent_decisions(limit: int = 20) -> List[Dict[str, Any]]:
         db.close()
 
 
+def _history_detail(strategy: str, features: Dict[str, Any]) -> Optional[str]:
+    """Detail keputusan: teks yang tersimpan, atau disusun dari features untuk baris lama."""
+    if features.get("detail"):
+        return features["detail"]
+    if "change_pct" in features:
+        return (f"BTC {features.get('btc', 0):,.1f} ({features['change_pct']:+.2f}% dari open) · "
+                f"menit {features.get('minute', 0):.0f} · sisa {features.get('minutes_left', 0):.0f} menit")
+    if "estimate" in features:
+        kind = "max" if features.get("kind") == "highest" else "min"
+        return (f"Perkiraan {kind} {features['estimate']}°{features.get('unit', '')} ±{features.get('sigma')} "
+                f"({features.get('source')}) · favorit pasar {features.get('favorite')}")
+    return None
+
+
+def trade_history(limit: int = 20, strategy: Optional[str] = None, days: Optional[int] = None,
+                  now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """
+    Trade auto (status filled) terbaru beserta hasilnya: WON / LOST / CLOSED (dijual) / OPEN, PnL,
+    harga masuk & keluar, peluang model, edge, dan detail keputusan.
+    """
+    now = now or datetime.now(timezone.utc)
+    db = get_db_session()
+    try:
+        q = db.query(AutotradeDecision).filter(AutotradeDecision.status == "filled")
+        if strategy:
+            q = q.filter(AutotradeDecision.strategy == strategy)
+        if days:
+            q = q.filter(AutotradeDecision.created_at >= now - timedelta(days=days))
+        rows = q.order_by(AutotradeDecision.created_at.desc()).limit(limit).all()
+        out = []
+        for d in rows:
+            version = STRATEGY_VERSIONS.get(d.strategy)
+            trade = (db.query(PaperTrade).filter(PaperTrade.market_id == d.market_id,
+                                                 PaperTrade.strategy_version == version)
+                     .order_by(PaperTrade.opened_at.desc()).first())
+            position = None
+            if trade is None or trade.status == PaperTradeStatus.OPEN:
+                position = (db.query(PaperPosition).filter(PaperPosition.market_id == d.market_id,
+                                                           PaperPosition.strategy_version == version,
+                                                           PaperPosition.shares > 0).first())
+            try:
+                features = json.loads(d.features) if d.features else {}
+            except ValueError:
+                features = {}
+            status = trade.status.value if trade is not None else ("OPEN" if position is not None else "UNKNOWN")
+            pnl = float(trade.net_pnl) if trade is not None and trade.net_pnl is not None else None
+            if status == "OPEN" and position is not None:
+                pnl = float(position.unrealized_pnl or 0)
+            outcome = d.label.rsplit("·", 1)[-1].strip() if d.label and "·" in d.label else d.side
+            out.append({
+                "created_at": d.created_at if d.created_at.tzinfo else d.created_at.replace(tzinfo=timezone.utc),
+                "strategy": d.strategy, "label": d.label, "outcome": outcome,
+                "side": d.side, "prob": float(d.model_prob or 0), "price": float(d.price or 0),
+                "fee": float(d.fee or 0), "edge": float(d.edge or 0), "size": float(d.size_usd or 0),
+                "shares": float(trade.shares) if trade is not None else (float(position.shares) if position else None),
+                "status": status, "result": {"WON": "MENANG", "LOST": "KALAH", "CLOSED": "DIJUAL",
+                                             "CANCELLED": "BATAL", "OPEN": "TERBUKA"}.get(status, "-"),
+                "exit_price": float(trade.exit_price) if trade is not None and trade.exit_price is not None else None,
+                "pnl": pnl, "closed_at": trade.closed_at if trade is not None else None,
+                "detail": _history_detail(d.strategy, features),
+            })
+        return out
+    finally:
+        db.close()
+
+
+def format_trade_history(limit: int = 10, strategy: Optional[str] = None) -> str:
+    """/autoriwayat: daftar trade auto terbaru dengan hasil menang/kalah dan detailnya."""
+    rows = trade_history(limit=limit, strategy=strategy)
+    title = f"📜 *Riwayat auto trade* ({md(strategy) if strategy else 'semua strategi'}, {len(rows)} terakhir)"
+    if not rows:
+        return title + "\nBelum ada trade."
+    icons = {"MENANG": "✅", "KALAH": "❌", "DIJUAL": "💱", "TERBUKA": "⏳", "BATAL": "↩️"}
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    lines = [title]
+    for r in rows:
+        at = r["created_at"]
+        pnl = f" · PnL {r['pnl']:+.2f}" if r["pnl"] is not None else ""
+        exit_txt = f" → {r['exit_price'] * 100:.0f}¢" if r["exit_price"] is not None else ""
+        lines += [
+            "",
+            f"{icons.get(r['result'], '•')} *{r['result']}*{pnl} · {md(r['strategy'])} · {at.astimezone(tz):%d %b %H:%M}",
+            f"{md(r['label'])}",
+            f"Beli {md(r['outcome'])} @ {r['price'] * 100:.1f}¢ + fee {r['fee'] * 100:.1f}¢{exit_txt} · ${r['size']:.2f} · "
+            f"model {r['prob'] * 100:.0f}% · edge {r['edge'] * 100:+.1f}¢",
+        ]
+        if r["detail"]:
+            lines.append(f"_{md(r['detail'])}_")
+    settled = [r for r in rows if r["result"] in ("MENANG", "KALAH", "DIJUAL")]
+    if settled:
+        wins = sum(1 for r in settled if (r["pnl"] or 0) > 0)
+        lines += ["", f"Di daftar ini: {wins}/{len(settled)} untung · PnL {sum(r['pnl'] or 0 for r in settled):+.2f}"]
+    lines.append("`/autoriwayat 20` · `/autoriwayat btc` · `/autostats` ringkasan")
+    return "\n".join(lines)
+
+
 def status_summary(now: Optional[datetime] = None) -> Dict[str, Any]:
     return {"enabled": is_enabled(), "strategies": enabled_strategies(), "today": today_summary(now),
             "limits": {"order_usd": float(cfg("ORDER_USD")),
@@ -927,7 +1025,7 @@ def status_summary(now: Optional[datetime] = None) -> Dict[str, Any]:
                        "maker15_window": settings.AUTOTRADE_MAKER15_WINDOW,
                        "maker_margin": cfg("MAKER_MARGIN")},
             "config": get_config(),
-            "stats": strategy_stats(now=now), "recent": recent_decisions(),
+            "stats": strategy_stats(now=now), "recent": recent_decisions(), "history": trade_history(limit=30, now=now),
             "open_orders": [{"strategy": o.strategy, "label": o.label, "limit": float(o.limit_price),
                              "prob": float(o.model_prob or 0), "size": float(o.size_usd), "expires_at": o.expires_at}
                             for o in _open_limit_orders()]}

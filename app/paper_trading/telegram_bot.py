@@ -64,10 +64,12 @@ def build_help_message() -> str:
         "🤖 `/autobot` - Status auto paper trader · `/startbot` · `/stopbot` · `/tesnotif`\n"
         "🔬 `/autoresearch` - Riset auto trade: kalibrasi, ROI per edge, saran ambang (`/autoresearch 14`)\n"
         "🏅 `/autostats` - Win rate, PnL & ROI auto trade per strategi (`/autostats 7` untuk 7 hari)\n"
+        "📜 `/autoriwayat` - Riwayat trade auto: menang/kalah, PnL & detail (`/autoriwayat 20 btc`)\n"
         "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover` - Rekomendasi wallet Polymarket menarik (tombol Ikuti / Skip)\n"
         "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"
         "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"
+        "🔄 `/berbalik` - Riwayat waspada berbalik: favorit ≥90¢, warning, benar berbalik atau tidak (`/berbalik 7`)\n"
         "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan)\n"
         "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
@@ -453,6 +455,19 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
         from app.paper_trading.autotrader import format_status
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
         return format_status(days=days)
+    elif cmd in ("/autoriwayat", "/autohistory"):
+        from app.paper_trading.autotrader import STRATEGY_VERSIONS, format_trade_history
+        limit, strategy = 10, None
+        for a in args:
+            if a.isdigit() and int(a) > 0:
+                limit = min(int(a), 30)
+            elif a.lower() in STRATEGY_VERSIONS:
+                strategy = a.lower()
+        return format_trade_history(limit=limit, strategy=strategy)
+    elif cmd in ("/berbalik", "/reversal"):
+        from app.paper_trading.reversal_watch import format_reversal_history
+        days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return format_reversal_history(days=days)
     elif cmd in ("/autoresearch", "/riset"):
         from app.paper_trading.autotrade_research import format_research
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None

@@ -242,6 +242,13 @@ def hk_readings_csv_api(date: Optional[str] = None):
                     headers={"Content-Disposition": f"attachment; filename={name}"})
 
 
+@app.get("/api/reversals", dependencies=[Depends(require_auth)])
+def reversals_api(days: Optional[int] = None, limit: int = 30):
+    """Waspada berbalik: favorit ≥90¢ yang dipantau (market volume besar & likuid), warning, konfirmasi, hasil."""
+    from app.paper_trading.reversal_watch import reversal_history
+    return reversal_history(days=days if days and days > 0 else None, limit=max(1, min(limit, 100)))
+
+
 @app.get("/api/hk/hourly", dependencies=[Depends(require_auth)])
 def hk_hourly_api(date: Optional[str] = None):
     """Tabel per jam HKO: expected (prediksi ≥1 jam sebelumnya), perubahan, real; hari ini + 6 jam ke depan."""

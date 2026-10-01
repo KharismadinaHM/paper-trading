@@ -440,3 +440,35 @@ class TestEditableConfig:
         bad = client.put("/api/autotrade/config", json={"values": {"MAX_PRICE": 2}})
         assert bad.status_code == 400 and "antara" in bad.json()["detail"]
         assert client.delete("/api/autotrade/config").json()["config"]["ORDER_USD"]["overridden"] is False
+
+
+def test_trade_history_shows_result_and_detail(funded, sent):
+    from app.paper_trading.models import PaperPosition, PaperTrade, PaperTradeStatus, TradeSide
+    seed_market("0xh1")
+    seed_market("0xh2")
+    d1 = decision(key="btc|0xh1", market_id="0xh1")
+    d1["features"] = {"minute": 41.0, "change_pct": 0.12, "btc": 84000.0}
+    at.execute(d1, NOW - timedelta(minutes=5))
+    at.execute(decision(key="btc|0xh2", market_id="0xh2", prob=0.6, price=0.40, fee=0.017), NOW)
+    db = get_db_session()
+    pos = db.query(PaperPosition).filter_by(market_id="0xh1", strategy_version="auto_btc_v1").first()
+    db.add(PaperTrade(account_id=pos.account_id, market_id="0xh1", side=TradeSide.YES, entry_price=Decimal("0.567"),
+                      position_size=Decimal("5"), shares=pos.shares, exit_price=Decimal("1"), gross_pnl=Decimal("3.85"),
+                      net_pnl=Decimal("3.85"), status=PaperTradeStatus.WON, closed_at=NOW, strategy_version="auto_btc_v1"))
+    pos.shares = Decimal("0")  # posisi ditutup saat settle
+    db.commit()
+    db.close()
+    rows = [r for r in at.trade_history(limit=50) if r["created_at"] >= NOW - timedelta(minutes=6)]
+    won = next(r for r in at.trade_history(limit=50) if r["result"] == "MENANG" and r["pnl"] == 3.85)
+    assert won["exit_price"] == 1.0 and won["detail"] == "detail" and won["outcome"] == "UP"
+    assert sorted(r["result"] for r in rows) == ["MENANG", "TERBUKA"]
+    text = handle_incoming_message("/autoriwayat 5 btc", sender_chat_id="1", allowed_chat_id="1")
+    assert "Riwayat auto trade" in text and "✅ *MENANG* · PnL +3.85" in text and "⏳ *TERBUKA*" in text
+    assert "/autoriwayat" in handle_incoming_message("/help", sender_chat_id="1", allowed_chat_id="1")
+
+
+def test_history_detail_rebuilt_for_old_rows():
+    assert "BTC 84,000.0 (+0.12% dari open)" in at._history_detail("btc", {"btc": 84000, "change_pct": 0.12,
+                                                                           "minute": 41, "minutes_left": 19})
+    assert at._history_detail("weather", {"estimate": 33.4, "kind": "highest", "unit": "C", "sigma": 0.6,
+                                          "source": "HKO", "favorite": "33°C"}).startswith("Perkiraan max 33.4°C")

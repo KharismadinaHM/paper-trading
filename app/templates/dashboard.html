@@ -1005,6 +1005,28 @@
             </div>
         </div>
 
+        <!-- 2b-4. WASPADA BERBALIK (favorit ≥90¢: warning & benar berbalik) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-arrow-repeat me-2 text-danger"></i>Waspada Berbalik · Riwayat</h5>
+                <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="reversalDays" onchange="fetchReversals()">
+                    <option value="7">7 hari</option><option value="30">30 hari</option><option value="0" selected>Semua waktu</option>
+                </select>
+            </div>
+            <div id="reversalSummary" class="small text-muted-poly mb-2">Memuat...</div>
+            <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+                <table class="table table-sm table-dark small mb-0 align-middle">
+                    <thead class="sticky-top"><tr class="text-muted-poly"><th>Tanggal</th><th>Market</th><th class="text-end">Puncak</th>
+                        <th class="text-end">Terakhir</th><th>Warning</th><th>Berbalik</th><th>Hasil</th><th>Penilaian</th></tr></thead>
+                    <tbody id="reversalBody"></tbody>
+                </table>
+            </div>
+            <div class="small text-muted-poly mt-3">
+                Hanya market volume besar & likuid (volume event, spread & kedalaman bid favorit). "Benar berbalik" = harga favorit jatuh di bawah 50¢
+                dan bracket lain memimpin, atau favorit kalah saat resolve. Penilaian: ✅ warning tepat · 🟡 alarm palsu · ❌ terlewat (berbalik tanpa warning) · 🟢 aman.
+            </div>
+        </div>
+
         <!-- 2c. STATISTIK SARAN BOT (win rate notifikasi rekomendasi) -->
         <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -2323,6 +2345,44 @@
             fetchHkHourly();
         }
 
+        // --- WASPADA BERBALIK ---
+        async function fetchReversals() {
+            const body = document.getElementById('reversalBody');
+            if (!body) return;
+            const days = document.getElementById('reversalDays').value;
+            try {
+                const res = await fetch('/api/reversals?days=' + encodeURIComponent(days));
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                const s = data.summary;
+                const parts = [`Favorit ≥90¢ dipantau <b class="text-white">${s.tracked}</b>`, `benar berbalik <b class="text-white">${s.reversed}</b>`,
+                               `warning <b class="text-white">${s.warned}</b>`, `menunggu hasil ${s.pending}`];
+                if (s.warned_decided) parts.push(`ketepatan warning <b class="text-white">${s.warned_reversed}/${s.warned_decided}</b>`);
+                if (s.reversed) parts.push(`pembalikan didahului warning <b class="text-white">${s.reversed_warned}/${s.reversed}</b>`);
+                document.getElementById('reversalSummary').innerHTML = parts.join(' · ');
+                const verdict = {
+                    'warning tepat': '<span class="badge bg-success">✅ warning tepat</span>', 'alarm palsu': '<span class="badge bg-warning text-dark">🟡 alarm palsu</span>',
+                    'terlewat': '<span class="badge bg-danger">❌ terlewat</span>', 'aman': '<span class="badge bg-secondary">🟢 aman</span>',
+                    'menunggu': '<span class="badge bg-dark border border-secondary-subtle">⏳ menunggu</span>',
+                };
+                const hhmm = iso => iso ? new Date(iso).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+                body.innerHTML = (data.items || []).map(it => `<tr>
+                    <td class="text-nowrap">${escapeHtml(it.date)}</td>
+                    <td><span class="text-white">${escapeHtml(it.city)} ${it.kind === 'highest' ? 'max' : 'min'} · ${escapeHtml(it.fav)}</span>
+                        ${it.volume ? `<div class="text-muted-poly" style="font-size:.75rem">vol $${Math.round(it.volume).toLocaleString('en-US')}</div>` : ''}</td>
+                    <td class="text-end">${Math.round(it.peak * 100)}¢</td>
+                    <td class="text-end">${it.last === null ? '-' : Math.round(it.last * 100) + '¢'}</td>
+                    <td>${it.warned_at ? `<span title="${escapeHtml(it.warning || '')}">⚠️ ${escapeHtml(hhmm(it.warned_at))}</span>` : '<span class="text-muted-poly">-</span>'}</td>
+                    <td>${it.flipped_at ? `🔁 ${escapeHtml(hhmm(it.flipped_at))}<div class="text-muted-poly" style="font-size:.75rem">${escapeHtml(it.flip || '')}</div>` : '<span class="text-muted-poly">-</span>'}</td>
+                    <td>${it.outcome === 'held' ? 'favorit menang' : it.outcome === 'reversed' ? `berbalik${it.winner ? ' → ' + escapeHtml(it.winner) : ''}` : '<span class="text-muted-poly">belum resolve</span>'}</td>
+                    <td>${verdict[it.verdict] || escapeHtml(it.verdict)}</td></tr>`).join('')
+                    || '<tr><td colspan="8" class="text-muted-poly">Belum ada favorit ≥90¢ di market volume besar & likuid.</td></tr>';
+            } catch (err) {
+                console.error(err);
+                body.innerHTML = '<tr><td colspan="8" class="text-muted-poly">Gagal memuat riwayat waspada berbalik.</td></tr>';
+            }
+        }
+
         // --- AUTO PAPER TRADER ---
         let autotradeEnabled = false;
         async function toggleAutotrade() {
@@ -2333,6 +2393,39 @@
                 if (!res.ok) throw new Error('Gagal');
                 renderAutotrade(await res.json());
             } catch (err) { console.error(err); }
+        }
+        function renderAutotradeHistory() {
+            const box = document.getElementById('autotradeHistory');
+            const s = window._autotradeStatus || {};
+            if (!box) return;
+            const filter = window._autotradeHistoryFilter || '';
+            const rows = (s.history || []).filter(r => !filter || r.strategy === filter);
+            const badge = {
+                'MENANG': '<span class="badge bg-success">✅ MENANG</span>', 'KALAH': '<span class="badge bg-danger">❌ KALAH</span>',
+                'DIJUAL': '<span class="badge bg-info text-dark">💱 DIJUAL</span>', 'TERBUKA': '<span class="badge bg-secondary">⏳ TERBUKA</span>',
+                'BATAL': '<span class="badge bg-secondary">BATAL</span>',
+            };
+            const settled = rows.filter(r => ['MENANG', 'KALAH', 'DIJUAL'].includes(r.result));
+            const wins = settled.filter(r => (r.pnl || 0) > 0).length;
+            const total = settled.reduce((a, r) => a + (r.pnl || 0), 0);
+            const body = rows.map(r => `<tr>
+                <td class="text-nowrap">${escapeHtml(new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
+                <td>${badge[r.result] || escapeHtml(r.result)}</td>
+                <td>${escapeHtml(r.strategy)}</td>
+                <td><div class="text-white">${escapeHtml(r.label || '')}</div>${r.detail ? `<div class="text-muted-poly" style="font-size: .75rem">${escapeHtml(r.detail)}</div>` : ''}</td>
+                <td class="text-end text-nowrap">${(r.price * 100).toFixed(1)}¢${r.fee ? ` <span class="text-muted-poly">+${(r.fee * 100).toFixed(1)}</span>` : ''}</td>
+                <td class="text-end">${r.exit_price === null ? '-' : Math.round(r.exit_price * 100) + '¢'}</td>
+                <td class="text-end">${Math.round(r.prob * 100)}%</td>
+                <td class="text-end">${(r.edge * 100).toFixed(1)}¢</td>
+                <td class="text-end">$${Number(r.size).toFixed(2)}</td>
+                <td class="text-end fw-semibold ${pnlClass(r.pnl || 0)}">${r.pnl === null ? '-' : (r.pnl > 0 ? '+' : '') + r.pnl.toFixed(2)}</td></tr>`).join('')
+                || '<tr><td colspan="10" class="text-muted-poly">Belum ada trade.</td></tr>';
+            box.innerHTML = `${settled.length ? `<div class="small mb-1">Di daftar ini: <b class="text-white">${wins}/${settled.length}</b> untung · PnL
+                    <b class="${pnlClass(total)}">${(total > 0 ? '+' : '') + total.toFixed(2)}</b> <span class="text-muted-poly">(30 trade terakhir; ringkasan penuh di tabel strategi)</span></div>` : ''}
+                <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0 align-middle">
+                    <thead class="sticky-top"><tr class="text-muted-poly"><th>Waktu</th><th>Hasil</th><th>Strategi</th><th>Market & detail</th><th class="text-end">Masuk</th>
+                    <th class="text-end">Keluar</th><th class="text-end">Model</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th class="text-end">PnL</th></tr></thead>
+                    <tbody>${body}</tbody></table></div>`;
         }
         function renderAutotrade(s) {
             window._autotradeStatus = s;
@@ -2375,6 +2468,15 @@
                 ${(s.open_orders || []).length ? `<div class="fw-semibold text-white mb-1">Limit order maker terbuka</div>
                     <ul class="list-unstyled mb-3">${s.open_orders.map(o => `<li>• ${escapeHtml(o.label || '')} @ ${Math.round(o.limit * 100)}¢
                         <span class="text-muted-poly">(model ${Math.round(o.prob * 100)}%, $${Number(o.size).toFixed(2)})</span></li>`).join('')}</ul>` : ''}
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                    <div class="fw-semibold text-white">Riwayat trade & hasil</div>
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="autotradeHistoryFilter"
+                            onchange="window._autotradeHistoryFilter = this.value; renderAutotradeHistory()">
+                        <option value="">Semua strategi</option>
+                        ${Object.keys(s.stats || {}).map(n => `<option value="${escapeHtml(n)}" ${window._autotradeHistoryFilter === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}
+                    </select>
+                </div>
+                <div id="autotradeHistory" class="mb-3"></div>
                 <div class="fw-semibold text-white mb-1">Keputusan terbaru</div>
                 <div class="table-responsive" style="max-height: 320px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0">
                     <thead><tr class="text-muted-poly"><th>Waktu</th><th>Strategi</th><th>Market</th><th>Sisi</th><th class="text-end">Model</th><th class="text-end">Biaya</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th>Status</th></tr></thead>
@@ -2392,6 +2494,7 @@
                     </div>
                     <div id="autotradeResearch" class="mt-2">Memuat…</div>
                 </details>`;
+            renderAutotradeHistory();
             if (window._autotradeResearchOpen) fetchAutotradeResearch();
         }
         async function fetchAutotradeResearch() {
@@ -2922,6 +3025,7 @@
             fetchRecommendationStats();
             initStationWeather();
             initHkHourly();
+            fetchReversals();
             fetchWallets();
             fetchMyWallet();
             fetchAutotrade();

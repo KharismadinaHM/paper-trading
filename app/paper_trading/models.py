@@ -385,6 +385,37 @@ class StationForecast(Base):
     value: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
 
 
+class ReversalWatch(Base):
+    """
+    Favorit market suhu yang menembus ≥ REVERSAL_MIN_PRICE (market volume besar & likuid): apakah
+    warning "waspada berbalik" dikirim, apakah benar berbalik (harga favorit jatuh & bracket lain
+    memimpin), dan hasil akhirnya (held / reversed) setelah resolve.
+    """
+    __tablename__ = "reversal_watches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    city: Mapped[str] = mapped_column(String(50), nullable=False)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    local_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    fav_label: Mapped[str] = mapped_column(String(50), nullable=False)
+    fav_market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    peak_price: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    last_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    event_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 2), nullable=True)
+    brackets: Mapped[str] = mapped_column(Text, nullable=False)          # JSON [[market_id, label], ...]
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    warned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    warning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    flipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    flip_detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    outcome: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # held / reversed
+    winning_bracket: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("city", "kind", "local_date", "fav_label", name="uq_reversal_watch"),)
+
+
 class TrackedWallet(Base):
     """
     Wallet Polymarket yang dilacak. status: 'tracking' (dipantau) / 'skipped' (disembunyikan dari
