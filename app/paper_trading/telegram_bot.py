@@ -68,7 +68,7 @@ def build_help_message() -> str:
         "🔎 `/discover` - Rekomendasi wallet Polymarket menarik (tombol Ikuti / Skip)\n"
         "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"
         "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"
-        "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat`\n"
+        "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan)\n"
         "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
@@ -475,6 +475,14 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
             except ValueError:
                 return "Format tanggal: `/hk riwayat 2026-09-30`"
             return format_history(day)
+        if args and args[0].lower() in ("jam", "tabel", "hourly"):
+            from datetime import date as _date
+            from app.paper_trading.hko_hourly import format_hourly
+            try:
+                day = _date.fromisoformat(args[1]) if len(args) > 1 else None
+            except ValueError:
+                return "Format tanggal: `/hk jam 2026-09-30`"
+            return format_hourly(day)
         return build_hk_command_message()
     elif cmd in ("/suhu", "/temp"):
         return build_current_temp_message(" ".join(args) or None)

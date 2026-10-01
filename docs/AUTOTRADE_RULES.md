@@ -150,7 +150,7 @@ lengkap — lalu hasilnya diisi otomatis setelah market resolve (`app/paper_trad
 - Aturan resolusi market bisa berubah — cek deskripsi market bila hasil tampak tidak cocok.
 - Suhu bisa naik lagi setelah jam puncak khas. Contoh 30 Sep 2026 (Hong Kong): pasar memberi 33°C 98.5¢
   pukul 14:40 HKT, lalu HKO mencatat 34.2°C sekitar 15:50 — karena itu aturan final HK & alert "mendekati
-  derajat berikutnya". Riwayat bacaan HKO per 10 menit: `/hk riwayat [YYYY-MM-DD]` atau `/api/hk/readings.csv`.
+  derajat berikutnya". Riwayat bacaan HKO per 10 menit: `/hk riwayat [YYYY-MM-DD]` atau `/api/hk/readings.csv`. Tabel per jam (expected vs real + 6 jam ke depan): `/hk jam [YYYY-MM-DD]`, dashboard kartu "Hong Kong · Per Jam", `/api/hk/hourly`.
 
 ## 9. Command Telegram terkait
 

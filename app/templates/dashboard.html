@@ -971,6 +971,40 @@
             </div>
         </div>
 
+        <!-- 2b-3. HONG KONG PER JAM (expected vs real + 6 jam ke depan) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-table me-2 text-warning"></i>Hong Kong · Per Jam (HKO)</h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="hkHourlyBadge">-</span>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <input type="date" class="form-control form-control-sm bg-dark text-white border-secondary-subtle w-auto"
+                           id="hkHourlyDate" onchange="onHkHourlyDateChange()" aria-label="Tanggal HKT">
+                    <button class="btn btn-sm poly-btn-secondary py-1 px-3" onclick="setHkHourlyToday()">Hari ini</button>
+                    <a class="btn btn-sm poly-btn-secondary py-1 px-3" id="hkHourlyCsv" href="/api/hk/readings.csv">
+                        <i class="bi bi-download"></i> CSV 10 menit
+                    </a>
+                </div>
+            </div>
+            <div id="hkHourlySummary" class="small text-muted-poly mb-2"></div>
+            <div class="table-responsive" style="max-height: 520px;">
+                <table class="table table-sm table-dark table-hover mb-0 small align-middle">
+                    <thead class="sticky-top"><tr>
+                        <th>Jam (HKT)</th><th class="text-end">Suhu expected</th>
+                        <th class="text-end">Perubahan</th><th class="text-end">Suhu real</th>
+                        <th class="text-end">Selisih</th>
+                    </tr></thead>
+                    <tbody id="hkHourlyBody"><tr><td colspan="5" class="text-muted-poly">Memuat...</td></tr></tbody>
+                </table>
+            </div>
+            <div class="small text-muted-poly mt-3">
+                Expected = prediksi yang dibuat ≥1 jam sebelum jamnya (Open-Meteo dikoreksi bacaan HKO); <span class="text-warning">*</span> = rekonstruksi
+                model untuk jam yang belum punya prediksi tersimpan. Baris biru = proyeksi 6 jam ke depan. Perubahan = dibanding jam sebelumnya;
+                selisih = real − expected. Bacaan menit :00 — max/min resmi bisa terjadi di antara jam.
+            </div>
+        </div>
+
         <!-- 2c. STATISTIK SARAN BOT (win rate notifikasi rekomendasi) -->
         <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -2224,6 +2258,71 @@
             fetchStationWeather();
         }
 
+        // --- HONG KONG PER JAM ---
+        const HK_HOURLY_KEY = 'hkHourlyDate';
+        function hkTodayIso() {
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong' }).format(new Date());
+        }
+        function onHkHourlyDateChange() {
+            const value = document.getElementById('hkHourlyDate').value;
+            try { value === hkTodayIso() ? localStorage.removeItem(HK_HOURLY_KEY) : localStorage.setItem(HK_HOURLY_KEY, value); } catch (e) {}
+            fetchHkHourly();
+        }
+        function setHkHourlyToday() {
+            document.getElementById('hkHourlyDate').value = hkTodayIso();
+            onHkHourlyDateChange();
+        }
+        function hkNum(v, sign) {
+            if (v === null || v === undefined) return '<span class="text-muted-poly">-</span>';
+            return (sign && v > 0 ? '+' : '') + Number(v).toFixed(1);
+        }
+        async function fetchHkHourly() {
+            const body = document.getElementById('hkHourlyBody');
+            const dateInput = document.getElementById('hkHourlyDate');
+            if (!body || !dateInput) return;
+            const day = dateInput.value || hkTodayIso();
+            document.getElementById('hkHourlyCsv').href = '/api/hk/readings.csv?date=' + encodeURIComponent(day);
+            try {
+                const res = await fetch('/api/hk/hourly?date=' + encodeURIComponent(day));
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                const rows = data.rows || [];
+                const badge = document.getElementById('hkHourlyBadge');
+                if (badge) badge.textContent = data.mae !== null ? `meleset rata-rata ${data.mae.toFixed(1)}°C` : `${rows.length} jam`;
+                const parts = [];
+                if (data.max !== null) parts.push(`Real per jam: max <b class="text-white">${data.max.toFixed(1)}°C</b> · min <b class="text-white">${data.min.toFixed(1)}°C</b>`);
+                if (data.ahead_min !== null) parts.push(`6 jam ke depan: <b class="text-info">${data.ahead_min.toFixed(1)}–${data.ahead_max.toFixed(1)}°C</b>`);
+                document.getElementById('hkHourlySummary').innerHTML = parts.join(' · ');
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="5" class="text-muted-poly">Belum ada data untuk tanggal ini.</td></tr>';
+                    return;
+                }
+                body.innerHTML = rows.map(r => {
+                    const deltaCls = r.delta > 0 ? 'text-danger' : (r.delta < 0 ? 'text-info' : '');
+                    const errCls = r.error === null ? '' : (Math.abs(r.error) >= 1 ? 'text-warning' : 'text-muted-poly');
+                    const mark = r.source === 'model' ? '<span class="text-warning">*</span>' : '';
+                    return `<tr class="${r.future ? 'table-info text-dark' : ''}">
+                        <td>${escapeHtml(r.hour)}${r.next_day ? ' <span class="badge bg-secondary">+1</span>' : ''}${r.future ? ' <span class="badge bg-info text-dark">proyeksi</span>' : ''}</td>
+                        <td class="text-end">${hkNum(r.expected)}${mark}</td>
+                        <td class="text-end ${r.future ? '' : deltaCls}">${hkNum(r.delta, true)}</td>
+                        <td class="text-end fw-semibold">${hkNum(r.real)}</td>
+                        <td class="text-end ${errCls}">${hkNum(r.error, true)}</td></tr>`;
+                }).join('');
+            } catch (err) {
+                console.error(err);
+                body.innerHTML = '<tr><td colspan="5" class="text-muted-poly">Gagal memuat tabel per jam HKO.</td></tr>';
+            }
+        }
+        function initHkHourly() {
+            const input = document.getElementById('hkHourlyDate');
+            if (!input) return;
+            let saved = null;
+            try { saved = localStorage.getItem(HK_HOURLY_KEY); } catch (e) {}
+            input.max = hkTodayIso();
+            input.value = saved || hkTodayIso();
+            fetchHkHourly();
+        }
+
         // --- AUTO PAPER TRADER ---
         let autotradeEnabled = false;
         async function toggleAutotrade() {
@@ -2822,6 +2921,7 @@
             fetchSuggestedMarkets();
             fetchRecommendationStats();
             initStationWeather();
+            initHkHourly();
             fetchWallets();
             fetchMyWallet();
             fetchAutotrade();

@@ -372,6 +372,19 @@ class StationAlert(Base):
     __table_args__ = (Index("idx_station_alerts_station_date", "station", "local_date"),)
 
 
+class StationForecast(Base):
+    """
+    Prediksi suhu per jam yang dibuat sebelum jam itu terjadi (HKO: Open-Meteo dikoreksi bacaan
+    terkini), untuk membandingkan expected vs real di tabel per jam.
+    """
+    __tablename__ = "station_forecasts"
+
+    station: Mapped[str] = mapped_column(String(20), primary_key=True)
+    target_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    made_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    value: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+
+
 class TrackedWallet(Base):
     """
     Wallet Polymarket yang dilacak. status: 'tracking' (dipantau) / 'skipped' (disembunyikan dari

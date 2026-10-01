@@ -242,6 +242,18 @@ def hk_readings_csv_api(date: Optional[str] = None):
                     headers={"Content-Disposition": f"attachment; filename={name}"})
 
 
+@app.get("/api/hk/hourly", dependencies=[Depends(require_auth)])
+def hk_hourly_api(date: Optional[str] = None):
+    """Tabel per jam HKO: expected (prediksi ≥1 jam sebelumnya), perubahan, real; hari ini + 6 jam ke depan."""
+    from datetime import date as _date
+    from app.paper_trading.hko_hourly import hourly_json
+    try:
+        day = _date.fromisoformat(date) if date else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format tanggal: YYYY-MM-DD")
+    return hourly_json(day)
+
+
 @app.get("/api/autotrade/research", dependencies=[Depends(require_auth)])
 def autotrade_research_api(days: Optional[int] = None):
     """Riset auto trader: kalibrasi, ROI per rentang edge/menit/kota, fill rate maker, saran ambang."""
