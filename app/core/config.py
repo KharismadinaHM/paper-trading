@@ -127,7 +127,9 @@ class Settings(BaseSettings):
 
     # Auto paper trader (PAPER saja — tidak pernah mengirim order ke Polymarket)
     AUTOTRADE_ENABLED: bool = False            # status awal; bisa diubah lewat /startbot /stopbot
-    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,btc15,maker_btc,maker_btc15"
+    # btc15 & maker_btc15 nonaktif: backtest 14 hari (1.344 market) negatif di semua aturan; sinyalnya tetap
+    # dicatat (shadow) untuk riset.
+    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc"
     AUTOTRADE_ORDER_USD: Decimal = Decimal("5.00")
     AUTOTRADE_MAX_DAILY_USD: Decimal = Decimal("50.00")   # total pembelian per hari (WIB)
     AUTOTRADE_MAX_DAILY_LOSS: Decimal = Decimal("20.00")  # stop hari itu jika rugi terealisasi ≥ ini
@@ -136,6 +138,9 @@ class Settings(BaseSettings):
     AUTOTRADE_MAX_SPREAD: float = 0.05
     AUTOTRADE_FEE_RATE: float = 0.07           # fee taker = rate · p · (1 − p) per share, market ber-fee
     AUTOTRADE_BTC_MIN_EDGE: float = 0.05
+    # Jangan beli sisi BTC di bawah harga ini: underdog murah = model berbeda pendapat dengan pasar, dan
+    # di data live & backtest pasar yang lebih sering benar (live < 30¢: 3 menang dari 42).
+    AUTOTRADE_BTC_MIN_PRICE: float = 0.30
     AUTOTRADE_BTC_WINDOW: str = "30-57"        # menit ke- dalam jam saat bot boleh masuk
     AUTOTRADE_BTC15_WINDOW: str = "7-14"       # menit ke- dalam rentang 15 menit
     # Maker: limit BUY di (P_model − margin), tanpa fee; terisi bila ask menembus di bawah limit

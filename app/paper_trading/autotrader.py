@@ -105,6 +105,7 @@ EDITABLE_CONFIG: Dict[str, Tuple[str, float, float, str]] = {
     "MAX_PRICE": ("float", 0.05, 0.99, "Harga beli maksimum (0–1)"),
     "MAX_SPREAD": ("float", 0.01, 0.5, "Spread order book maksimum (0–1)"),
     "BTC_MIN_EDGE": ("float", 0, 0.5, "Edge minimum BTC taker (0–1)"),
+    "BTC_MIN_PRICE": ("float", 0, 0.9, "Harga beli minimum BTC, taker & maker (0–1)"),
     "WEATHER_MIN_EDGE": ("float", 0, 0.5, "Edge minimum cuaca (0–1)"),
     "MAKER_MARGIN": ("float", 0.01, 0.3, "Maker: harga limit = P − margin"),
     "MAKER_MIN_EDGE": ("float", 0, 0.3, "Maker: edge minimum"),
@@ -499,10 +500,11 @@ def _btc_detail(model: Dict[str, float]) -> str:
 SIGNAL_BUCKET_MINUTES = {"btc": 5, "btc15": 2}
 
 
-def btc_tick(now: Optional[datetime] = None, series: str = "btc") -> Optional[Dict[str, Any]]:
+def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool = False) -> Optional[Dict[str, Any]]:
     """
     Taker: beli sisi dengan P_model − (VWAP ask + fee) ≥ edge minimum, sekali per market.
     Setiap evaluasi dicatat sebagai sampel sinyal (per ember waktu), termasuk yang dilewati.
+    shadow=True (strategi nonaktif): sinyal tetap dicatat untuk riset, tanpa membeli.
     """
     now = now or datetime.now(timezone.utc)
     ctx = _btc_context(series, now, _window(BTC_SERIES[series]["window"]()))
@@ -522,8 +524,12 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc") -> Optional[Di
         return None
     best = max(sides, key=lambda x: x["edge"])
     minute = (now - ctx["start"]).total_seconds() / 60
-    if already_decided(key):
+    if shadow:
+        reason = "strategi nonaktif (shadow)"
+    elif already_decided(key):
         reason = "sudah trade di market ini"
+    elif best["price"] < cfg("BTC_MIN_PRICE"):
+        reason = "harga di bawah minimum (underdog)"
     elif best["price"] > cfg("MAX_PRICE"):
         reason = "harga di atas maksimum"
     elif best["spread"] is not None and best["spread"] > cfg("MAX_SPREAD"):
@@ -599,7 +605,7 @@ def maker_place(now: Optional[datetime] = None, series: str = "btc") -> Optional
             continue
         limit = math.floor(round((prob - cfg("MAKER_MARGIN")) * 100, 6)) / 100  # 65.9999… → 66
         limit = min(limit, round(book["ask"] - 0.01, 2))  # tetap di sisi maker (tidak menyilang ask)
-        if not 0.05 <= limit <= cfg("MAX_PRICE"):
+        if not max(0.05, cfg("BTC_MIN_PRICE")) <= limit <= cfg("MAX_PRICE"):
             continue
         edge = round(prob - limit, 4)
         # Edge sama (keduanya = margin) → pilih sisi dengan peluang model lebih tinggi (varian lebih kecil)
@@ -854,8 +860,7 @@ def run_autotrade_tick(include_weather: bool = False) -> None:
             return
         strategies = enabled_strategies()
         for series in BTC_SERIES:
-            if series in strategies:
-                btc_tick(series=series)
+            btc_tick(series=series, shadow=series not in strategies)  # nonaktif: catat sinyal saja
             if f"maker_{series}" in strategies:
                 maker_place(series=series)
         maker_manage()  # order yang sudah terpasang tetap dikelola walau strategi dimatikan

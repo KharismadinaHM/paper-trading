@@ -37,13 +37,34 @@ Kode: `app/paper_trading/autotrader.py`.
 | Waktu masuk 1 jam | menit ke-30 s/d 57, dicek tiap 10 detik | `AUTOTRADE_BTC_WINDOW`, `AUTOTRADE_POLL_SECONDS` |
 | Waktu masuk 15 menit | menit ke-7 s/d 14 | `AUTOTRADE_BTC15_WINDOW` |
 | Edge minimum ✏️ | 5¢ | `AUTOTRADE_BTC_MIN_EDGE` |
+| Harga minimum ✏️ | 30¢ — underdog murah dilewati (juga untuk maker) | `AUTOTRADE_BTC_MIN_PRICE` |
 | Harga maksimum ✏️ | 90¢ | `AUTOTRADE_MAX_PRICE` |
 | Spread maksimum ✏️ | 5¢ | `AUTOTRADE_MAX_SPREAD` |
 | Sisi | Up = YES, Down = NO (sisi dengan edge terbesar) | — |
+| Strategi nonaktif | Sinyal tetap dicatat (`strategi nonaktif (shadow)`) untuk riset, tanpa membeli | — |
 
 **Catatan riset:** backtest 14 hari (`scripts/backtest_btc_hourly.py`) menunjukkan model **setara** dengan
 pasar setelah waktu data diukur adil — market maker Polymarket mengikuti Binance hampir real-time.
 Run pertama sempat menunjukkan "edge" +15–40% yang ternyata artefak (riwayat harga CLOB hanya per menit).
+
+**Evaluasi 1 Okt 2026** (hasil live: `btc` 14 trade WR 43% ROI −29%, `btc15` 67 trade WR 40% ROI −3.7%):
+- Kerugian terkumpul di **underdog murah**: harga < 30¢ → 3 menang dari 42 (btc + btc15 + maker), −58$.
+  Beli favorit (≥ 50¢) justru positif. Bot membeli underdog saat model berbeda pendapat dengan pasar,
+  dan pasar yang lebih sering benar.
+- Model sendiri terkalibrasi: 60 hari Binance (23.000 sampel 15 menit, 8.600 sampel 1 jam) → faktor
+  koreksi σ terbaik 1.0. Kesan "model kurang yakin" di data live (1.5 hari) = noise.
+- Backtest 14 hari harga Polymarket (`scripts/backtest_btc_rules.py`):
+
+| Aturan | btc (1 jam) ROI | paruh 1 / 2 | btc15 ROI | paruh 1 / 2 |
+|---|---|---|---|---|
+| Sekarang (edge ≥ 5¢) | +4.1% (n 197) | +9.1 / −0.6 | −5.1% (n 991) | +3.1 / −13.7 |
+| edge ≥ 5¢ & harga ≥ 30¢ | **+9.2%** (n 124) | +12.2 / +6.6 | −2.2% (n 587) | +1.4 / −5.8 |
+| edge ≥ 5¢ & harga ≥ 50¢ | +4.7% (n 75) | +11.8 / −0.8 | −3.6% (n 336) | −6.0 / −0.6 |
+| Favorit 70–90¢ | −2.3% (n 300) | −4.7 / +0.1 | −1.7% (n 1091) | −3.4 / +0.1 |
+
+- Keputusan: `btc` tetap dengan harga minimum 30¢ (satu-satunya yang positif di kedua paruh, tetapi
+  masih ±1.3 SE — belum terbukti). `btc15` & `maker_btc15` dinonaktifkan (negatif di semua aturan;
+  maker_btc15 live 18 trade ROI −59%); sinyalnya tetap dicatat (shadow) untuk dievaluasi ulang.
 
 ---
 
@@ -104,7 +125,7 @@ Run pertama sempat menunjukkan "edge" +15–40% yang ternyata artefak (riwayat h
 | Stop harian | Berhenti hari itu bila rugi terealisasi ≥ $20 | `AUTOTRADE_MAX_DAILY_LOSS` |
 | Total posisi terbuka | $100 (termasuk limit order maker terbuka) | `AUTOTRADE_MAX_OPEN_USD` |
 | Entri per market | Satu kali; tidak pernah menambah posisi | — |
-| Strategi aktif ✏️ | `weather, weather_post, btc, btc15, maker_btc, maker_btc15` | `AUTOTRADE_STRATEGIES` |
+| Strategi aktif ✏️ | `weather, weather_post, btc, maker_btc` (btc15 & maker_btc15 nonaktif sejak 1 Okt 2026, lihat §2) | `AUTOTRADE_STRATEGIES` |
 | Kill switch | `/stopbot` / tombol Stop di dashboard (status awal `AUTOTRADE_ENABLED`) | — |
 | Saldo paper | Order ditolak bila saldo paper tidak cukup (tambah lewat Deposit) | — |
 

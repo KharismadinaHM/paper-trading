@@ -168,6 +168,48 @@ class TestStrategies:
         monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.50, "fee": 0.0175, "spread": 0.01, "shares": 10})
         assert at.btc_tick(hour + timedelta(minutes=40)) is None
 
+    def _underdog_setup(self, monkeypatch, cid="0xud"):
+        hour = NOW.replace(minute=0, second=0)
+        now = hour + timedelta(minutes=40)
+        seed_market(cid, at=now)
+        monkeypatch.setattr(at, "_btc_market", lambda h, series="btc": {"condition_id": cid, "title": "t", "up": "tu",
+                                                                         "down": "td", "accepting": True, "slug": "s"})
+        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "btc_model", lambda k, h, n, d=60: {"p_up": 0.35, "price": 1, "open": 1, "change_pct": -0.1,
+                                                              "minutes_left": 20})
+        books = {"tu": {"price": 0.22, "fee": 0.012, "spread": 0.01, "shares": 20},  # edge UP = 0.35 − 0.232
+                 "td": {"price": 0.79, "fee": 0.012, "spread": 0.01, "shares": 6}}
+        monkeypatch.setattr(at, "_book_side", lambda token, usd: books[token])
+        return now
+
+    def test_btc_tick_skips_cheap_underdog(self, funded, sent, monkeypatch):
+        now = self._underdog_setup(monkeypatch)
+        logged = []
+        monkeypatch.setattr(at, "log_signal", lambda d, key, reason, now: logged.append(reason))
+        assert at.btc_tick(now) is None and not sent
+        assert logged == ["harga di bawah minimum (underdog)"]
+        monkeypatch.setattr(at.settings, "AUTOTRADE_BTC_MIN_PRICE", 0.0)
+        d = at.btc_tick(now)
+        assert d is not None and d["outcome"] == "UP"
+
+    def test_disabled_series_logs_shadow_signal_without_buying(self, funded, sent, monkeypatch):
+        now = self._underdog_setup(monkeypatch, cid="0xsh")
+        logged = []
+        monkeypatch.setattr(at, "log_signal", lambda d, key, reason, now: logged.append(reason))
+        assert at.btc_tick(now, shadow=True) is None and not sent
+        assert logged == ["strategi nonaktif (shadow)"]
+
+    def test_disabled_strategies_run_in_shadow(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(at, "is_enabled", lambda: True)
+        monkeypatch.setattr(at, "enabled_strategies", lambda: ["btc"])
+        monkeypatch.setattr(at, "btc_tick", lambda series, shadow=False: calls.append((series, shadow)))
+        monkeypatch.setattr(at, "maker_place", lambda series: calls.append(("maker", series)))
+        monkeypatch.setattr(at, "maker_manage", lambda: None)
+        monkeypatch.setattr(at, "maybe_send_daily_report", lambda: None)
+        at.run_autotrade_tick()
+        assert calls == [("btc", False), ("btc15", True)]
+
     def _event(self, favorite_first=True):
         markets = [
             {"market_id": "0x33", "bracket": "33°C", "price_yes": 0.55, "yes_token_id": "t33", "liquid": True,
@@ -208,7 +250,8 @@ class TestControls:
 
     def test_enabled_flag_and_tick(self, monkeypatch):
         calls = []
-        monkeypatch.setattr(at, "btc_tick", lambda now=None, series="btc": calls.append(series))
+        monkeypatch.setattr(at, "btc_tick", lambda now=None, series="btc", shadow=False:
+                            calls.append(series + (" (shadow)" if shadow else "")))
         monkeypatch.setattr(at, "maker_place", lambda now=None, series="btc": calls.append(f"maker_{series}"))
         monkeypatch.setattr(at, "maker_manage", lambda now=None: calls.append("manage"))
         monkeypatch.setattr(at, "weather_tick", lambda now=None, phase="pre": calls.append(f"weather_{phase}"))
@@ -218,7 +261,8 @@ class TestControls:
         assert calls == []
         at.set_enabled(True)
         at.run_autotrade_tick(include_weather=True)
-        assert calls == ["btc", "maker_btc", "btc15", "maker_btc15", "manage", "weather_pre", "weather_post"]
+        # default: btc15 & maker_btc15 nonaktif → btc15 hanya mencatat sinyal (shadow)
+        assert calls == ["btc", "maker_btc", "btc15 (shadow)", "manage", "weather_pre", "weather_post"]
 
     def test_telegram_start_stop_status(self):
         assert "🟢 Auto paper trader dijalankan" in handle_incoming_message("/startbot", sender_chat_id="1", allowed_chat_id="1")
