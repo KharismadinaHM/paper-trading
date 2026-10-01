@@ -243,6 +243,39 @@ def hk_readings_csv_api(date: Optional[str] = None):
                     headers={"Content-Disposition": f"attachment; filename={name}"})
 
 
+@app.get("/hk", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+def hk_market_page(request: Request):
+    """Page khusus market Hong Kong: kondisi HKO hari ini, klimatologi bulan ini, insight siap posting."""
+    return templates.TemplateResponse(request=request, name="hk.html", context={})
+
+
+@app.get("/api/hk/live", dependencies=[Depends(require_auth)])
+def hk_live_api():
+    """Kondisi HK hari ini: bacaan HKO, perkiraan max/min, prakiraan resmi, harga bracket market."""
+    from app.paper_trading.hk_climate import live_summary
+    data = live_summary()
+    data.pop("_status", None)
+    return data
+
+
+@app.get("/api/hk/climate", dependencies=[Depends(require_auth)])
+def hk_climate_api(month: Optional[int] = None, years: int = 10, max_threshold: Optional[int] = None,
+                   min_threshold: Optional[int] = None):
+    """
+    Klimatologi HKO satu bulan (default bulan ini): per tahun, sebaran bracket, sekitar hari ini, rekor,
+    dan teks insight. Ambang default = bracket perkiraan max & min hari ini.
+    """
+    from app.paper_trading.hk_climate import default_thresholds, live_summary, month_report
+    if month is not None and not 1 <= month <= 12:
+        raise HTTPException(status_code=400, detail="month harus 1–12")
+    if max_threshold is None or min_threshold is None:
+        hi, lo = default_thresholds(live_summary().get("_status"))
+        max_threshold = hi if max_threshold is None else max_threshold
+        min_threshold = lo if min_threshold is None else min_threshold
+    return month_report(month=month, years=max(3, min(years, 30)), max_threshold=max_threshold,
+                        min_threshold=min_threshold)
+
+
 @app.get("/api/reversals", dependencies=[Depends(require_auth)])
 def reversals_api(days: Optional[int] = None, limit: int = 30):
     """Waspada berbalik: favorit ≥90¢ yang dipantau (market volume besar & likuid), warning, konfirmasi, hasil."""

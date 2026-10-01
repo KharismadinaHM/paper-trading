@@ -70,7 +70,7 @@ def build_help_message() -> str:
         "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"
         "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"
         "🔄 `/berbalik` - Riwayat waspada berbalik: favorit ≥90¢, warning, benar berbalik atau tidak (`/berbalik 7`)\n"
-        "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan)\n"
+        "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan) · `/hk iklim` (klimatologi bulan ini + insight)\n"
         "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
@@ -490,6 +490,10 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
             except ValueError:
                 return "Format tanggal: `/hk riwayat 2026-09-30`"
             return format_history(day)
+        if args and args[0].lower() in ("iklim", "climate", "bulan"):
+            from app.paper_trading.hk_climate import format_climate_message
+            month = int(args[1]) if len(args) > 1 and args[1].isdigit() and 1 <= int(args[1]) <= 12 else None
+            return format_climate_message(month)
         if args and args[0].lower() in ("jam", "tabel", "hourly"):
             from datetime import date as _date
             from app.paper_trading.hko_hourly import format_hourly
