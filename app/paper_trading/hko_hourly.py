@@ -6,7 +6,7 @@ dan 6 jam ke depan.
 - expected = prediksi tersimpan yang dibuat ≥1 jam sebelum jamnya (record_hourly_forecasts, dipanggil
              tiap siklus collector). Untuk jam tanpa prediksi tersimpan (mis. sebelum fitur aktif):
              model Open-Meteo jam itu + bias rata-rata (real − model) 3 jam sebelumnya.
-             Untuk jam ke depan: model + bias bacaan terkini (sama seperti /hk).
+             Untuk jam ke depan: model + bias bacaan terkini, meluruh dengan jarak (HKO_BIAS_DECAY_AT_6H).
 - Δ        = perubahan dari jam sebelumnya (real bila ada, selain itu expected).
 """
 import json
@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
 from app.paper_trading.hko_alerts import HKT, STATION, _aware
@@ -82,9 +83,22 @@ def _reading_near(readings: List[Tuple[datetime, float]], ts: datetime) -> Optio
     return best[1] if best and abs(best[0] - ts) <= READING_TOLERANCE else None
 
 
+def bias_weight(lead_hours: float, at_6h: Optional[float] = None) -> float:
+    """Bobot bias pada jarak lead_hours dari bacaan terakhir: 1.0 s.d. 1 jam, linier ke at_6h pada 6 jam."""
+    at_6h = settings.HKO_BIAS_DECAY_AT_6H if at_6h is None else at_6h
+    if lead_hours <= 1:
+        return 1.0
+    frac = min((lead_hours - 1) / 5, 1.0)
+    return 1.0 + (at_6h - 1.0) * frac
+
+
 def project_ahead(now: datetime, readings: List[Tuple[datetime, float]], model: Dict[datetime, float],
-                  hours: int = AHEAD_HOURS) -> List[Tuple[datetime, float]]:
-    """Prediksi jam-jam berikutnya: model + bias bacaan terkini (real − model saat bacaan itu)."""
+                  hours: int = AHEAD_HOURS, at_6h: Optional[float] = None) -> List[Tuple[datetime, float]]:
+    """
+    Prediksi jam-jam berikutnya: model + bias bacaan terkini (real − model saat bacaan itu). Bias meluruh
+    dengan jarak (bias_weight): lonjakan sesaat tidak terbawa penuh 6 jam, dan model dipercaya lebih
+    banyak untuk jam yang lebih jauh.
+    """
     if not readings:
         return []
     latest_at, latest = readings[-1]
@@ -98,7 +112,8 @@ def project_ahead(now: datetime, readings: List[Tuple[datetime, float]], model: 
         ts = first + timedelta(hours=i)
         raw = _model_at(model, ts)
         if raw is not None:
-            out.append((ts, round(raw + offset, 1)))
+            lead = (ts - latest_at).total_seconds() / 3600
+            out.append((ts, round(raw + offset * bias_weight(lead, at_6h), 1)))
     return out
 
 

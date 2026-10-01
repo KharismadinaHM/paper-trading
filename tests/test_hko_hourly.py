@@ -68,8 +68,8 @@ def test_stored_prediction_preferred_when_made_an_hour_before(model):
     db.commit()
     data = hh.hourly_table(now=hkt(30, 12, 5).astimezone(timezone.utc), db=db)
     row = next(r for r in data["rows"] if r["at"].hour == 12 and not r["future"])
-    assert row["source"] == "prediksi" and row["expected"] == 35.0 and row["real"] == 35.0
-    assert row["error"] == 0.0
+    assert row["source"] == "prediksi" and row["expected"] == 34.8 and row["real"] == 35.0
+    assert row["error"] == 0.2  # 3 jam: bias 80%
 
 
 def test_past_day_full_24h_without_projection(model):
@@ -86,3 +86,34 @@ def test_hk_jam_command(model, monkeypatch):
     assert handle_incoming_message("/hk jam", sender_chat_id="1", allowed_chat_id="1") == "TABEL None"
     assert handle_incoming_message("/hk jam 2026-09-29", sender_chat_id="1", allowed_chat_id="1") == "TABEL 2026-09-29"
     assert "Format tanggal" in handle_incoming_message("/hk jam kemarin", sender_chat_id="1", allowed_chat_id="1")
+
+
+def test_bias_decays_with_lead_time():
+    assert hh.bias_weight(0.5, 0.5) == 1.0 and hh.bias_weight(1.0, 0.5) == 1.0
+    assert hh.bias_weight(3.5, 0.5) == pytest.approx(0.75)
+    assert hh.bias_weight(6.0, 0.5) == pytest.approx(0.5) and hh.bias_weight(9.0, 0.5) == pytest.approx(0.5)
+    assert hh.bias_weight(6.0, 1.0) == 1.0
+
+
+def test_projection_pulls_back_toward_model_far_ahead(model):
+    db = model
+    add_reading(db, hkt(30, 10), 35.0)  # model 10:00 = 33.0 → bias +2.0
+    now = hkt(30, 10, 5).astimezone(timezone.utc)
+    rows = dict(hh.project_ahead(now, [(hkt(30, 10), 35.0)], dict(hh.fetch_model_series(None, None)), at_6h=0.5))
+    assert rows[hkt(30, 11)] == 35.5          # +1 jam: bias penuh (33.5 + 2.0)
+    assert rows[hkt(30, 16)] == 37.0          # +6 jam: separuh bias (36.0 + 1.0)
+
+
+def test_calibration_prefers_decay_when_bias_fades():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("cal", Path(__file__).parent.parent / "scripts" / "calibrate_hko_bias_decay.py")
+    cal = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cal)
+    base = hkt(29, 0)
+    model = {(base + timedelta(hours=i)).astimezone(timezone.utc): 30.0 for i in range(48)}
+    # real: bias +2 pada jam genap, kembali ke model (+0) pada jam lain → bias sesaat
+    readings = [((base + timedelta(hours=i)).astimezone(timezone.utc), 32.0 if i % 6 == 0 else 30.0) for i in range(48)]
+    results = cal.evaluate(readings, model, candidates=(1.0, 0.0))
+    total = {d: sum(sum(v) for v in r.values()) for d, r in results.items()}
+    assert total[0.0] < total[1.0]

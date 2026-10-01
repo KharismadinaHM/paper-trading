@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     # Kasus 30 Sep: pasar memberi 33°C 98.5¢ pukul 14:40, lalu HKO naik ke 34.2°C sekitar 15:50.
     HKO_FINAL_HOUR: int = 17
     HKO_FINAL_DROP: float = 1.0
+    # Proyeksi per jam (/hk jam): bias (HKO − model) dipakai penuh s.d. 1 jam ke depan, lalu meluruh
+    # linier sampai tersisa fraksi ini pada jam ke-6 (1.0 = tanpa peluruhan). Kalibrasi:
+    # scripts/calibrate_hko_bias_decay.py
+    HKO_BIAS_DECAY_AT_6H: float = 0.5
     # Alert "mendekati derajat berikutnya": max ≥ X + fraksi ini (mis. 33.7 → risiko bracket 34°C)
     HKO_NEAR_DEGREE_FRACTION: float = 0.7
     # "Waspada berbalik": bracket favorit ≥ harga ini tetapi ada indikasi hasil bisa berubah
