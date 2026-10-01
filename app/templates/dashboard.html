@@ -946,10 +946,15 @@
                     <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="stationWeatherCount">-</span>
                 </div>
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="stationWeatherCity"
-                            onchange="onStationWeatherChange()" aria-label="Pilih kota">
-                        <option value="">Top volume</option>
-                    </select>
+                    <form class="d-flex align-items-center gap-1" onsubmit="event.preventDefault(); onStationWeatherChange();" role="search">
+                        <div class="input-group input-group-sm" style="width: 220px;">
+                            <span class="input-group-text bg-dark border-secondary-subtle text-muted-poly"><i class="bi bi-search"></i></span>
+                            <input type="search" class="form-control bg-dark text-white border-secondary-subtle" id="stationWeatherCity"
+                                   list="stationWeatherCityList" placeholder="Cari kota… (mis. tokyo, nyc)" autocomplete="off"
+                                   aria-label="Cari kota" onchange="onStationWeatherChange()" oninput="if (!this.value) onStationWeatherChange()">
+                        </div>
+                        <datalist id="stationWeatherCityList"></datalist>
+                    </form>
                     <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="stationWeatherLimit"
                             onchange="onStationWeatherChange()" aria-label="Jumlah kota">
                         <option value="4">4 kota</option>
@@ -1511,7 +1516,9 @@
             if (timerText) timerText.textContent = `${countdown}s`;
             if (countdown <= 0) {
                 // Tunda reload saat pengguna sedang membaca detail wallet atau mengetik alamat
-                const typing = (document.getElementById('walletAddressInput') || {}).value;
+                const active = document.activeElement;
+                const typing = (document.getElementById('walletAddressInput') || {}).value
+                    || (active && active.id === 'stationWeatherCity');
                 if (window.pauseAutoReload || typing) { countdown = 30; return; }
                 window.location.reload();
             }
@@ -2240,22 +2247,22 @@
             const citySel = document.getElementById('stationWeatherCity');
             const limitSel = document.getElementById('stationWeatherLimit');
             if (!container) return;
-            const city = citySel.value;
+            const city = citySel.value.trim();
             const params = new URLSearchParams({ limit: limitSel.value });
             if (city) params.set('city', city);
             try {
                 const res = await fetch('/api/weather/current?' + params.toString());
                 if (!res.ok) throw new Error('Failed');
                 const data = await res.json();
-                const known = new Set([...citySel.options].map(o => o.value));
-                for (const c of data.cities || []) {
-                    if (!known.has(c)) citySel.add(new Option(c, c));
+                const list = document.getElementById('stationWeatherCityList');
+                if (list && list.options.length !== (data.cities || []).length) {
+                    list.innerHTML = (data.cities || []).map(c => `<option value="${escapeHtml(c)}"></option>`).join('');
                 }
-                if (city && citySel.value !== city) citySel.value = city;
-                limitSel.disabled = !!citySel.value;
-                if (badge) badge.textContent = `${data.items.length} kota`;
+                limitSel.disabled = !!city;
+                if (badge) badge.textContent = city ? `${data.items.length} hasil` : `${data.items.length} kota`;
                 if (data.not_found) {
-                    container.innerHTML = '<div class="col-12 small text-muted-poly">Kota tidak ditemukan di market suhu.</div>';
+                    container.innerHTML = `<div class="col-12 small text-muted-poly">Kota "${escapeHtml(city)}" tidak ditemukan di market suhu.
+                        Coba nama lain (mis. <i>new york</i>, <i>hong kong</i>) atau pilih dari saran saat mengetik.</div>`;
                 } else if (!data.items.length) {
                     container.innerHTML = '<div class="col-12 small text-muted-poly">Belum ada data stasiun. Tunggu satu siklus Market Collector (±5 menit).</div>';
                 } else {
@@ -2273,10 +2280,7 @@
             const limitSel = document.getElementById('stationWeatherLimit');
             if (!citySel || !limitSel) return;
             if (prefs.limit && [...limitSel.options].some(o => o.value === String(prefs.limit))) limitSel.value = String(prefs.limit);
-            if (prefs.city) {
-                citySel.add(new Option(prefs.city, prefs.city));
-                citySel.value = prefs.city;
-            }
+            if (prefs.city) citySel.value = prefs.city;
             fetchStationWeather();
         }
 

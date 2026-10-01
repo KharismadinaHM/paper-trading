@@ -694,11 +694,27 @@ def match_city(query: str, cities) -> Optional[str]:
     return sorted(matches, key=len)[0] if matches else None
 
 
+def search_cities(query: str, cities, rank: Optional[Dict[str, int]] = None) -> List[str]:
+    """
+    Pencarian kota untuk dashboard: nama persis / alias (nyc, hk) → satu kota; selain itu semua kota yang
+    namanya memuat teks pencarian, urut volume market (terbesar dulu) lalu abjad.
+    """
+    exact = match_city(query, cities)
+    q = " ".join(str(query or "").split()).lower()
+    if not q:
+        return []
+    if exact is not None and (exact.lower() == q or q not in exact.lower()):
+        return [exact]  # persis atau alias
+    rank = rank or {}
+    matches = [c for c in cities if q in c.lower()]
+    return sorted(matches, key=lambda c: (rank.get(c, 10_000), c))
+
+
 def get_current_weather(limit: int = 7, city: Optional[str] = None,
                         now: Optional[datetime] = None) -> Dict[str, Any]:
     """
     Cuaca terkini di stasiun resolusi market suhu (NOAA METAR / HKO) untuk kota top volume, atau satu
-    kota bila `city` diisi: suhu sekarang, max/min sejak 00:00 lokal, kondisi, tren °/jam, perkiraan
+    beberapa kota hasil pencarian `city` (nama/alias/sebagian nama, maks `limit`): suhu sekarang, max/min sejak 00:00 lokal, kondisi, tren °/jam, perkiraan
     & kesimpulan. {"cities": [semua kota berstasiun], "items": [...], "not_found": bool}
     """
     from datetime import timedelta
@@ -712,11 +728,11 @@ def get_current_weather(limit: int = 7, city: Optional[str] = None,
     ranking = [r["city"] for r in get_city_volume_summary(limit=0, now=now)]
     rank = {c: i for i, c in enumerate(ranking, start=1)}
     if city:
-        matched = match_city(city, stations)
-        if matched is None:
+        selected = search_cities(city, stations, rank)[:max(limit, 1)]
+        result["query"] = city
+        if not selected:
             result["not_found"] = True
             return result
-        selected = [matched]
     else:
         selected = [c for c in ranking if c in stations][:limit] if ranking else sorted(stations)[:limit]
     fetch_metar_observations(stations[c]["station"] for c in selected)  # satu request untuk semua stasiun

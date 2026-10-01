@@ -214,10 +214,11 @@ def get_recommendation_schedule_api(limit: int = 10):
 def get_current_weather_api(limit: int = 7, city: Optional[str] = None):
     """
     Cuaca terkini di stasiun resolusi market suhu (NOAA METAR / HKO): kota top volume (`limit`, maks 20)
-    atau satu kota (`city`), dengan kondisi, tren °/jam, max/min hari ini, perkiraan & kesimpulan.
+    atau hasil pencarian kota (`city`: nama, alias, atau sebagian nama), dengan kondisi, tren °/jam,
+    max/min hari ini, perkiraan & kesimpulan.
     """
     from app.paper_service import get_current_weather
-    return get_current_weather(limit=max(1, min(limit, 20)), city=city or None)
+    return get_current_weather(limit=max(1, min(limit if not city else max(limit, 10), 20)), city=city or None)
 
 
 @app.get("/api/autotrade", dependencies=[Depends(require_auth)])

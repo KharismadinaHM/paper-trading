@@ -230,6 +230,7 @@ class TestCurrentWeatherApi:
         data = self._get(city="london")
         assert [i["city"] for i in data["items"]] == ["London"] and not data["not_found"]
         assert self._get(city="atlantis")["not_found"] is True
+        assert [i["city"] for i in self._get(city="o")["items"]] == ["Tokyo", "London"]  # sebagian nama, urut volume
 
     def test_dashboard_has_station_weather_section(self):
         from fastapi.testclient import TestClient
@@ -237,3 +238,14 @@ class TestCurrentWeatherApi:
         html = TestClient(app).get("/").text
         assert html.index('id="suggestedMarketsContainer"') < html.index('id="stationWeatherContainer"') \
             < html.index('id="recStatsContainer"')
+
+
+def test_search_cities_exact_alias_and_partial():
+    from app.paper_service import search_cities
+    cities = ["San Francisco", "Sao Paulo", "Seoul (Incheon)", "New York City", "Hong Kong", "Santiago"]
+    rank = {"Sao Paulo": 3, "San Francisco": 1}
+    assert search_cities("hong kong", cities) == ["Hong Kong"]
+    assert search_cities("NYC", cities) == ["New York City"]
+    assert search_cities("sa", cities, rank) == ["San Francisco", "Sao Paulo", "Santiago"]
+    assert search_cities("seoul", cities) == ["Seoul (Incheon)"]
+    assert search_cities("atlantis", cities) == [] and search_cities("  ", cities) == []
