@@ -108,3 +108,10 @@ class TestTelegramBotCommands(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_chatid_works_from_any_chat_and_reveals_nothing_else():
+    from app.paper_trading.telegram_bot import handle_incoming_message
+    reply = handle_incoming_message("/chatid", sender_chat_id="-1001234567890", allowed_chat_id="42")
+    assert reply.startswith("🆔 Chat ID ini: `-1001234567890`") and "chat pribadi" in reply
+    assert "Akses Ditolak" in handle_incoming_message("/autobot", sender_chat_id="-1001234567890", allowed_chat_id="42")

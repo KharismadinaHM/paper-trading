@@ -26,8 +26,13 @@ def isolated_database(monkeypatch):
     monkeypatch.setattr(database, "engine", engine)
     monkeypatch.setattr(database, "SessionLocal", session_factory)
     database.init_db(bind=engine)
+    # Cache modul yang berisi data database tidak boleh terbawa ke test lain
+    from app.paper_trading import autotrader, live_market_data
+    autotrader._config_cache.update(at=0.0, values={})
+    live_market_data.clear_cache()
     yield engine
     engine.dispose()
+    autotrader._config_cache.update(at=0.0, values={})
 
 
 @pytest.fixture(autouse=True)

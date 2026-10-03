@@ -59,9 +59,23 @@ def build_help_message() -> str:
         "📈 `/positions` - Daftar posisi trading aktif\n"
         "📜 `/trades` - Riwayat 5 transaksi terakhir yang selesai\n"
         "🏆 `/performance` - Ringkasan metrik performa & drawdown\n"
+        "🌡️ `/rekomendasi` - Kota yang sedang menjelang jam puncak suhu\n"
+        "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
+        "🤖 `/autobot` - Status auto paper trader · `/startbot` · `/stopbot` · `/tesnotif`\n"
+        "🔬 `/autoresearch` - Riset auto trade: kalibrasi, ROI per edge, saran ambang (`/autoresearch 14`)\n"
+        "🏅 `/autostats` - Win rate, PnL & ROI auto trade per strategi (`/autostats 7` · `semua` · `reset` · `sejak 2026-10-02`)\n"
+        "📜 `/autoriwayat` - Riwayat trade auto: menang/kalah, PnL & detail (`/autoriwayat 20 btc`)\n"
+        "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
+        "🔎 `/discover [kategori]` - Rekomendasi wallet per kategori market: cuaca, kripto, olahraga, politik, … (tombol Ikuti / Skip)\n"
+        "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"        "🕵️ `/insider [jam]` - Taruhan besar berpola insider (wallet baru, longshot, nominal besar) & ketepatannya\n"
+        "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"
+        "🔄 `/berbalik` - Riwayat waspada berbalik: favorit ≥90¢, warning, benar berbalik atau tidak (`/berbalik 7`)\n"
+        "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan) · `/hk iklim` (klimatologi bulan ini + insight)\n"
+        "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
+        "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
         "❓ `/help` - Tampilkan panduan ini\n\n"
-        "💡 _Notifikasi otomatis sinyal BUY dan Settlement akan dikirim ke chat ini secara real-time._"
+        "💡 _Notifikasi otomatis sinyal BUY, rekomendasi jam puncak, lonjakan suhu Hong Kong, dan Settlement dikirim ke chat ini secara real-time._"
     )
 
 
@@ -196,6 +210,194 @@ def build_performance_message(strategy: Optional[str] = None) -> str:
     )
 
 
+def build_recommendations_message() -> str:
+    """Daftar rekomendasi aktif; jika kosong, tampilkan jendela berikutnya (jam dalam WIB)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.core.config import settings
+    from app.paper_service import get_market_suggestions, get_recommendation_schedule
+    from app.paper_trading.recommendation_alerts import build_recommendation_message, top_volume_events
+
+    events = top_volume_events([e for e in get_market_suggestions() if e.get("markets")])
+    if events:
+        return build_recommendation_message(events, title="🌡️ Rekomendasi aktif")
+
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    lines = ["🌡️ Belum ada kota yang sedang menjelang jam puncak suhu.", "", "Jendela berikutnya:"]
+    schedule = get_recommendation_schedule(limit=200)
+    cities = {w["city"] for w in top_volume_events(schedule)}  # hanya kota bervolume besar
+    for w in [w for w in schedule if w["city"] in cities][:5]:
+        start = datetime.fromisoformat(w["starts_at"]).astimezone(tz)
+        kind = "tertinggi" if w["kind"] == "highest" else "terendah"
+        lines.append(f"• {w['city']} ({kind}) mulai {start:%H:%M} {settings.NOTIFY_TIMEZONE_LABEL} — {w['starts_in']}")
+    if len(lines) == 3:
+        lines.append("• (belum ada data market suhu)")
+    return "\n".join(lines)
+
+
+def build_volume_message(limit: Optional[int] = None) -> str:
+    """Top kota menurut total volume market suhu open, beserta jam beli & puncak berikutnya (WIB)."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from app.core.config import settings
+    from app.paper_service import get_city_volume_summary
+    from app.paper_trading.recommendation_alerts import _format_volume, city_hashtag
+    from app.paper_trading.weather_peaks import next_recommendation_window
+
+    limit = limit or settings.TELEGRAM_RECOMMENDATION_TOP_CITIES or 7
+    rows = get_city_volume_summary(limit=limit)
+    if not rows:
+        return ("🔥 Belum ada data volume market cuaca.\n\n"
+                "Data volume diisi oleh Market Collector; coba lagi setelah satu siklus (±5 menit).")
+
+    now = datetime.now(timezone.utc)
+    tz, label = ZoneInfo(settings.NOTIFY_TIMEZONE), settings.NOTIFY_TIMEZONE_LABEL
+    lines = [f"🔥 *Top {len(rows)} Volume · Market Cuaca*", ""]
+    for i, r in enumerate(rows, start=1):
+        lines.append(f"{i}. {city_hashtag(r['city'])} — {_format_volume(r['volume'])} "
+                     f"(max {_format_volume(r['highest'])} · min {_format_volume(r['lowest'])})")
+        for kind, name in (("highest", "Max"), ("lowest", "Min")):
+            w = next_recommendation_window(r["city"], kind, now=now)
+            if w is None:
+                continue
+            start, peak = w.start.astimezone(tz), w.peak_start.astimezone(tz)
+            day = "" if peak.date() == now.astimezone(tz).date() else f" ({peak:%d %b})"
+            status = "🟢 sedang jam beli" if w.contains(now) else f"beli {start:%H:%M}"
+            lines.append(f"   {name}: {status} · puncak {peak:%H:%M} {label}{day}")
+    lines += ["", "Volume = total volume semua market suhu yang masih buka di kota tersebut."]
+    return "\n".join(lines)
+
+
+def build_stats_message(days: Optional[int] = None) -> str:
+    """Win rate, odds rata-rata, dan ROI saran beli bot, plus hasil terakhir."""
+    from app.paper_trading.recommendation_alerts import _format_odd, city_hashtag
+    from app.paper_trading.recommendation_results import get_recommendation_stats
+
+    s = get_recommendation_stats(days=days)
+    period = f"{days} hari terakhir" if days else "semua waktu"
+    if not s["sent"]:
+        return f"🎯 *Statistik Saran Bot* ({period})\n\nBelum ada saran yang terkirim."
+
+    def pct(x):
+        return f"{x * 100:.0f}%" if x is not None else "-"
+
+    def roi(x):
+        return f"{x * 100:+.0f}%" if x is not None else "-"
+
+    lines = [
+        f"🎯 *Statistik Saran Bot* ({period})",
+        "",
+        f"Saran terkirim: {s['sent']} · sudah ada hasil: {s['decided']} · menunggu: {s['pending']}"
+        + (f" · batal: {s['void']}" if s["void"] else ""),
+        f"✅ Menang {s['wins']} · ❌ Kalah {s['losses']} · *Win rate {pct(s['win_rate'])}*",
+        f"Odds rata-rata: {_format_odd(s['avg_odds'])} · ROI per $1: {roi(s['roi'])}",
+    ]
+    for kind, name in (("highest", "Suhu tertinggi"), ("lowest", "Suhu terendah")):
+        k = s["by_kind"][kind]
+        if k["decided"]:
+            lines.append(f"   {name}: {k['wins']}/{k['decided']} ({pct(k['win_rate'])}) · ROI {roi(k['roi'])}")
+    if s["winner_in_alternatives"]:
+        lines.append(f"Saat kalah, {s['winner_in_alternatives']}× pemenangnya ada di bracket Alternatif.")
+    if s["recent"]:
+        lines += ["", "Hasil terakhir:"]
+        icons = {"WIN": "✅", "LOSS": "❌", "VOID": "⚪"}
+        for r in s["recent"]:
+            kind = "max" if r["kind"] == "highest" else "min"
+            winner = (f" → menang: {r['winning_bracket']}"
+                      if r["result"] == "LOSS" and r["winning_bracket"] else "")
+            lines.append(f"{icons.get(r['result'], '')} {city_hashtag(r['city'])} {kind} {r['local_date'][5:]} · "
+                         f"{r['bracket'] or '-'} @ {_format_odd(r['price_yes'])}{winner}")
+    lines += ["", "Win rate hanya dari saran utama (bracket peluang tertinggi). "
+              "ROI = seandainya beli $1 YES di odds saat saran dikirim (harga ask sejak data order book dipakai)."]
+    return "\n".join(lines)
+
+
+def build_current_temp_message(query: Optional[str] = None) -> str:
+    """Suhu terkini + max/min sejak tengah malam lokal di stasiun resolusi market (NOAA METAR / HKO)."""
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    from app.core.config import settings
+    from app.paper_service import get_city_stations, get_city_volume_summary, match_city
+    from app.paper_trading.live_market_data import fetch_metar_observations, station_report
+    from app.paper_trading.recommendation_alerts import city_hashtag, format_temp
+    from app.paper_trading.weather_peaks import city_timezone
+
+    stations = get_city_stations()
+    if not stations:
+        return "🌡️ Belum ada data stasiun. Tunggu satu siklus Market Collector (±5 menit) lalu coba lagi."
+    now = datetime.now(timezone.utc)
+    wib, label = ZoneInfo(settings.NOTIFY_TIMEZONE), settings.NOTIFY_TIMEZONE_LABEL
+
+    def summary(city):
+        tz = city_timezone(city)
+        info = stations[city]
+        return tz, (station_report(info["station"], tz, info["unit"], now=now, city=city) if tz else None)
+
+    def stale(s):
+        return s.get("current_at") is not None and now - s["current_at"] > timedelta(minutes=90)
+
+    if query:
+        city = match_city(query, stations)
+        if city is None:
+            return f"🌡️ Kota `{query}` tidak ditemukan di market suhu. Contoh: `/suhu london`, `/suhu hong kong`."
+        tz, s = summary(city)
+        station = stations[city]["station"]
+        if not s:
+            return f"🌡️ {city_hashtag(city)} ({station}) — belum ada observasi hari ini."
+        at = s["current_at"]
+        at_part = f" · {at:%H:%M} waktu lokal ({at.astimezone(wib):%H:%M} {label})" if at else ""
+        lines = [
+            f"🌡️ *{city_hashtag(city)}* — "
+            + ("Hong Kong Observatory (HKO)" if station == "HKO" else f"stasiun {station} ({s['source']})"),
+            f"Sekarang: *{format_temp(s['current'], s['unit'])}*{at_part}" + (" ⚠️ data >90 menit" if stale(s) else ""),
+            f"Hari ini sejak 00:00 lokal: max {format_temp(s['max'], s['unit'])}"
+            + (f" ({s['max_at']:%H:%M})" if s.get("max_at") else "")
+            + f" · min {format_temp(s['min'], s['unit'])}" + (f" ({s['min_at']:%H:%M})" if s.get("min_at") else ""),
+            f"Jam lokal sekarang: {now.astimezone(tz):%H:%M}",
+        ]
+        if s.get("condition"):
+            lines.append(f"Kondisi: {s['condition']['emoji']} {s['condition']['label']}")
+        outlooks = s.get("outlook_text") or {}
+        if s.get("now_text") or any(outlooks.values()):
+            lines.append("")
+            lines.append("🧭 *Kesimpulan*")
+            if s.get("now_text"):
+                lines.append(s["now_text"])
+            for kind, name in (("highest", "Tertinggi"), ("lowest", "Terendah")):
+                if outlooks.get(kind):
+                    lines.append(f"• {name}: {outlooks[kind]}")
+            lines.append("_Perkiraan dari prakiraan Open-Meteo yang dikoreksi observasi stasiun — bukan kepastian._")
+        lines += ["", f"Sumber: {s['url']}"]
+        return "\n".join(lines)
+
+    top = [r["city"] for r in get_city_volume_summary(limit=settings.TELEGRAM_RECOMMENDATION_TOP_CITIES or 7)]
+    cities = [c for c in top if c in stations] or sorted(stations)[:7]
+    fetch_metar_observations(stations[c]["station"] for c in cities)  # satu request untuk semua stasiun
+    lines = [f"🌡️ *Suhu terkini* · {'top volume' if top else 'kota market suhu'} (stasiun resolusi)", ""]
+    for i, city in enumerate(cities, start=1):
+        tz, s = summary(city)
+        station = stations[city]["station"]
+        if not s:
+            lines.append(f"{i}. {city_hashtag(city)} ({station}) — belum ada observasi hari ini")
+            continue
+        at = f" {s['current_at']:%H:%M}" if s.get("current_at") else ""
+        source = s["source"] if station == s["source"] else f"{s['source']} · {station}"
+        emoji = f"{s['condition']['emoji']} " if s.get("condition") else ""
+        trend = f" {'↗' if s['trend'] > 0 else '↘'}{s['trend']:+.1f}°/j" if s.get("trend") not in (None, 0) else ""
+        out = (s.get("outlook") or {}).get("highest")
+        forecast = (f" · perkiraan max ±{out['value']:.0f}°{s['unit']} ~{out['at']:%H:%M}"
+                    if out and not out["passed"] and out.get("at") else "")
+        lines.append(f"{i}. {city_hashtag(city)} — {emoji}*{format_temp(s['current'], s['unit'])}*{trend} ({source}{at})"
+                     f" · max {format_temp(s['max'], s['unit'])} · min {format_temp(s['min'], s['unit'])}{forecast}"
+                     + (" ⚠️" if stale(s) else ""))
+    lines += ["", "Jam = waktu lokal kota. Max/min sejak 00:00 lokal; °/j = laju 3 jam terakhir. "
+              "Kondisi & kesimpulan lengkap: `/suhu <kota>`."]
+    return "\n".join(lines)
+
+
 def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Optional[str] = None) -> Optional[str]:
     """
     Memproses teks perintah dari pengguna dan menghasilkan respon balasan.
@@ -208,6 +410,14 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
     parts = raw.split()
     cmd = parts[0].split("@")[0].lower()
     args = parts[1:]
+
+    # /chatid boleh dari chat mana pun: hanya membalas ID chat itu sendiri (untuk mengisi
+    # TELEGRAM_AUTOTRADE_CHAT_ID dengan ID grup), tanpa data atau kendali lain.
+    if cmd == "/chatid":
+        tip = ("\nIsi di .env: `TELEGRAM_AUTOTRADE_CHAT_ID=" + str(sender_chat_id) + "`\n"
+               "Perintah lain (mis. /tesnotif) diketik di chat pribadi dengan bot, bukan di grup.") \
+            if str(sender_chat_id).startswith("-") else ""
+        return f"🆔 Chat ID ini: `{sender_chat_id}`{tip}"
 
     # Keamanan opsional: batasi hanya chat_id yang diizinkan jika dikonfigurasi
     if allowed_chat_id:
@@ -222,6 +432,11 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
 
     if cmd in ("/start", "/help"):
         return build_help_message()
+
+    from app.paper_trading.wallet_bot import handle_wallet_command
+    wallet_reply = handle_wallet_command(cmd, args)
+    if wallet_reply is not None:
+        return wallet_reply
     elif cmd == "/status":
         return build_status_message()
     elif cmd == "/positions":
@@ -234,6 +449,90 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
     elif cmd == "/performance":
         strat = args[0] if args else None
         return build_performance_message(strategy=strat)
+    elif cmd in ("/rekomendasi", "/recommendations"):
+        return build_recommendations_message()
+    elif cmd in ("/autobot", "/autotrade", "/autostats"):
+        from datetime import datetime, timezone
+
+        from app.core.config import settings
+        from app.paper_trading.autotrader import format_status, set_stats_since
+        word = args[0].lower() if args else ""
+        if word == "reset":
+            set_stats_since(datetime.now(timezone.utc))
+            return "🔄 Statistik auto trade dimulai dari sekarang (data lama tetap tersimpan: `/autostats semua`)."
+        if word == "sejak":
+            from datetime import date as _date
+            from zoneinfo import ZoneInfo
+            try:
+                day = _date.fromisoformat(args[1])
+            except (IndexError, ValueError):
+                return "Format: `/autostats sejak 2026-10-02`"
+            set_stats_since(datetime.combine(day, datetime.min.time(), tzinfo=ZoneInfo(settings.NOTIFY_TIMEZONE)))
+            return format_status()
+        if word in ("semua", "all"):
+            return format_status(all_time=True)
+        days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return format_status(days=days)
+    elif cmd in ("/autoriwayat", "/autohistory"):
+        from app.paper_trading.autotrader import STRATEGY_VERSIONS, format_trade_history
+        limit, strategy = 10, None
+        for a in args:
+            if a.isdigit() and int(a) > 0:
+                limit = min(int(a), 30)
+            elif a.lower() in STRATEGY_VERSIONS:
+                strategy = a.lower()
+        return format_trade_history(limit=limit, strategy=strategy)
+    elif cmd in ("/insider", "/orangdalam"):
+        from app.paper_trading.insider import format_insider_report
+        hours = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return format_insider_report(hours=hours)
+    elif cmd in ("/berbalik", "/reversal"):
+        from app.paper_trading.reversal_watch import format_reversal_history
+        days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return format_reversal_history(days=days)
+    elif cmd in ("/autoresearch", "/riset"):
+        from app.paper_trading.autotrade_research import format_research
+        days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return format_research(days=days)
+    elif cmd in ("/tesnotif", "/testnotif"):
+        from app.paper_trading.autotrader import send_test_notification
+        return send_test_notification()
+    elif cmd in ("/startbot", "/stopbot"):
+        from app.paper_trading.autotrader import format_status, set_enabled
+        set_enabled(cmd == "/startbot")
+        head = ("🟢 Auto paper trader dijalankan." if cmd == "/startbot"
+                else "🔴 Auto paper trader dihentikan. Posisi terbuka tetap di-settle otomatis.")
+        return head + "\n\n" + format_status()
+    elif cmd in ("/hk", "/hongkong"):
+        from app.paper_trading.hko_alerts import build_hk_command_message, format_history
+        if args and args[0].lower() in ("riwayat", "history"):
+            from datetime import date as _date
+            try:
+                day = _date.fromisoformat(args[1]) if len(args) > 1 else None
+            except ValueError:
+                return "Format tanggal: `/hk riwayat 2026-09-30`"
+            return format_history(day)
+        if args and args[0].lower() in ("iklim", "climate", "bulan"):
+            from app.paper_trading.hk_climate import format_climate_message
+            month = int(args[1]) if len(args) > 1 and args[1].isdigit() and 1 <= int(args[1]) <= 12 else None
+            return format_climate_message(month)
+        if args and args[0].lower() in ("jam", "tabel", "hourly"):
+            from datetime import date as _date
+            from app.paper_trading.hko_hourly import format_hourly
+            try:
+                day = _date.fromisoformat(args[1]) if len(args) > 1 else None
+            except ValueError:
+                return "Format tanggal: `/hk jam 2026-09-30`"
+            return format_hourly(day)
+        return build_hk_command_message()
+    elif cmd in ("/suhu", "/temp"):
+        return build_current_temp_message(" ".join(args) or None)
+    elif cmd in ("/stats", "/statistik"):  # /statistik = nama lama
+        days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return build_stats_message(days=days)
+    elif cmd in ("/volume", "/topvolume"):
+        limit = min(int(args[0]), 20) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return build_volume_message(limit=limit)
     elif cmd == "/ping":
         return "🏓 *Pong!*\nSistem Paper Trading aktif dan terhubung."
     else:
@@ -241,6 +540,25 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
             f"❓ Perintah `{cmd}` tidak dikenal.\n\n"
             "Ketik `/help` untuk melihat daftar perintah yang tersedia."
         )
+
+
+def handle_callback_query(callback: dict, token: Optional[str] = None,
+                          allowed_chat_id: Optional[str] = None) -> Optional[str]:
+    """Tombol inline (Ikuti / Skip / Detail wallet). Hanya dari chat yang diizinkan."""
+    from app.paper_trading.telegram import answer_callback_query
+    from app.paper_trading.wallet_bot import handle_wallet_callback
+
+    chat_id = str(((callback.get("message") or {}).get("chat") or {}).get("id") or "")
+    if allowed_chat_id and chat_id.strip() != str(allowed_chat_id).strip():
+        logger.warning("Tombol ditolak dari unauthorized chat_id: %s", chat_id)
+        answer_callback_query(callback.get("id", ""), "Akses ditolak", bot_token=token)
+        return None
+    reply = handle_wallet_callback(callback.get("data") or "")
+    answer_callback_query(callback.get("id", ""), "OK" if reply else "Tidak dikenal", bot_token=token)
+    if reply and chat_id:
+        send_telegram_message(text=reply, bot_token=token, chat_id=chat_id, parse_mode="Markdown",
+                              reply_markup=getattr(reply, "reply_markup", None))
+    return reply
 
 
 def start_bot_polling(
@@ -280,7 +598,7 @@ def start_bot_polling(
             params = {
                 "offset": offset,
                 "timeout": poll_timeout,
-                "allowed_updates": ["message"],
+                "allowed_updates": ["message", "callback_query"],
             }
             resp = requests.get(url, params=params, timeout=poll_timeout + 5)
             if resp.status_code != 200:
@@ -298,6 +616,11 @@ def start_bot_polling(
             for update in updates:
                 update_id = update["update_id"]
                 offset = update_id + 1
+
+                callback = update.get("callback_query")
+                if callback:
+                    handle_callback_query(callback, token=token, allowed_chat_id=target_chat_id)
+                    continue
 
                 msg = update.get("message")
                 if not msg:
@@ -317,14 +640,17 @@ def start_bot_polling(
                         bot_token=token,
                         chat_id=chat_id,
                         parse_mode="Markdown",
+                        reply_markup=getattr(reply, "reply_markup", None),
                     )
 
         except requests.exceptions.RequestException as e:
-            logger.warning("Jaringan bermasalah saat getUpdates: %s", e)
+            from app.paper_trading.telegram import redact_token
+            logger.warning("Jaringan bermasalah saat getUpdates: %s", redact_token(e))
             time.sleep(3)
         except KeyboardInterrupt:
             print("\n🛑 Telegram Bot Polling dihentikan oleh pengguna.")
             break
         except Exception as e:
-            logger.exception("Terjadi error tak terduga pada loop bot: %s", e)
+            from app.paper_trading.telegram import redact_token
+            logger.error("Terjadi error tak terduga pada loop bot: %s", redact_token(e))
             time.sleep(3)

@@ -536,9 +536,20 @@
                         <option value="weather_v2" {% if current_strategy == 'weather_v2' %}selected{% endif %}>weather_v2</option>
                     </select>
                 </form>
-                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" id="refreshTimer" onclick="window.location.reload()" title="Refresh Data">
-                    <i class="bi bi-arrow-repeat"></i> <span id="refreshTimerText">30s</span>
-                </button>
+                <a class="btn btn-sm btn-outline-warning d-flex align-items-center gap-1" href="/hk" title="Page khusus market Hong Kong">🇭🇰 HK Market</a>
+                <div class="d-flex align-items-center gap-1">
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="refreshInterval"
+                            onchange="setRefreshInterval(this.value)" aria-label="Interval auto refresh" title="Interval auto refresh">
+                        <option value="30">Auto 30 dtk</option>
+                        <option value="60">Auto 1 mnt</option>
+                        <option value="300">Auto 5 mnt</option>
+                        <option value="600">Auto 10 mnt</option>
+                        <option value="3600">Auto 1 jam</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" id="refreshTimer" onclick="window.location.reload()" title="Refresh sekarang">
+                        <i class="bi bi-arrow-repeat"></i> <span id="refreshTimerText">30s</span>
+                    </button>
+                </div>
                 <div class="d-flex align-items-center gap-2 px-3 py-1 rounded-pill" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);">
                     <span class="spinner-grow spinner-grow-sm text-success" style="width: 8px; height: 8px;" role="status"></span>
                     <span class="text-success small fw-semibold">Live Feed</span>
@@ -895,6 +906,258 @@
             </div>
         </div>
 
+        <!-- 2b. SUGGESTED MARKETS (REKOMENDASI MENJELANG JAM PUNCAK) — tepat setelah Positions -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0">
+                        <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Suggested Markets · Menjelang Puncak Suhu
+                    </h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="suggestionsCount">
+                        {{ suggested_markets|length if suggested_markets is defined else 0 }} kota
+                    </span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <label class="small text-muted-poly mb-0" for="suggestionsTopFilter" title="Kota diurutkan menurut total volume market suhu">Kota</label>
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="suggestionsTopFilter"
+                            data-default="{{ default_top_cities if default_top_cities is defined else 7 }}" onchange="onSuggestionsTopChange(this.value)">
+                        <option value="3">Top 3 volume</option>
+                        <option value="5">Top 5 volume</option>
+                        <option value="7">Top 7 volume</option>
+                        <option value="10">Top 10 volume</option>
+                        <option value="15">Top 15 volume</option>
+                        <option value="0">Semua kota</option>
+                    </select>
+                    <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchSuggestedMarkets()">
+                        <i class="bi bi-arrow-repeat"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="small text-muted-poly mb-3">
+                Muncul menjelang jam puncak suhu tertinggi/terendah <b>waktu setempat</b> tiap kota
+                (jam puncak dari riset data historis per kota), khusus market bertanggal hari itu.
+                Filter <b>Top N volume</b> hanya menampilkan kota dengan total volume market suhu terbesar
+                (default sama dengan notifikasi Telegram).
+            </div>
+            <div class="row g-3" id="suggestedMarketsContainer">
+                <div class="col-12">
+                    <div class="weather-loading">
+                        <div class="weather-loading-spinner"></div>
+                        <span class="text-muted-poly small">Memuat rekomendasi...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2b-2. CUACA STASIUN (suhu terkini NOAA/HKO + kondisi + kesimpulan) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-cloud-sun-fill me-2 text-info"></i>Cuaca Stasiun · Suhu Terkini</h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="stationWeatherCount">-</span>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <form class="d-flex align-items-center gap-1" onsubmit="event.preventDefault(); onStationWeatherChange();" role="search">
+                        <div class="input-group input-group-sm" style="width: 220px;">
+                            <span class="input-group-text bg-dark border-secondary-subtle text-muted-poly"><i class="bi bi-search"></i></span>
+                            <input type="search" class="form-control bg-dark text-white border-secondary-subtle" id="stationWeatherCity"
+                                   list="stationWeatherCityList" placeholder="Cari kota… (mis. tokyo, nyc)" autocomplete="off"
+                                   aria-label="Cari kota" onchange="onStationWeatherChange()" oninput="if (!this.value) onStationWeatherChange()">
+                        </div>
+                        <datalist id="stationWeatherCityList"></datalist>
+                    </form>
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="stationWeatherLimit"
+                            onchange="onStationWeatherChange()" aria-label="Jumlah kota">
+                        <option value="4">4 kota</option>
+                        <option value="7" selected>7 kota</option>
+                        <option value="10">10 kota</option>
+                        <option value="20">20 kota</option>
+                    </select>
+                    <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchStationWeather()">
+                        <i class="bi bi-arrow-repeat"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="row g-3" id="stationWeatherContainer">
+                <div class="col-12 small text-muted-poly">Memuat cuaca stasiun...</div>
+            </div>
+            <div class="small text-muted-poly mt-3">
+                Data dari stasiun resolusi tiap market (NOAA METAR bandara; Hong Kong dari HKO). Max/min sejak 00:00 waktu lokal;
+                tren = laju 3 jam terakhir. Kesimpulan = prakiraan Open-Meteo yang dikoreksi observasi stasiun — perkiraan, bukan kepastian.
+            </div>
+        </div>
+
+        <!-- 2b-3. HONG KONG PER JAM (expected vs real + 6 jam ke depan) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-table me-2 text-warning"></i>Hong Kong · Per Jam (HKO)</h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="hkHourlyBadge">-</span>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <input type="date" class="form-control form-control-sm bg-dark text-white border-secondary-subtle w-auto"
+                           id="hkHourlyDate" onchange="onHkHourlyDateChange()" aria-label="Tanggal HKT">
+                    <button class="btn btn-sm poly-btn-secondary py-1 px-3" onclick="setHkHourlyToday()">Hari ini</button>
+                    <a class="btn btn-sm poly-btn-secondary py-1 px-3" id="hkHourlyCsv" href="/api/hk/readings.csv">
+                        <i class="bi bi-download"></i> CSV 10 menit
+                    </a>
+                </div>
+            </div>
+            <div id="hkHourlySummary" class="small text-muted-poly mb-2"></div>
+            <div class="table-responsive" style="max-height: 520px;">
+                <table class="table table-sm table-dark table-hover mb-0 small align-middle">
+                    <thead class="sticky-top"><tr>
+                        <th>Jam (HKT)</th><th class="text-end">Suhu expected</th>
+                        <th class="text-end">Perubahan</th><th class="text-end">Suhu real</th>
+                        <th class="text-end">Selisih</th>
+                    </tr></thead>
+                    <tbody id="hkHourlyBody"><tr><td colspan="5" class="text-muted-poly">Memuat...</td></tr></tbody>
+                </table>
+            </div>
+            <div class="small text-muted-poly mt-3">
+                Expected = prediksi yang dibuat ≥1 jam sebelum jamnya (Open-Meteo dikoreksi bacaan HKO); <span class="text-warning">*</span> = rekonstruksi
+                model untuk jam yang belum punya prediksi tersimpan. Baris biru = proyeksi 6 jam ke depan. Perubahan = dibanding jam sebelumnya;
+                selisih = real − expected. Bacaan menit :00 — max/min resmi bisa terjadi di antara jam.
+            </div>
+        </div>
+
+        <!-- 2b-4. WASPADA BERBALIK (favorit ≥90¢: warning & benar berbalik) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-arrow-repeat me-2 text-danger"></i>Waspada Berbalik · Riwayat</h5>
+                <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="reversalDays" onchange="fetchReversals()">
+                    <option value="7">7 hari</option><option value="30">30 hari</option><option value="0" selected>Semua waktu</option>
+                </select>
+            </div>
+            <div id="reversalSummary" class="small text-muted-poly mb-2">Memuat...</div>
+            <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+                <table class="table table-sm table-dark small mb-0 align-middle">
+                    <thead class="sticky-top"><tr class="text-muted-poly"><th>Tanggal</th><th>Market</th><th class="text-end">Puncak</th>
+                        <th class="text-end">Terakhir</th><th>Warning</th><th>Berbalik</th><th>Hasil</th><th>Penilaian</th></tr></thead>
+                    <tbody id="reversalBody"></tbody>
+                </table>
+            </div>
+            <div class="small text-muted-poly mt-3">
+                Hanya market volume besar & likuid (volume event, spread & kedalaman bid favorit). "Benar berbalik" = harga favorit jatuh di bawah 50¢
+                dan bracket lain memimpin, atau favorit kalah saat resolve. Penilaian: ✅ warning tepat · 🟡 alarm palsu · ❌ terlewat (berbalik tanpa warning) · 🟢 aman.
+            </div>
+        </div>
+
+        <!-- 2c. STATISTIK SARAN BOT (win rate notifikasi rekomendasi) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-bullseye me-2 text-success"></i>Statistik Saran Bot</h5>
+                <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="recStatsDays" onchange="fetchRecommendationStats()">
+                    <option value="7">7 hari terakhir</option>
+                    <option value="30">30 hari terakhir</option>
+                    <option value="0" selected>Semua waktu</option>
+                </select>
+            </div>
+            <div id="recStatsContainer" class="small text-muted-poly">Memuat statistik...</div>
+            <div class="small text-muted-poly mt-3">
+                Dari saran BUY yang dikirim ke Telegram. Win rate dihitung dari saran utama (bracket peluang tertinggi);
+                ROI = seandainya membeli $1 YES di odds saat saran dikirim. Hasil terisi otomatis setelah market resolve.
+            </div>
+        </div>
+
+        <!-- 2c-2. AUTO PAPER TRADER -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-robot me-2 text-info"></i>Auto Paper Trader</h5>
+                    <span class="badge bg-dark border border-secondary-subtle" id="autotradeBadge">-</span>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle">paper saja</span>
+                </div>
+                <button class="btn btn-sm poly-btn-secondary py-1 px-3" id="autotradeToggle" onclick="toggleAutotrade()">-</button>
+            </div>
+            <div id="autotradeContainer" class="small text-muted-poly">Memuat…</div>
+        </div>
+
+        <!-- 2d-0. PORTFOLIO POLYMARKET SAYA (read-only, wallet asli) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-briefcase-fill me-2 text-success"></i>Portfolio Polymarket Saya</h5>
+                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle">read-only</span>
+                    <span class="small text-muted-poly" id="myWalletAddress"></span>
+                </div>
+                <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchMyWallet(true)">
+                    <i class="bi bi-arrow-repeat"></i> Refresh
+                </button>
+            </div>
+            <div id="myWalletContainer" class="small text-muted-poly">Memuat portfolio…</div>
+        </div>
+
+        <!-- 2d. WALLET TRACKER (rekomendasi wallet, tracking, follow + alert Telegram) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-wallet2 me-2 text-warning"></i>Wallet Tracker</h5>
+                <form class="d-flex gap-2 flex-wrap" onsubmit="event.preventDefault(); trackWalletFromInput();">
+                    <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary-subtle"
+                           id="walletAddressInput" placeholder="Alamat 0x… atau URL profil Polymarket" style="min-width: 260px"
+                           aria-label="Alamat wallet">
+                    <button type="submit" class="btn btn-sm poly-btn-secondary px-3"><i class="bi bi-eye me-1"></i>Lacak</button>
+                </form>
+            </div>
+            <div id="walletMessage" class="small mb-2"></div>
+
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-semibold text-white"><i class="bi bi-stars me-1 text-warning"></i>Rekomendasi wallet menarik
+                    <span class="small text-muted-poly fw-normal" id="walletCandidatesAge"></span></div>
+                <div class="d-flex gap-2 align-items-center">
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="walletCategory"
+                            onchange="onWalletCategoryChange()" aria-label="Kategori market">
+                        <option value="WEATHER">Cuaca</option><option value="CRYPTO">Kripto</option><option value="SPORTS">Olahraga</option>
+                        <option value="POLITICS">Politik</option><option value="ECONOMICS">Ekonomi</option><option value="FINANCE">Keuangan</option>
+                        <option value="TECH">Teknologi</option><option value="CULTURE">Budaya & hiburan</option><option value="ESPORTS">Esports</option>
+                        <option value="MENTIONS">Mentions</option><option value="OVERALL">Semua market</option>
+                    </select>
+                    <button class="btn btn-sm poly-btn-secondary py-1 px-3" id="walletDiscoverBtn" onclick="rediscoverWallets()">
+                        <i class="bi bi-arrow-repeat"></i> Cari ulang</button>
+                </div>
+            </div>
+            <div class="row g-3 mb-4" id="walletCandidatesContainer"><div class="col-12 small text-muted-poly">Memuat…</div></div>
+
+            <div class="fw-semibold text-white mb-2"><i class="bi bi-bell me-1 text-info"></i>Wallet yang dilacak</div>
+            <div class="table-responsive">
+                <table class="table table-dark table-sm align-middle small mb-0">
+                    <thead><tr class="text-muted-poly">
+                        <th>Wallet</th><th class="text-end">Win rate</th><th class="text-end">PnL 30h</th>
+                        <th class="text-end">All-time</th><th class="text-end">Posisi</th><th>Aktif</th><th class="text-end">Aksi</th>
+                    </tr></thead>
+                    <tbody id="walletTrackedBody"><tr><td colspan="7" class="text-muted-poly">Memuat…</td></tr></tbody>
+                </table>
+            </div>
+            <div id="walletDetail" class="mt-3"></div>
+            <div class="small text-muted-poly mt-3">
+                Win rate = posisi untung / posisi selesai (ditutup atau sudah resolve, termasuk posisi kalah yang tidak di-redeem)
+                dalam 30 hari terakhir. PnL dari leaderboard Polymarket. <b>Ikuti</b> = alert Telegram setiap wallet bertransaksi (dicek tiap menit).
+            </div>
+        </div>
+
+        <!-- 2d-2. INSIDER WALLET (taruhan besar berpola orang dalam + ketepatan) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-incognito me-2 text-warning"></i>Insider Wallet</h5>
+                <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="insiderHours" onchange="fetchInsider()">
+                    <option value="24">24 jam</option><option value="168">7 hari</option><option value="0" selected>Semua waktu</option>
+                </select>
+            </div>
+            <div id="insiderSummary" class="small text-muted-poly mb-2">Memuat…</div>
+            <div class="table-responsive" style="max-height: 460px; overflow-y: auto;">
+                <table class="table table-dark table-sm small mb-0 align-middle">
+                    <thead class="sticky-top"><tr class="text-muted-poly"><th>Waktu</th><th>Skor</th><th>Wallet</th><th>Taruhan</th>
+                        <th class="text-end">Nominal</th><th class="text-end">Harga</th><th>Hasil</th><th class="text-end">Aksi</th></tr></thead>
+                    <tbody id="insiderBody"></tbody>
+                </table>
+            </div>
+            <div class="small text-muted-poly mt-3">
+                Dipindai tiap 5 menit dari trade besar di semua market (olahraga/esports & "Up or Down" dilewati). Skor 0–15 dari: wallet baru,
+                sedikit market, beli sisi longshot, nominal besar, porsi besar dari porto, market segera selesai. Heuristik, bukan bukti —
+                pola sama juga dimiliki penjudi besar. Ketepatan diisi otomatis setelah market resolve.
+            </div>
+        </div>
+
         <!-- 3. SEARCH MARKET SECTION - POLYMARKET STYLE WEATHER EVENTS -->
         <div class="poly-card p-4 mb-4">
             <!-- Header: Title + Date Tabs -->
@@ -963,75 +1226,6 @@
                         <span class="text-muted-poly small">Memuat market Elon Musk dari Polymarket...</span>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <!-- 4. SUGGESTED MARKETS SECTION -->
-        <div class="poly-card p-4 mb-4">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <div class="d-flex align-items-center gap-2">
-                    <h5 class="fw-bold text-white mb-0">
-                        <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>Suggested Markets (High Probability)
-                    </h5>
-                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle" id="suggestionsCount">
-                        {{ suggested_markets|length if suggested_markets is defined else 0 }} available
-                    </span>
-                </div>
-                <button class="btn btn-sm poly-btn-secondary d-flex align-items-center gap-1 py-1 px-3" onclick="fetchSuggestedMarkets()">
-                    <i class="bi bi-arrow-repeat"></i> Refresh
-                </button>
-            </div>
-            <div class="row g-3" id="suggestedMarketsContainer">
-                {% if suggested_markets %}
-                    {% for sm in suggested_markets %}
-                        {% set side = sm.side|default('YES') %}
-                        <div class="col-md-6 col-lg-4">
-                            <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
-                                <div>
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
-                                        {% if side == 'YES' %}
-                                            <span class="badge-outcome-yes">YES</span>
-                                        {% else %}
-                                            <span class="badge-outcome-no">NO</span>
-                                        {% endif %}
-                                        <span class="badge bg-dark text-warning border border-warning-subtle small">
-                                            <i class="bi bi-clock me-1"></i>{{ sm.time_remaining }}
-                                        </span>
-                                    </div>
-                                    <h6 class="fw-bold mb-3" style="min-height: 44px;" title="{{ sm.market_name }}">
-                                        <a href="{{ sm.polymarket_url|default('https://polymarket.com/markets?_q=' ~ sm.market_name|urlencode) }}"
-                                           target="_blank"
-                                           rel="noopener noreferrer"
-                                           class="market-title-link text-white text-decoration-none"
-                                           title="Buka {{ sm.market_name }} di Polymarket (Tab Baru)">
-                                            {{ sm.market_name }}
-                                            <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
-                                        </a>
-                                    </h6>
-                                </div>
-                                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
-                                    <div>
-                                        <span class="text-muted-poly small">Price:</span>
-                                        <span class="fw-bold text-white fs-6 ms-1">${{ "%.2f"|format(sm.current_price|float) }}</span>
-                                    </div>
-                                    <button class="btn btn-sm btn-success px-3 fw-medium"
-                                            data-market-id="{{ sm.market_id }}"
-                                            data-market-name="{{ sm.market_name|e }}"
-                                            data-price="{{ sm.current_price }}"
-                                            data-side="{{ side }}"
-                                            onclick="openPaperBuyModalFromBtn(this)">
-                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    {% endfor %}
-                {% else %}
-                    <div class="col-12 text-center text-muted-poly py-4">
-                        <i class="bi bi-inbox fs-3 d-block mb-2"></i>
-                        No suggested markets found meeting probability criteria right now.
-                    </div>
-                {% endif %}
             </div>
         </div>
 
@@ -1358,12 +1552,42 @@
         });
 
         // --- 3. AUTO REFRESH TIMER ---
-        let countdown = 30;
+        const REFRESH_KEY = 'dashboardRefreshSeconds';
+        const REFRESH_OPTIONS = [30, 60, 300, 600, 3600];
+        let refreshSeconds = 30;
+        try {
+            const saved = parseInt(localStorage.getItem(REFRESH_KEY), 10);
+            if (REFRESH_OPTIONS.includes(saved)) refreshSeconds = saved;
+        } catch (e) { /* abaikan */ }
+        let countdown = refreshSeconds;
         const timerText = document.getElementById('refreshTimerText');
+        const refreshSelect = document.getElementById('refreshInterval');
+        if (refreshSelect) refreshSelect.value = String(refreshSeconds);
+        function formatCountdown(sec) {
+            if (sec >= 3600) return '1j';
+            if (sec >= 60) return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+            return `${sec}s`;
+        }
+        function setRefreshInterval(value) {
+            const sec = parseInt(value, 10);
+            if (!REFRESH_OPTIONS.includes(sec)) return;
+            refreshSeconds = sec;
+            countdown = sec;
+            try { localStorage.setItem(REFRESH_KEY, String(sec)); } catch (e) { /* abaikan */ }
+            if (timerText) timerText.textContent = formatCountdown(countdown);
+        }
+        if (timerText) timerText.textContent = formatCountdown(countdown);
         setInterval(() => {
             countdown--;
-            if (timerText) timerText.textContent = `${countdown}s`;
-            if (countdown <= 0) window.location.reload();
+            if (timerText) timerText.textContent = formatCountdown(Math.max(countdown, 0));
+            if (countdown <= 0) {
+                // Tunda reload saat pengguna sedang membaca detail wallet atau mengetik alamat
+                const active = document.activeElement;
+                const typing = (document.getElementById('walletAddressInput') || {}).value
+                    || (active && active.id === 'stationWeatherCity');
+                if (window.pauseAutoReload || typing) { countdown = Math.min(refreshSeconds, 30); return; }
+                window.location.reload();
+            }
         }, 1000);
 
         // --- 4. BALANCE VISIBILITY TOGGLE ---
@@ -1912,6 +2136,960 @@
         }
 
         // --- 14. SUGGESTIONS FETCH HANDLER ---
+        // Filter "Top N volume": default dari server (TELEGRAM_RECOMMENDATION_TOP_CITIES),
+        // pilihan pengguna disimpan per browser.
+        const SUGGESTIONS_TOP_KEY = 'suggestionsTopCities';
+        function getSuggestionsTop() {
+            const select = document.getElementById('suggestionsTopFilter');
+            let value = select ? select.dataset.default : '7';
+            try { value = localStorage.getItem(SUGGESTIONS_TOP_KEY) ?? value; } catch (e) { /* storage tidak tersedia */ }
+            const n = parseInt(value, 10);
+            return Number.isFinite(n) && n >= 0 ? n : 7;
+        }
+        function initSuggestionsTopFilter() {
+            const select = document.getElementById('suggestionsTopFilter');
+            if (!select) return;
+            const n = String(getSuggestionsTop());
+            if (![...select.options].some(o => o.value === n)) {
+                select.add(new Option(`Top ${n} volume`, n), select.options[select.options.length - 1]);
+            }
+            select.value = n;
+        }
+        function onSuggestionsTopChange(value) {
+            try { localStorage.setItem(SUGGESTIONS_TOP_KEY, value); } catch (e) { /* abaikan */ }
+            fetchSuggestedMarkets();
+        }
+        // Tanpa data volume sama sekali (rank null semua), tidak disaring
+        function applyTopVolumeFilter(items, top) {
+            if (!top || !items.some(x => x.city_volume_rank)) return items;
+            return items.filter(x => x.city_volume_rank && x.city_volume_rank <= top);
+        }
+        function formatVolume(v) {
+            v = Number(v) || 0;
+            if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+            if (v >= 1e3) return '$' + Math.round(v / 1e3) + 'K';
+            return '$' + Math.round(v);
+        }
+
+        function buildSuggestionCardsHtml(events) {
+            return events.map(ev => {
+                const isHigh = ev.kind === 'highest';
+                const top = ev.markets.slice(0, 4);
+                const rows = top.map(m => {
+                    // Harga beli = ask order book jika ada (mid Gamma "50¢" sering dari order book kosong)
+                    const hasAsk = m.ask !== null && m.ask !== undefined;
+                    const pYes = hasAsk ? safeNumber(m.ask)
+                        : (m.price_yes !== null && m.price_yes !== undefined ? safeNumber(m.price_yes) : null);
+                    const liq = m.liquid === false
+                        ? `<span class="badge bg-dark text-danger border border-danger-subtle ms-1" title="Spread order book ${m.spread !== null && m.spread !== undefined ? Math.round(safeNumber(m.spread) * 100) + '¢' : 'tidak diketahui'}">tidak likuid</span>`
+                        : (m.liquid ? `<span class="small text-muted-poly ms-1" title="bid ${m.bid !== null && m.bid !== undefined ? (safeNumber(m.bid) * 100).toFixed(1) + '¢' : '-'}">ask</span>` : '');
+                    const pNo = m.price_no !== null && m.price_no !== undefined ? safeNumber(m.price_no) : null;
+                    const name = escapeHtml(m.market_name);
+                    const id = escapeHtml(m.market_id);
+                    return `
+                        <div class="weather-outcome-row">
+                            <span class="weather-outcome-temp">${escapeHtml(m.bracket)}${liq}</span>
+                            <span class="weather-outcome-pct">${m.price_yes !== null && m.price_yes !== undefined ? Math.round(safeNumber(m.price_yes) * 100) + '%' : '-'}</span>
+                            <div class="weather-outcome-btns">
+                                <button class="weather-btn-yes" data-market-id="${id}" data-market-name="${name}"
+                                    data-price="${pYes ?? 0.5}" data-side="YES" onclick="openPaperBuyModalFromBtn(this)"
+                                    title="Beli ${escapeHtml(m.outcome_yes_label)}">${escapeHtml(m.outcome_yes_label)} ${pYes !== null ? (pYes * 100).toFixed(1) + '¢' : ''}</button>
+                                <button class="weather-btn-no" data-market-id="${id}" data-market-name="${name}"
+                                    data-price="${pNo ?? 0.5}" data-side="NO" onclick="openPaperBuyModalFromBtn(this)"
+                                    title="Beli ${escapeHtml(m.outcome_no_label)}">${escapeHtml(m.outcome_no_label)} ${pNo !== null ? (pNo * 100).toFixed(1) + '¢' : ''}</button>
+                            </div>
+                        </div>`;
+                }).join('');
+                const more = ev.market_count > top.length
+                    ? `<div class="small text-muted-poly mt-2">+${ev.market_count - top.length} bracket lainnya</div>` : '';
+                const obs = ev.observation;
+                const hhmm = iso => { const t = String(iso || ''); const m = t.match(/T(\d{2}:\d{2})/); return m ? m[1] : ''; };
+                const obsHtml = obs ? `
+                            <div class="small text-info mb-2" title="Observasi stasiun resolusi market (NOAA METAR / HKO), waktu lokal">
+                                <i class="bi bi-thermometer-half me-1"></i>${obs.current !== null && obs.current !== undefined
+                                    ? `Sekarang <b class="text-white">${safeNumber(obs.current)}°${escapeHtml(obs.unit)}</b>${obs.current_at ? ' (' + escapeHtml(hhmm(obs.current_at)) + ')' : ''} · ` : ''}
+                                ${ev.kind === 'highest' ? 'max' : 'min'} hari ini ${safeNumber(obs.value)}°${escapeHtml(obs.unit)}${obs.at ? ' (' + escapeHtml(hhmm(obs.at)) + ')' : ''}
+                                · ${obs.url && /^https:\/\//.test(obs.url)
+                                    ? `<a class="text-info" href="${escapeHtml(obs.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(obs.source || 'NOAA')} ${escapeHtml(obs.station)} <i class="bi bi-box-arrow-up-right"></i></a>`
+                                    : `${escapeHtml(obs.source || 'NOAA')} ${escapeHtml(obs.station)}`}
+                            </div>${obs.conclusion ? `
+                            <div class="small text-muted-poly mb-2" title="Perkiraan dari prakiraan Open-Meteo yang dikoreksi observasi stasiun — bukan kepastian">
+                                <i class="bi bi-compass me-1"></i>${escapeHtml(obs.conclusion)}</div>` : ''}` : '';
+                const illiquid = ev.liquid === false ? `
+                            <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Tidak ada bracket likuid — harga belum bisa dipercaya</div>` : '';
+                const source = ev.peak_source === 'data' ? 'jam puncak dari data historis kota'
+                    : (ev.peak_source === 'override' ? 'jam puncak dari konfigurasi' : 'jam puncak perkiraan model');
+                return `
+                    <div class="col-md-6">
+                        <div class="weather-event-card">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <h6 class="weather-event-title mb-0">
+                                    <i class="bi ${isHigh ? 'bi-thermometer-sun text-warning' : 'bi-thermometer-snow text-info'} me-1"></i>
+                                    ${escapeHtml(ev.city)} · ${isHigh ? 'Suhu tertinggi' : 'Suhu terendah'}
+                                    ${ev.city_volume_rank ? `<span class="badge bg-dark text-warning border border-warning-subtle small ms-1" title="Peringkat kota menurut total volume market suhu">🔥 #${safeNumber(ev.city_volume_rank)}</span>` : ''}
+                                </h6>
+                                <span class="badge bg-dark text-warning border border-warning-subtle small" title="Sisa waktu jendela rekomendasi">
+                                    <i class="bi bi-clock me-1"></i>sisa ${escapeHtml(ev.time_remaining)}
+                                </span>
+                            </div>
+                            <div class="small text-muted-poly mb-2">
+                                <i class="bi bi-alarm me-1"></i>${escapeHtml(ev.window_label)}
+                                <span class="ms-1" title="${escapeHtml(source)}">· sekarang ${escapeHtml(ev.local_time)}</span>
+                                ${ev.volume ? `<span class="ms-1" title="Volume trading event ini">· Vol ${formatVolume(ev.volume)}</span>` : ''}
+                            </div>
+                            ${obsHtml}${illiquid}
+                            <div class="weather-outcomes-list">${rows}</div>
+                            ${more}
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        // --- CUACA STASIUN ---
+        const STATION_WEATHER_KEY = 'stationWeatherPrefs';
+        function isoHHMM(iso) {
+            const m = String(iso || '').match(/T(\d{2}:\d{2})/);
+            return m ? m[1] : '';
+        }
+        function loadStationWeatherPrefs() {
+            try { return JSON.parse(localStorage.getItem(STATION_WEATHER_KEY) || '{}') || {}; } catch (e) { return {}; }
+        }
+        function onStationWeatherChange() {
+            const prefs = {
+                city: document.getElementById('stationWeatherCity').value,
+                limit: document.getElementById('stationWeatherLimit').value,
+            };
+            try { localStorage.setItem(STATION_WEATHER_KEY, JSON.stringify(prefs)); } catch (e) { /* abaikan */ }
+            fetchStationWeather();
+        }
+        function buildStationWeatherCard(item) {
+            const r = item.report;
+            const rank = item.volume_rank ? `<span class="badge bg-dark text-warning border border-warning-subtle small ms-1" title="Peringkat volume market suhu">🔥 #${safeNumber(item.volume_rank)}</span>` : '';
+            const srcLabel = item.station === 'HKO' ? 'HKO' : `NOAA ${escapeHtml(item.station)}`;
+            const link = r && r.url && /^https:\/\//.test(r.url)
+                ? `<a class="small text-info text-decoration-none" href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer">${srcLabel} <i class="bi bi-box-arrow-up-right"></i></a>`
+                : `<span class="small text-muted-poly">${srcLabel}</span>`;
+            const header = `
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h6 class="weather-event-title mb-0">${escapeHtml(item.city)}${rank}</h6>${link}
+                </div>`;
+            if (!r) {
+                return `<div class="col-md-6 col-xl-4"><div class="weather-event-card">${header}
+                    <div class="small text-muted-poly">Belum ada observasi hari ini.</div></div></div>`;
+            }
+            const unit = escapeHtml(r.unit);
+            const t = v => v === null || v === undefined ? '-' : `${safeNumber(v)}°${unit}`;
+            const cond = r.condition || {};
+            const trend = r.trend === null || r.trend === undefined ? ''
+                : `<span class="badge bg-dark border border-secondary-subtle ${r.trend > 0.1 ? 'text-danger' : (r.trend < -0.1 ? 'text-info' : 'text-muted-poly')}" title="Laju 3 jam terakhir">
+                     ${r.trend > 0.1 ? '↗' : (r.trend < -0.1 ? '↘' : '→')} ${r.trend > 0 ? '+' : ''}${safeNumber(r.trend).toFixed(1)}°/jam</span>`;
+            const stale = item.stale ? `<span class="badge bg-dark text-warning border border-warning-subtle" title="Observasi terakhir lebih dari 90 menit lalu">data lama</span>` : '';
+            const outlooks = r.outlook_text || {};
+            const conclusions = (r.now_text ? `<li class="mb-1">${escapeHtml(r.now_text)}</li>` : '') +
+                [['highest', 'Tertinggi'], ['lowest', 'Terendah']]
+                .filter(([k]) => outlooks[k])
+                .map(([k, name]) => `<li class="mb-1"><span class="text-white">${name}:</span> ${escapeHtml(outlooks[k])}</li>`).join('');
+            return `
+                <div class="col-md-6 col-xl-4"><div class="weather-event-card h-100">${header}
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        <div class="fs-2" aria-hidden="true">${escapeHtml(cond.emoji || '🌡️')}</div>
+                        <div>
+                            <div class="fs-3 fw-bold text-white lh-1">${t(r.current)}</div>
+                            <div class="small text-muted-poly">${escapeHtml(cond.label || '')}</div>
+                        </div>
+                        <div class="ms-auto d-flex flex-column align-items-end gap-1">${trend}${stale}</div>
+                    </div>
+                    <div class="small text-muted-poly mb-2">
+                        Max ${t(r.max)}${r.max_at ? ' (' + escapeHtml(isoHHMM(r.max_at)) + ')' : ''}
+                        · Min ${t(r.min)}${r.min_at ? ' (' + escapeHtml(isoHHMM(r.min_at)) + ')' : ''}
+                        · obs ${escapeHtml(isoHHMM(r.current_at))} · sekarang ${escapeHtml(item.local_time || '')} lokal
+                    </div>
+                    ${conclusions ? `<div class="small fw-semibold text-white mb-1"><i class="bi bi-compass me-1"></i>Kesimpulan</div><ul class="list-unstyled small text-muted-poly mb-0">${conclusions}</ul>` : ''}
+                </div></div>`;
+        }
+        async function fetchStationWeather() {
+            const container = document.getElementById('stationWeatherContainer');
+            const badge = document.getElementById('stationWeatherCount');
+            const citySel = document.getElementById('stationWeatherCity');
+            const limitSel = document.getElementById('stationWeatherLimit');
+            if (!container) return;
+            const city = citySel.value.trim();
+            const params = new URLSearchParams({ limit: limitSel.value });
+            if (city) params.set('city', city);
+            try {
+                const res = await fetch('/api/weather/current?' + params.toString());
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                const list = document.getElementById('stationWeatherCityList');
+                if (list && list.options.length !== (data.cities || []).length) {
+                    list.innerHTML = (data.cities || []).map(c => `<option value="${escapeHtml(c)}"></option>`).join('');
+                }
+                limitSel.disabled = !!city;
+                if (badge) badge.textContent = city ? `${data.items.length} hasil` : `${data.items.length} kota`;
+                if (data.not_found) {
+                    container.innerHTML = `<div class="col-12 small text-muted-poly">Kota "${escapeHtml(city)}" tidak ditemukan di market suhu.
+                        Coba nama lain (mis. <i>new york</i>, <i>hong kong</i>) atau pilih dari saran saat mengetik.</div>`;
+                } else if (!data.items.length) {
+                    container.innerHTML = '<div class="col-12 small text-muted-poly">Belum ada data stasiun. Tunggu satu siklus Market Collector (±5 menit).</div>';
+                } else {
+                    container.innerHTML = data.items.map(buildStationWeatherCard).join('');
+                }
+            } catch (err) {
+                console.error(err);
+                if (badge) badge.textContent = 'Error';
+                container.innerHTML = '<div class="col-12 small text-muted-poly">Gagal memuat cuaca stasiun.</div>';
+            }
+        }
+        function initStationWeather() {
+            const prefs = loadStationWeatherPrefs();
+            const citySel = document.getElementById('stationWeatherCity');
+            const limitSel = document.getElementById('stationWeatherLimit');
+            if (!citySel || !limitSel) return;
+            if (prefs.limit && [...limitSel.options].some(o => o.value === String(prefs.limit))) limitSel.value = String(prefs.limit);
+            if (prefs.city) citySel.value = prefs.city;
+            fetchStationWeather();
+        }
+
+        // --- HONG KONG PER JAM ---
+        const HK_HOURLY_KEY = 'hkHourlyDate';
+        function hkTodayIso() {
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong' }).format(new Date());
+        }
+        function onHkHourlyDateChange() {
+            const value = document.getElementById('hkHourlyDate').value;
+            try { value === hkTodayIso() ? localStorage.removeItem(HK_HOURLY_KEY) : localStorage.setItem(HK_HOURLY_KEY, value); } catch (e) {}
+            fetchHkHourly();
+        }
+        function setHkHourlyToday() {
+            document.getElementById('hkHourlyDate').value = hkTodayIso();
+            onHkHourlyDateChange();
+        }
+        function hkNum(v, sign) {
+            if (v === null || v === undefined) return '<span class="text-muted-poly">-</span>';
+            return (sign && v > 0 ? '+' : '') + Number(v).toFixed(1);
+        }
+        async function fetchHkHourly() {
+            const body = document.getElementById('hkHourlyBody');
+            const dateInput = document.getElementById('hkHourlyDate');
+            if (!body || !dateInput) return;
+            const day = dateInput.value || hkTodayIso();
+            document.getElementById('hkHourlyCsv').href = '/api/hk/readings.csv?date=' + encodeURIComponent(day);
+            try {
+                const res = await fetch('/api/hk/hourly?date=' + encodeURIComponent(day));
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                const rows = data.rows || [];
+                const badge = document.getElementById('hkHourlyBadge');
+                if (badge) badge.textContent = data.mae !== null ? `meleset rata-rata ${data.mae.toFixed(1)}°C` : `${rows.length} jam`;
+                const parts = [];
+                if (data.max !== null) parts.push(`Real per jam: max <b class="text-white">${data.max.toFixed(1)}°C</b> · min <b class="text-white">${data.min.toFixed(1)}°C</b>`);
+                if (data.ahead_min !== null) parts.push(`6 jam ke depan: <b class="text-info">${data.ahead_min.toFixed(1)}–${data.ahead_max.toFixed(1)}°C</b>`);
+                document.getElementById('hkHourlySummary').innerHTML = parts.join(' · ');
+                if (!rows.length) {
+                    body.innerHTML = '<tr><td colspan="5" class="text-muted-poly">Belum ada data untuk tanggal ini.</td></tr>';
+                    return;
+                }
+                body.innerHTML = rows.map(r => {
+                    const deltaCls = r.delta > 0 ? 'text-danger' : (r.delta < 0 ? 'text-info' : '');
+                    const errCls = r.error === null ? '' : (Math.abs(r.error) >= 1 ? 'text-warning' : 'text-muted-poly');
+                    const mark = r.source === 'model' ? '<span class="text-warning">*</span>' : '';
+                    return `<tr class="${r.future ? 'table-info text-dark' : ''}">
+                        <td>${escapeHtml(r.hour)}${r.next_day ? ' <span class="badge bg-secondary">+1</span>' : ''}${r.future ? ' <span class="badge bg-info text-dark">proyeksi</span>' : ''}</td>
+                        <td class="text-end">${hkNum(r.expected)}${mark}</td>
+                        <td class="text-end ${r.future ? '' : deltaCls}">${hkNum(r.delta, true)}</td>
+                        <td class="text-end fw-semibold">${hkNum(r.real)}</td>
+                        <td class="text-end ${errCls}">${hkNum(r.error, true)}</td></tr>`;
+                }).join('');
+            } catch (err) {
+                console.error(err);
+                body.innerHTML = '<tr><td colspan="5" class="text-muted-poly">Gagal memuat tabel per jam HKO.</td></tr>';
+            }
+        }
+        function initHkHourly() {
+            const input = document.getElementById('hkHourlyDate');
+            if (!input) return;
+            let saved = null;
+            try { saved = localStorage.getItem(HK_HOURLY_KEY); } catch (e) {}
+            input.max = hkTodayIso();
+            input.value = saved || hkTodayIso();
+            fetchHkHourly();
+        }
+
+        // --- INSIDER WALLET ---
+        async function fetchInsider() {
+            const body = document.getElementById('insiderBody');
+            if (!body) return;
+            const hours = document.getElementById('insiderHours').value;
+            try {
+                const res = await fetch('/api/insider?hours=' + encodeURIComponent(hours));
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                const s = data.summary;
+                const parts = [`Ditandai <b class="text-white">${s.flags}</b>`, `selesai ${s.decided}`, `menunggu ${s.pending}`];
+                if (s.decided) parts.push(`ketepatan <b class="text-white">${s.wins}/${s.decided} (${Math.round(s.win_rate * 100)}%)</b> di harga rata-rata ${Math.round(s.avg_price * 100)}¢`,
+                                          `ROI seandainya ikut <b class="${pnlClass(s.roi)}">${(s.roi * 100).toFixed(0)}%</b>`);
+                parts.push(`ambang skor ${data.min_score}/${data.max_score}`);
+                document.getElementById('insiderSummary').innerHTML = parts.join(' · ');
+                const result = { WIN: '<span class="badge bg-success">✅ menang</span>', LOSS: '<span class="badge bg-danger">❌ kalah</span>',
+                                 VOID: '<span class="badge bg-secondary">batal</span>', UNKNOWN: '<span class="badge bg-secondary">?</span>' };
+                body.innerHTML = (data.items || []).map(it => {
+                    const name = it.name && !/^0x/i.test(it.name) ? it.name : shortAddr(it.wallet);
+                    const when = new Date(it.flagged_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                    const link = it.slug ? `https://polymarket.com/event/${encodeURIComponent(it.slug)}` : null;
+                    return `<tr>
+                        <td class="text-nowrap">${escapeHtml(when)}</td>
+                        <td><span class="badge ${it.score >= 10 ? 'bg-danger' : 'bg-warning text-dark'}">${it.score}/${data.max_score}</span></td>
+                        <td><a class="text-info text-decoration-none" href="https://polymarket.com/profile/${encodeURIComponent(it.wallet)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>
+                            <div class="text-muted-poly" style="font-size:.75rem">${it.age_days !== null ? Math.round(it.age_days) + ' hari' : ''}${it.markets_traded !== null ? ' · ' + it.markets_traded + ' market' : ''}</div></td>
+                        <td><div class="text-white">${escapeHtml(it.outcome || '')} — ${link ? `<a class="text-white" href="${link}" target="_blank" rel="noopener noreferrer">${escapeHtml(it.title || '')}</a>` : escapeHtml(it.title || '')}</div>
+                            <div class="text-muted-poly" style="font-size:.75rem">${escapeHtml((it.reasons || []).join(' · '))}</div></td>
+                        <td class="text-end">$${Math.round(it.cash).toLocaleString('en-US')}</td>
+                        <td class="text-end">${(it.avg_price * 100).toFixed(1)}¢</td>
+                        <td>${result[it.result] || '<span class="text-muted-poly">menunggu</span>'}</td>
+                        <td class="text-end"><button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${escapeHtml(it.wallet)}', 'follow')">Ikuti</button></td></tr>`;
+                }).join('') || '<tr><td colspan="8" class="text-muted-poly">Belum ada taruhan mencurigakan yang tercatat.</td></tr>';
+            } catch (err) {
+                console.error(err);
+                body.innerHTML = '<tr><td colspan="8" class="text-muted-poly">Gagal memuat data insider wallet.</td></tr>';
+            }
+        }
+
+        // --- WASPADA BERBALIK ---
+        async function fetchReversals() {
+            const body = document.getElementById('reversalBody');
+            if (!body) return;
+            const days = document.getElementById('reversalDays').value;
+            try {
+                const res = await fetch('/api/reversals?days=' + encodeURIComponent(days));
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                const s = data.summary;
+                const parts = [`Favorit ≥90¢ dipantau <b class="text-white">${s.tracked}</b>`, `benar berbalik <b class="text-white">${s.reversed}</b>`,
+                               `warning <b class="text-white">${s.warned}</b>`, `menunggu hasil ${s.pending}`];
+                if (s.warned_decided) parts.push(`ketepatan warning <b class="text-white">${s.warned_reversed}/${s.warned_decided}</b>`);
+                if (s.reversed) parts.push(`pembalikan didahului warning <b class="text-white">${s.reversed_warned}/${s.reversed}</b>`);
+                document.getElementById('reversalSummary').innerHTML = parts.join(' · ');
+                const verdict = {
+                    'warning tepat': '<span class="badge bg-success">✅ warning tepat</span>', 'alarm palsu': '<span class="badge bg-warning text-dark">🟡 alarm palsu</span>',
+                    'terlewat': '<span class="badge bg-danger">❌ terlewat</span>', 'aman': '<span class="badge bg-secondary">🟢 aman</span>',
+                    'menunggu': '<span class="badge bg-dark border border-secondary-subtle">⏳ menunggu</span>',
+                };
+                const hhmm = iso => iso ? new Date(iso).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+                body.innerHTML = (data.items || []).map(it => `<tr>
+                    <td class="text-nowrap">${escapeHtml(it.date)}</td>
+                    <td><span class="text-white">${escapeHtml(it.city)} ${it.kind === 'highest' ? 'max' : 'min'} · ${escapeHtml(it.fav)}</span>
+                        ${it.volume ? `<div class="text-muted-poly" style="font-size:.75rem">vol $${Math.round(it.volume).toLocaleString('en-US')}</div>` : ''}</td>
+                    <td class="text-end">${Math.round(it.peak * 100)}¢</td>
+                    <td class="text-end">${it.last === null ? '-' : Math.round(it.last * 100) + '¢'}</td>
+                    <td>${it.warned_at ? `<span title="${escapeHtml(it.warning || '')}">⚠️ ${escapeHtml(hhmm(it.warned_at))}</span>` : '<span class="text-muted-poly">-</span>'}</td>
+                    <td>${it.flipped_at ? `🔁 ${escapeHtml(hhmm(it.flipped_at))}<div class="text-muted-poly" style="font-size:.75rem">${escapeHtml(it.flip || '')}</div>` : '<span class="text-muted-poly">-</span>'}</td>
+                    <td>${it.outcome === 'held' ? 'favorit menang' : it.outcome === 'reversed' ? `berbalik${it.winner ? ' → ' + escapeHtml(it.winner) : ''}` : '<span class="text-muted-poly">belum resolve</span>'}</td>
+                    <td>${verdict[it.verdict] || escapeHtml(it.verdict)}</td></tr>`).join('')
+                    || '<tr><td colspan="8" class="text-muted-poly">Belum ada favorit ≥90¢ di market volume besar & likuid.</td></tr>';
+            } catch (err) {
+                console.error(err);
+                body.innerHTML = '<tr><td colspan="8" class="text-muted-poly">Gagal memuat riwayat waspada berbalik.</td></tr>';
+            }
+        }
+
+        // --- AUTO PAPER TRADER ---
+        let autotradeEnabled = false;
+        async function toggleAutotrade() {
+            const action = autotradeEnabled ? 'stop' : 'start';
+            if (action === 'start' && !confirm('Jalankan auto paper trader? Bot akan membeli otomatis di akun PAPER sesuai aturan risiko.')) return;
+            try {
+                const res = await fetch(`/api/autotrade/${action}`, { method: 'POST' });
+                if (!res.ok) throw new Error('Gagal');
+                renderAutotrade(await res.json());
+            } catch (err) { console.error(err); }
+        }
+        async function setStatsSince(since) {
+            if (since === 'now' && !confirm('Mulai periode statistik baru dari sekarang? Data lama tetap tersimpan dan bisa dilihat lagi dengan "Semua waktu".')) return;
+            try {
+                const res = await fetch('/api/autotrade/stats-since', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({ since: since || null }) });
+                if (!res.ok) throw new Error('Gagal');
+                renderAutotrade(await res.json());
+            } catch (err) { alert('Gagal mengubah periode statistik.'); }
+        }
+        function renderAutotradeHistory() {
+            const box = document.getElementById('autotradeHistory');
+            const s = window._autotradeStatus || {};
+            if (!box) return;
+            const filter = window._autotradeHistoryFilter || '';
+            const rows = (s.history || []).filter(r => !filter || r.strategy === filter);
+            const badge = {
+                'MENANG': '<span class="badge bg-success">✅ MENANG</span>', 'KALAH': '<span class="badge bg-danger">❌ KALAH</span>',
+                'DIJUAL': '<span class="badge bg-info text-dark">💱 DIJUAL</span>', 'TERBUKA': '<span class="badge bg-secondary">⏳ TERBUKA</span>',
+                'BATAL': '<span class="badge bg-secondary">BATAL</span>',
+            };
+            const settled = rows.filter(r => ['MENANG', 'KALAH', 'DIJUAL'].includes(r.result));
+            const wins = settled.filter(r => (r.pnl || 0) > 0).length;
+            const total = settled.reduce((a, r) => a + (r.pnl || 0), 0);
+            const body = rows.map(r => `<tr>
+                <td class="text-nowrap">${escapeHtml(new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
+                <td>${badge[r.result] || escapeHtml(r.result)}</td>
+                <td>${escapeHtml(r.strategy)}</td>
+                <td><div class="text-white">${escapeHtml(r.label || '')}</div>${r.detail ? `<div class="text-muted-poly" style="font-size: .75rem">${escapeHtml(r.detail)}</div>` : ''}</td>
+                <td class="text-end text-nowrap">${(r.price * 100).toFixed(1)}¢${r.fee ? ` <span class="text-muted-poly">+${(r.fee * 100).toFixed(1)}</span>` : ''}</td>
+                <td class="text-end">${r.exit_price === null ? '-' : Math.round(r.exit_price * 100) + '¢'}</td>
+                <td class="text-end">${Math.round(r.prob * 100)}%</td>
+                <td class="text-end">${(r.edge * 100).toFixed(1)}¢</td>
+                <td class="text-end">$${Number(r.size).toFixed(2)}</td>
+                <td class="text-end fw-semibold ${pnlClass(r.pnl || 0)}">${r.pnl === null ? '-' : (r.pnl > 0 ? '+' : '') + r.pnl.toFixed(2)}</td></tr>`).join('')
+                || '<tr><td colspan="10" class="text-muted-poly">Belum ada trade.</td></tr>';
+            box.innerHTML = `${settled.length ? `<div class="small mb-1">Di daftar ini: <b class="text-white">${wins}/${settled.length}</b> untung · PnL
+                    <b class="${pnlClass(total)}">${(total > 0 ? '+' : '') + total.toFixed(2)}</b> <span class="text-muted-poly">(30 trade terakhir; ringkasan penuh di tabel strategi)</span></div>` : ''}
+                <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0 align-middle">
+                    <thead class="sticky-top"><tr class="text-muted-poly"><th>Waktu</th><th>Hasil</th><th>Strategi</th><th>Market & detail</th><th class="text-end">Masuk</th>
+                    <th class="text-end">Keluar</th><th class="text-end">Model</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th class="text-end">PnL</th></tr></thead>
+                    <tbody>${body}</tbody></table></div>`;
+        }
+        function renderAutotrade(s) {
+            window._autotradeStatus = s;
+            autotradeEnabled = !!s.enabled;
+            const badge = document.getElementById('autotradeBadge');
+            badge.className = `badge bg-dark border ${s.enabled ? 'text-success border-success-subtle' : 'text-danger border-danger-subtle'}`;
+            badge.textContent = s.enabled ? '🟢 aktif' : '🔴 berhenti';
+            const btn = document.getElementById('autotradeToggle');
+            btn.innerHTML = s.enabled ? '<i class="bi bi-stop-circle me-1"></i>Stop' : '<i class="bi bi-play-circle me-1"></i>Start';
+            const t = s.today, l = s.limits;
+            const signed = v => (v > 0 ? '+' : '') + Number(v).toFixed(2);
+            const tile = (label, value, cls = 'text-white') => `<div class="col-6 col-md-3"><div class="border border-secondary-subtle rounded p-2 h-100">
+                <div class="text-muted-poly small">${label}</div><div class="fs-6 fw-bold ${cls}">${value}</div></div></div>`;
+            const stats = Object.entries(s.stats || {}).map(([name, st]) => `<tr><td class="text-white">${escapeHtml(name)}</td>
+                <td class="text-end">${safeNumber(st.trades)}</td><td class="text-end">${safeNumber(st.settled)}</td>
+                <td class="text-end">${st.win_rate === null ? '-' : Math.round(st.win_rate * 100) + '%'}</td>
+                <td class="text-end ${pnlClass(st.pnl)}">${signed(st.pnl)}</td>
+                <td class="text-end ${pnlClass(st.roi)}">${st.roi === null ? '-' : (st.roi * 100).toFixed(1) + '%'}</td>
+                <td class="text-end">${safeNumber(st.open)}</td></tr>`).join('');
+            const recent = (s.recent || []).map(d => `<tr>
+                <td class="text-nowrap">${escapeHtml(new Date(d.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
+                <td>${escapeHtml(d.strategy)}</td><td>${escapeHtml(d.label || '')}</td><td>${escapeHtml(d.side)}</td>
+                <td class="text-end">${Math.round(d.prob * 100)}%</td><td class="text-end">${((d.price + d.fee) * 100).toFixed(1)}¢</td>
+                <td class="text-end">${(d.edge * 100).toFixed(1)}¢</td><td class="text-end">$${Number(d.size).toFixed(2)}</td>
+                <td>${d.status === 'filled' ? '<span class="text-success">filled</span>' : `<span class="text-warning" title="${escapeHtml(d.reason || '')}">ditolak</span>`}</td></tr>`).join('')
+                || '<tr><td colspan="9" class="text-muted-poly">Belum ada keputusan.</td></tr>';
+            document.getElementById('autotradeContainer').innerHTML = `
+                <div class="row g-2 mb-2">
+                    ${tile('Trade hari ini', safeNumber(t.trades))}
+                    ${tile('Beli hari ini', `$${Number(t.spent).toFixed(2)} <span class="text-muted-poly small">/ ${l.max_daily_usd}</span>`)}
+                    ${tile('PnL terealisasi hari ini', signed(t.realized_pnl), pnlClass(t.realized_pnl))}
+                    ${tile('Posisi terbuka', `$${Number(t.open_usd).toFixed(2)} <span class="text-muted-poly small">/ ${l.max_open_usd}</span>`)}
+                </div>
+                <div class="mb-3">Aturan: $${l.order_usd}/order · harga ≤${Math.round(l.max_price * 100)}¢ · edge BTC ≥${Math.round(l.btc_min_edge * 100)}¢
+                    (1 jam menit ${escapeHtml(l.btc_window)}, 15 menit menit ${escapeHtml(l.btc15_window)}, 5 menit menit ${escapeHtml(l.btc5_window)})
+                    · slippage ${(Number(l.slippage || 0) * 100).toFixed(1)}¢ · maker limit P−${Math.round(l.maker_margin * 100)}¢
+                    · edge cuaca ≥${Math.round(l.weather_min_edge * 100)}¢ · stop bila rugi hari ini ≥ $${l.max_daily_loss} · strategi: ${escapeHtml((s.strategies || []).join(', '))}</div>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                    <div class="fw-semibold text-white">Hasil per strategi <span class="text-muted-poly fw-normal">(${escapeHtml(s.stats_label || 'semua waktu')})</span></div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="setStatsSince('now')" title="Statistik dihitung ulang mulai sekarang; data lama tetap tersimpan">
+                            <i class="bi bi-arrow-counterclockwise"></i> Mulai periode baru</button>
+                        ${s.stats_since ? `<button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="setStatsSince('')">Semua waktu</button>` : ''}
+                    </div>
+                </div>
+                <div class="table-responsive mb-3"><table class="table table-dark table-sm small mb-0">
+                    <thead><tr class="text-muted-poly"><th>Strategi</th><th class="text-end">Trade</th><th class="text-end">Selesai</th><th class="text-end">WR</th><th class="text-end">PnL</th><th class="text-end">ROI</th><th class="text-end">Terbuka</th></tr></thead>
+                    <tbody>${stats}</tbody></table></div>
+                ${(s.open_orders || []).length ? `<div class="fw-semibold text-white mb-1">Limit order maker terbuka</div>
+                    <ul class="list-unstyled mb-3">${s.open_orders.map(o => `<li>• ${escapeHtml(o.label || '')} @ ${Math.round(o.limit * 100)}¢
+                        <span class="text-muted-poly">(model ${Math.round(o.prob * 100)}%, $${Number(o.size).toFixed(2)})</span></li>`).join('')}</ul>` : ''}
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                    <div class="fw-semibold text-white">Riwayat trade & hasil</div>
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="autotradeHistoryFilter"
+                            onchange="window._autotradeHistoryFilter = this.value; renderAutotradeHistory()">
+                        <option value="">Semua strategi</option>
+                        ${Object.keys(s.stats || {}).map(n => `<option value="${escapeHtml(n)}" ${window._autotradeHistoryFilter === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}
+                    </select>
+                </div>
+                <div id="autotradeHistory" class="mb-3"></div>
+                <div class="fw-semibold text-white mb-1">Keputusan terbaru</div>
+                <div class="table-responsive" style="max-height: 320px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0">
+                    <thead><tr class="text-muted-poly"><th>Waktu</th><th>Strategi</th><th>Market</th><th>Sisi</th><th class="text-end">Model</th><th class="text-end">Biaya</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th>Status</th></tr></thead>
+                    <tbody>${recent}</tbody></table></div>
+                <div class="mt-2">Order dieksekusi di akun paper memakai harga ask order book live (VWAP sesuai ukuran) + fee taker. Posisi di-settle otomatis saat market resolve.</div>
+                ${buildAutotradeConfigForm(s.config || {})}
+                <details class="mt-3" ${window._autotradeResearchOpen ? 'open' : ''}
+                         ontoggle="window._autotradeResearchOpen = this.open; window.pauseAutoReload = this.open; if (this.open) fetchAutotradeResearch();">
+                    <summary class="fw-semibold text-white" style="cursor:pointer"><i class="bi bi-clipboard-data me-1"></i>Riset & saran penyesuaian</summary>
+                    <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
+                        <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="researchDays" onchange="fetchAutotradeResearch()">
+                            <option value="7">7 hari</option><option value="30">30 hari</option><option value="0" selected>Semua waktu</option>
+                        </select>
+                        <a class="btn btn-sm poly-btn-secondary py-1 px-3" id="researchCsv" href="/api/autotrade/signals.csv"><i class="bi bi-download me-1"></i>Export CSV</a>
+                    </div>
+                    <div id="autotradeResearch" class="mt-2">Memuat…</div>
+                </details>`;
+            renderAutotradeHistory();
+            if (window._autotradeResearchOpen) fetchAutotradeResearch();
+        }
+        async function fetchAutotradeResearch() {
+            const box = document.getElementById('autotradeResearch');
+            if (!box) return;
+            const days = (document.getElementById('researchDays') || {}).value || '0';
+            const csv = document.getElementById('researchCsv');
+            if (csv) csv.href = '/api/autotrade/signals.csv' + (days !== '0' ? `?days=${encodeURIComponent(days)}` : '');
+            try {
+                const res = await fetch('/api/autotrade/research' + (days !== '0' ? `?days=${encodeURIComponent(days)}` : ''));
+                if (!res.ok) throw new Error('Gagal');
+                box.innerHTML = renderResearch(await res.json());
+            } catch (err) { box.textContent = 'Gagal memuat riset.'; }
+        }
+        function renderResearch(rep) {
+            const pct = x => x === null || x === undefined ? '-' : Math.round(x * 100) + '%';
+            const roi = x => x === null || x === undefined ? '-' : `<span class="${pnlClass(x)}">${(x > 0 ? '+' : '') + (x * 100).toFixed(1)}%</span>`;
+            const cell = g => g && g.n ? `${roi(g.roi)} <span class="text-muted-poly">(n${safeNumber(g.n)})</span>` : '<span class="text-muted-poly">-</span>';
+            const entries = Object.entries(rep.strategies || {});
+            if (!entries.length) return '<div class="text-muted-poly">Belum ada sampel sinyal. Sampel mulai terkumpul saat auto trader berjalan.</div>';
+            const bucketNames = ((entries[0][1].edge_buckets) || []).map(b => b.range);
+            const rows = entries.map(([name, st]) => `<tr>
+                <td class="text-white">${escapeHtml(name)}</td><td class="text-end">${safeNumber(st.samples)}</td>
+                <td class="text-end">${safeNumber(st.markets)}</td><td class="text-end">${safeNumber(st.resolved)}</td>
+                <td class="text-end">${safeNumber(st.traded)}</td>
+                <td class="text-end">${pct(st.all.win_rate)} <span class="text-muted-poly">vs ${pct(st.all.avg_prob)}</span></td>
+                <td class="text-end">${cell(st.all)}</td>
+                ${st.edge_buckets.map(b => `<td class="text-end">${cell(b)}</td>`).join('')}</tr>`).join('');
+            const detail = entries.map(([name, st]) => {
+                const groups = [['Menit masuk', st.by_minute], ['Kota', st.by_city], ['Sepakat vs beda', st.by_agree],
+                                ['Jam menuju puncak', st.by_hours], ['Alasan', st.by_reason], ['Kalibrasi (peluang model)', (st.calibration || []).map(c => ({ ...c, key: c.range }))]]
+                    .filter(([, g]) => g && g.length)
+                    .map(([title, g]) => `<div class="col-md-6 col-xl-4"><div class="small fw-semibold text-white">${title}</div>
+                        <ul class="list-unstyled small mb-2">${g.map(x => `<li>${escapeHtml(String(x.key))}: WR ${pct(x.win_rate)} · ROI ${cell(x)}</li>`).join('')}</ul></div>`).join('');
+                return groups ? `<div class="mt-2"><div class="fw-semibold text-info small">${escapeHtml(name)}</div><div class="row">${groups}</div></div>` : '';
+            }).join('');
+            const maker = Object.entries(rep.maker || {}).filter(([, m]) => m.placed).map(([name, m]) =>
+                `<li>${escapeHtml(name)}: ${safeNumber(m.placed)} order · fill rate ${pct(m.fill_rate)} · selesai ${safeNumber(m.settled)} · PnL ${Number(m.pnl).toFixed(2)} · ROI ${roi(m.roi)}</li>`).join('');
+            const tips = (rep.suggestions || []).map(t => `<li class="mb-1">${escapeHtml(t)}</li>`).join('');
+            return `
+                ${tips ? `<div class="mb-2"><div class="fw-semibold text-white"><i class="bi bi-lightbulb me-1 text-warning"></i>Saran</div><ul class="small mb-0">${tips}</ul></div>` : ''}
+                <div class="table-responsive"><table class="table table-dark table-sm small mb-2">
+                    <thead><tr class="text-muted-poly"><th>Strategi</th><th class="text-end">Sampel</th><th class="text-end">Market</th><th class="text-end">Selesai</th>
+                        <th class="text-end">Ditrade</th><th class="text-end">WR vs model</th><th class="text-end">ROI semua</th>
+                        ${bucketNames.map(b => `<th class="text-end">edge ${escapeHtml(b)}</th>`).join('')}</tr></thead>
+                    <tbody>${rows}</tbody></table></div>
+                ${maker ? `<div class="small fw-semibold text-white">Maker</div><ul class="small">${maker}</ul>` : ''}
+                ${detail}
+                <div class="small text-muted-poly">ROI = seandainya membeli 1 share di harga ask + fee saat sinyal (termasuk sinyal yang dilewati).
+                    Saran ambang memakai satu entri per market dan butuh ≥${safeNumber(rep.min_sample)} market selesai.</div>`;
+        }
+        function buildAutotradeConfigForm(config) {
+            const open = window._autotradeConfigOpen ? 'open' : '';
+            const numeric = Object.entries(config).filter(([, c]) => c.type === 'float').map(([name, c]) => `
+                <div class="col-6 col-md-4 col-xl-3">
+                    <label class="form-label small text-muted-poly mb-1" for="cfg_${name}">${escapeHtml(c.label)}${c.overridden ? ' <span class="text-warning">•</span>' : ''}</label>
+                    <input type="number" step="any" min="${safeNumber(c.min)}" max="${safeNumber(c.max)}" id="cfg_${name}" data-cfg="${name}" data-original="${safeNumber(c.value)}"
+                           class="form-control form-control-sm bg-dark text-white border-secondary-subtle" value="${safeNumber(c.value)}"
+                           title="Default .env: ${escapeHtml(String(c.default))} · rentang ${safeNumber(c.min)}–${safeNumber(c.max)}">
+                </div>`).join('');
+            const agree = config.WEATHER_REQUIRE_AGREEMENT || {};
+            const strat = config.STRATEGIES || {};
+            const active = String(strat.value || '').split(',');
+            const checks = (strat.options || []).map(opt => `
+                <div class="form-check form-check-inline small">
+                    <input class="form-check-input" type="checkbox" id="cfg_strat_${opt}" data-strategy="${escapeHtml(opt)}" ${active.includes(opt) ? 'checked' : ''}>
+                    <label class="form-check-label" for="cfg_strat_${opt}">${escapeHtml(opt)}</label>
+                </div>`).join('');
+            return `<details class="mt-3" ${open} ontoggle="window._autotradeConfigOpen = this.open; window.pauseAutoReload = this.open">
+                <summary class="fw-semibold text-white" style="cursor:pointer"><i class="bi bi-sliders me-1"></i>Ubah aturan & batas</summary>
+                <div class="row g-2 mt-1">${numeric}</div>
+                <div class="mt-2">
+                    <div class="small text-muted-poly mb-1">${escapeHtml(strat.label || 'Strategi aktif')}${strat.overridden ? ' <span class="text-warning">•</span>' : ''}</div>
+                    ${checks}
+                </div>
+                <div class="form-check small mt-2">
+                    <input class="form-check-input" type="checkbox" id="cfg_WEATHER_REQUIRE_AGREEMENT" ${agree.value ? 'checked' : ''}>
+                    <label class="form-check-label" for="cfg_WEATHER_REQUIRE_AGREEMENT">${escapeHtml(agree.label || '')}</label>
+                </div>
+                <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
+                    <button class="btn btn-sm btn-success py-1 px-3" onclick="saveAutotradeConfig()"><i class="bi bi-save me-1"></i>Simpan</button>
+                    <button class="btn btn-sm poly-btn-secondary py-1 px-3" onclick="resetAutotradeConfig()">Kembalikan ke default .env</button>
+                    <span class="small" id="autotradeConfigMsg"></span>
+                </div>
+                <div class="small text-muted-poly mt-1"><span class="text-warning">•</span> = diubah dari dashboard (default dari .env). Berlaku langsung tanpa restart.</div>
+            </details>`;
+        }
+        async function saveAutotradeConfig() {
+            // Kirim hanya yang benar-benar diubah, agar sisanya tetap mengikuti default .env
+            const values = {};
+            const config = (window._autotradeStatus || {}).config || {};
+            document.querySelectorAll('[data-cfg]').forEach(el => {
+                if (el.value === '') values[el.dataset.cfg] = null;
+                else if (Number(el.value) !== Number(el.dataset.original)) values[el.dataset.cfg] = Number(el.value);
+            });
+            const strategies = [...document.querySelectorAll('[data-strategy]')].filter(el => el.checked).map(el => el.dataset.strategy);
+            const currentStrategies = String((config.STRATEGIES || {}).value || '').split(',').filter(Boolean).sort().join(',');
+            if ([...strategies].sort().join(',') !== currentStrategies) values.STRATEGIES = strategies;
+            const agree = document.getElementById('cfg_WEATHER_REQUIRE_AGREEMENT').checked;
+            if (agree !== !!(config.WEATHER_REQUIRE_AGREEMENT || {}).value) values.WEATHER_REQUIRE_AGREEMENT = agree;
+            if (!Object.keys(values).length) {
+                document.getElementById('autotradeConfigMsg').innerHTML = '<span class="text-muted-poly">Tidak ada perubahan.</span>';
+                return;
+            }
+            const msg = document.getElementById('autotradeConfigMsg');
+            try {
+                const res = await fetch('/api/autotrade/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                                                                   body: JSON.stringify({ values }) });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Gagal menyimpan');
+                renderAutotrade(data);
+                const m = document.getElementById('autotradeConfigMsg');
+                if (m) m.innerHTML = '<span class="text-success">Tersimpan.</span>';
+            } catch (err) {
+                if (msg) msg.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`;
+            }
+        }
+        async function resetAutotradeConfig() {
+            if (!confirm('Kembalikan semua aturan auto trader ke default dari .env?')) return;
+            const res = await fetch('/api/autotrade/config', { method: 'DELETE' });
+            if (res.ok) renderAutotrade(await res.json());
+        }
+        async function fetchAutotrade() {
+            try {
+                const res = await fetch('/api/autotrade');
+                if (!res.ok) throw new Error('Failed');
+                renderAutotrade(await res.json());
+            } catch (err) {
+                console.error(err);
+                document.getElementById('autotradeContainer').textContent = 'Gagal memuat status auto trader.';
+            }
+        }
+
+        // --- PORTFOLIO POLYMARKET SAYA (read-only) ---
+        let myWalletTab = 'positions';
+        function setMyWalletTab(tab) { myWalletTab = tab; if (window._myWallet) renderMyWallet(window._myWallet); }
+        function renderMyWallet(s) {
+            const box = document.getElementById('myWalletContainer');
+            const money = v => v === null || v === undefined ? '-' : walletMoney(v);
+            const usd = v => v === null || v === undefined ? '-' : '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const tile = (label, value, cls = 'text-white', hint = '') => `
+                <div class="col-6 col-md-3 col-xl"><div class="border border-secondary-subtle rounded p-2 h-100" ${hint ? `title="${escapeHtml(hint)}"` : ''}>
+                    <div class="text-muted-poly small">${label}</div><div class="fs-6 fw-bold ${cls}">${value}</div></div></div>`;
+            const pnl = s.pnl || {};
+            const st = s.stats || {};
+            document.getElementById('myWalletAddress').innerHTML =
+                `<a class="text-info text-decoration-none" href="https://polymarket.com/profile/${escapeHtml(s.address)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortAddr(s.address))} <i class="bi bi-box-arrow-up-right"></i></a>`;
+            const tiles = [
+                tile('Nilai posisi', usd(s.positions_value)),
+                tile('Cash', s.cash === null || s.cash === undefined ? '<span class="text-muted-poly small">butuh API key</span>' : usd(s.cash), 'text-white', 'Saldo USDC dari CLOB (butuh API key)'),
+                ...[['DAY', 'PnL hari ini'], ['WEEK', 'PnL 7 hari'], ['MONTH', 'PnL 30 hari'], ['ALL', 'PnL all-time']].map(([k, label]) =>
+                    tile(label, money((pnl[k] || {}).pnl), pnlClass((pnl[k] || {}).pnl))),
+                tile('Belum terealisasi', money(s.unrealized_pnl), pnlClass(s.unrealized_pnl), 'PnL posisi aktif jika dijual di harga sekarang'),
+                tile('Siap di-redeem', `${usd(s.claimable.value)} <span class="text-muted-poly small">(${safeNumber(s.claimable.count)})</span>`, s.claimable.count ? 'text-success' : 'text-white'),
+                tile('Win rate', st.win_rate === null || st.win_rate === undefined ? '-' : `${Math.round(st.win_rate * 100)}% <span class="text-muted-poly small">(${safeNumber(st.wins)}/${safeNumber(st.resolved)})</span>`),
+            ].join('');
+            const tips = (s.insights || []).map(t => `<li class="mb-1">${escapeHtml(t)}</li>`).join('');
+            const tab = (key, label, count) => `<button class="btn btn-sm ${myWalletTab === key ? 'btn-light' : 'poly-btn-secondary'} py-0 px-2" onclick="setMyWalletTab('${key}')">${label}${count !== null && count !== undefined ? ` (${count})` : ''}</button>`;
+            let table = '';
+            if (myWalletTab === 'positions') {
+                const rows = (s.positions || []).map(p => `<tr>
+                    <td>${p.url && /^https:\/\//.test(p.url) ? `<a class="text-white text-decoration-none" href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.title)}</a>` : escapeHtml(p.title)}</td>
+                    <td>${escapeHtml(p.outcome || '')}</td><td class="text-end">${Number(p.size).toFixed(1)}</td>
+                    <td class="text-end text-nowrap">${(p.avg_price * 100).toFixed(1)}¢ → ${(p.cur_price * 100).toFixed(1)}¢</td>
+                    <td class="text-end">${usd(p.value)}</td>
+                    <td class="text-end text-nowrap ${pnlClass(p.pnl)}">${money(p.pnl)} (${p.pnl_pct > 0 ? '+' : ''}${Number(p.pnl_pct).toFixed(0)}%)</td>
+                    <td class="text-nowrap">${p.end_date ? escapeHtml(new Date(p.end_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })) : '-'}</td></tr>`).join('')
+                    || '<tr><td colspan="7" class="text-muted-poly">Tidak ada posisi aktif.</td></tr>';
+                table = `<thead><tr class="text-muted-poly"><th>Market</th><th>Outcome</th><th class="text-end">Shares</th><th class="text-end">Beli → Sekarang</th><th class="text-end">Nilai</th><th class="text-end">PnL</th><th>Berakhir</th></tr></thead><tbody>${rows}</tbody>`;
+            } else if (myWalletTab === 'orders') {
+                const orders = s.open_orders;
+                const rows = orders === null || orders === undefined
+                    ? '<tr><td colspan="5" class="text-muted-poly">Open order butuh API key CLOB (POLYMARKET_API_KEY/SECRET/PASSPHRASE) di .env.</td></tr>'
+                    : (orders.map(o => `<tr><td>${escapeHtml(o.side || '')} ${escapeHtml(o.outcome || '')}</td><td class="text-end">${(o.price * 100).toFixed(1)}¢</td>
+                        <td class="text-end">${Number(o.filled)}/${Number(o.size)}</td><td class="text-end">${usd(o.remaining_usdc)}</td>
+                        <td class="small text-muted-poly">${escapeHtml(String(o.market || '').slice(0, 10))}…</td></tr>`).join('')
+                        || '<tr><td colspan="5" class="text-muted-poly">Tidak ada open order.</td></tr>');
+                table = `<thead><tr class="text-muted-poly"><th>Order</th><th class="text-end">Harga</th><th class="text-end">Terisi</th><th class="text-end">Sisa</th><th>Market</th></tr></thead><tbody>${rows}</tbody>`;
+            } else if (myWalletTab === 'claim') {
+                const rows = (s.claimable.items || []).map(p => `<tr><td>${escapeHtml(p.title)}</td><td>${escapeHtml(p.outcome || '')}</td>
+                    <td class="text-end">${usd(p.value)}</td><td class="text-end ${pnlClass(p.pnl)}">${money(p.pnl)}</td></tr>`).join('')
+                    || '<tr><td colspan="4" class="text-muted-poly">Tidak ada posisi yang siap di-redeem.</td></tr>';
+                table = `<thead><tr class="text-muted-poly"><th>Market</th><th>Outcome</th><th class="text-end">Nilai</th><th class="text-end">PnL</th></tr></thead><tbody>${rows}</tbody>`;
+            } else {
+                const rows = (s.activity || []).map(a => {
+                    const when = new Date(a.timestamp * 1000).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                    return `<tr><td class="text-nowrap">${escapeHtml(when)}</td><td>${escapeHtml(a.type || '')} ${escapeHtml(a.side || '')}</td>
+                        <td>${escapeHtml(a.outcome || '')}</td><td>${escapeHtml(a.title || '')}</td>
+                        <td class="text-end">${a.price ? (Number(a.price) * 100).toFixed(1) + '¢' : '-'}</td><td class="text-end">${a.usdc ? usd(a.usdc) : '-'}</td></tr>`;
+                }).join('') || '<tr><td colspan="6" class="text-muted-poly">Belum ada aktivitas.</td></tr>';
+                table = `<thead><tr class="text-muted-poly"><th>Waktu</th><th>Jenis</th><th>Outcome</th><th>Market</th><th class="text-end">Harga</th><th class="text-end">USDC</th></tr></thead><tbody>${rows}</tbody>`;
+            }
+            box.innerHTML = `
+                <div class="row g-2 mb-3">${tiles}</div>
+                ${tips ? `<div class="mb-3"><div class="fw-semibold text-white mb-1"><i class="bi bi-lightbulb me-1 text-warning"></i>Catatan</div><ul class="list-unstyled mb-0 text-muted-poly">${tips}</ul></div>` : ''}
+                <div class="d-flex gap-2 flex-wrap mb-2">
+                    ${tab('positions', 'Posisi aktif', (s.positions || []).length)}
+                    ${tab('claim', 'Siap di-redeem', s.claimable.count)}
+                    ${tab('orders', 'Open order', s.open_orders === null || s.open_orders === undefined ? null : s.open_orders.length)}
+                    ${tab('activity', 'Aktivitas', null)}
+                </div>
+                <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-dark table-sm align-middle small mb-0">${table}</table></div>`;
+        }
+        async function fetchMyWallet(refresh = false) {
+            const box = document.getElementById('myWalletContainer');
+            if (!box) return;
+            try {
+                const res = await fetch('/api/my-wallet' + (refresh ? '?refresh=true' : ''));
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Gagal');
+                if (!data.configured) {
+                    box.innerHTML = `Portfolio belum diatur. Isi <code>POLYMARKET_WALLET_ADDRESS</code> (alamat di profil Polymarket Anda) di <code>.env</code>,
+                        lalu restart container. Opsional: <code>POLYMARKET_API_KEY</code>/<code>SECRET</code>/<code>PASSPHRASE</code> untuk saldo cash & open order.`;
+                    return;
+                }
+                window._myWallet = data.summary;
+                renderMyWallet(data.summary);
+            } catch (err) {
+                box.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`;
+            }
+        }
+
+        // --- WALLET TRACKER ---
+        function walletMoney(v) {
+            if (v === null || v === undefined) return '-';
+            const n = Number(v); const a = Math.abs(n);
+            const body = a >= 1e6 ? '$' + (a / 1e6).toFixed(2) + 'M' : (a >= 1e3 ? '$' + (a / 1e3).toFixed(1) + 'K' : '$' + a.toFixed(0));
+            return (n > 0 ? '+' : (n < 0 ? '-' : '')) + body;
+        }
+        function walletAgo(ts) {
+            if (!ts) return '-';
+            const s = Math.max(0, Date.now() / 1000 - Number(ts));
+            return s < 3600 ? Math.floor(s / 60) + ' menit lalu' : (s < 86400 ? Math.floor(s / 3600) + ' jam lalu' : Math.floor(s / 86400) + ' hari lalu');
+        }
+        const shortAddr = a => String(a).slice(0, 6) + '…' + String(a).slice(-4);
+        const walletName = w => w.name ? `${escapeHtml(w.name)} <span class="text-muted-poly">${escapeHtml(shortAddr(w.address))}</span>` : escapeHtml(shortAddr(w.address));
+        const pnlClass = v => Number(v) > 0 ? 'text-success' : (Number(v) < 0 ? 'text-danger' : '');
+        const validAddr = a => /^0x[a-f0-9]{40}$/.test(String(a));
+        function walletNotice(text, isError = false) {
+            const el = document.getElementById('walletMessage');
+            if (el) el.innerHTML = text ? `<span class="${isError ? 'text-danger' : 'text-success'}">${escapeHtml(text)}</span>` : '';
+        }
+        async function walletAction(address, action) {
+            if (!validAddr(address)) return;
+            const url = action === 'untrack' ? `/api/wallets/${address}` : `/api/wallets/${address}/${action}`;
+            try {
+                const res = await fetch(url, { method: action === 'untrack' ? 'DELETE' : 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || 'Gagal');
+                const msg = { follow: 'Wallet diikuti — alert Telegram aktif.', unfollow: 'Berhenti mengikuti (masih dilacak).',
+                              skip: 'Wallet di-skip.', untrack: 'Wallet dihapus dari daftar.' }[action];
+                walletNotice(msg);
+                await fetchWallets();
+            } catch (err) { walletNotice(err.message, true); }
+        }
+        async function trackWalletFromInput() {
+            const input = document.getElementById('walletAddressInput');
+            const address = input.value.trim();
+            if (!address) return;
+            walletNotice('Mengambil statistik wallet…');
+            try {
+                const res = await fetch('/api/wallets', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify({ address }) });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Alamat tidak valid');
+                input.value = '';
+                walletNotice(`Melacak ${data.name || shortAddr(data.address)}.`);
+                await fetchWallets();
+                showWalletDetail(data.address);
+            } catch (err) { walletNotice(err.message, true); }
+        }
+        async function rediscoverWallets() {
+            const btn = document.getElementById('walletDiscoverBtn');
+            if (btn) btn.disabled = true;
+            const label = document.getElementById('walletCategory').selectedOptions[0].textContent;
+            walletNotice(`Menganalisis wallet leaderboard ${label}… (±30 detik)`);
+            try {
+                const res = await fetch('/api/wallets/discover?category=' + encodeURIComponent(walletCategory()), { method: 'POST' });
+                if (!res.ok) throw new Error('Gagal mencari wallet');
+                walletNotice('Rekomendasi diperbarui.');
+                await fetchWallets();
+            } catch (err) { walletNotice(err.message, true); }
+            finally { if (btn) btn.disabled = false; }
+        }
+        function walletStatsCells(st) {
+            const wr = st.win_rate === null || st.win_rate === undefined ? '-' : Math.round(st.win_rate * 100) + '%';
+            return { wr: `${wr} <span class="text-muted-poly">(${safeNumber(st.wins)}/${safeNumber(st.resolved)})</span>`,
+                     pnl: `<span class="${pnlClass(st.pnl)}">${walletMoney(st.pnl)}</span>`,
+                     all: `<span class="${pnlClass(st.pnl_all)}">${walletMoney(st.pnl_all)}</span>` };
+        }
+        function renderWalletCandidates(list) {
+            const box = document.getElementById('walletCandidatesContainer');
+            if (!list.length) {
+                box.innerHTML = '<div class="col-12 small text-muted-poly">Belum ada rekomendasi. Klik "Cari ulang".</div>';
+                return;
+            }
+            box.innerHTML = list.slice(0, 6).map(c => {
+                const st = c.stats || {}; const cells = walletStatsCells(st);
+                const addr = escapeHtml(c.address);
+                return `<div class="col-md-6"><div class="weather-event-card h-100">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <h6 class="weather-event-title mb-0">#${safeNumber(c.rank)} ${walletName(c)}</h6>
+                        <a class="small text-info text-decoration-none" href="https://polymarket.com/profile/${addr}" target="_blank" rel="noopener noreferrer">profil <i class="bi bi-box-arrow-up-right"></i></a>
+                    </div>
+                    <div class="small mb-1">WR ${cells.wr} · PnL 30h ${cells.pnl} · all-time ${cells.all}
+                        ${st.margin !== null && st.margin !== undefined ? ` · margin ${(Number(st.margin) * 100).toFixed(1)}%` : ''}
+                        ${st.avg_entry !== null && st.avg_entry !== undefined ? ` · beli rata-rata ${Math.round(Number(st.avg_entry) * 100)}¢` : ''}</div>
+                    <div class="small text-muted-poly mb-2">${escapeHtml(c.reason || '')}</div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button class="btn btn-sm btn-success py-0 px-2" onclick="walletAction('${addr}', 'follow')"><i class="bi bi-bell me-1"></i>Ikuti</button>
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${addr}', 'skip')"><i class="bi bi-skip-forward me-1"></i>Skip</button>
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="showWalletDetail('${addr}')"><i class="bi bi-graph-up me-1"></i>Detail</button>
+                    </div>
+                </div></div>`;
+            }).join('');
+        }
+        function renderWalletTracked(list) {
+            const body = document.getElementById('walletTrackedBody');
+            if (!list.length) {
+                body.innerHTML = '<tr><td colspan="7" class="text-muted-poly">Belum ada. Ikuti dari rekomendasi atau lacak alamat di atas.</td></tr>';
+                return;
+            }
+            body.innerHTML = list.map(w => {
+                const st = w.stats || {}; const cells = walletStatsCells(st);
+                const addr = escapeHtml(w.address);
+                return `<tr>
+                    <td>${w.follow ? '🔔' : '🔕'} ${walletName(w)}</td>
+                    <td class="text-end">${cells.wr}</td><td class="text-end">${cells.pnl}</td><td class="text-end">${cells.all}</td>
+                    <td class="text-end">${safeNumber(st.open_positions)}</td><td>${escapeHtml(walletAgo(st.last_trade_ts))}</td>
+                    <td class="text-end text-nowrap">
+                        ${w.follow
+                            ? `<button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${addr}', 'unfollow')" title="Berhenti ikuti"><i class="bi bi-bell-slash"></i></button>`
+                            : `<button class="btn btn-sm btn-success py-0 px-2" onclick="walletAction('${addr}', 'follow')" title="Ikuti"><i class="bi bi-bell"></i></button>`}
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="showWalletDetail('${addr}')" title="Detail"><i class="bi bi-graph-up"></i></button>
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${addr}', 'untrack')" title="Hapus"><i class="bi bi-trash"></i></button>
+                    </td></tr>`;
+            }).join('');
+        }
+        const WALLET_CATEGORY_KEY = 'walletCategory';
+        function walletCategory() {
+            const sel = document.getElementById('walletCategory');
+            return sel ? sel.value : 'WEATHER';
+        }
+        function onWalletCategoryChange() {
+            try { localStorage.setItem(WALLET_CATEGORY_KEY, walletCategory()); } catch (e) { /* abaikan */ }
+            document.getElementById('walletCandidatesContainer').innerHTML = '<div class="col-12 small text-muted-poly">Memuat…</div>';
+            fetchWallets(true);
+        }
+        (function initWalletCategory() {
+            const sel = document.getElementById('walletCategory');
+            let saved = null;
+            try { saved = localStorage.getItem(WALLET_CATEGORY_KEY); } catch (e) { /* abaikan */ }
+            if (sel && saved && [...sel.options].some(o => o.value === saved)) sel.value = saved;
+        })();
+        async function fetchWallets(autoDiscover = false) {
+            try {
+                const res = await fetch('/api/wallets?category=' + encodeURIComponent(walletCategory()));
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                // Kategori yang belum pernah dianalisis: jalankan pencarian otomatis
+                if (autoDiscover && data.candidates_age_minutes === null) { rediscoverWallets(); return; }
+                renderWalletCandidates(data.candidates || []);
+                renderWalletTracked(data.tracked || []);
+                const age = document.getElementById('walletCandidatesAge');
+                if (age) age.textContent = data.candidates_age_minutes !== null && data.candidates_age_minutes !== undefined
+                    ? `· diperbarui ${data.candidates_age_minutes} menit lalu` : '';
+            } catch (err) {
+                console.error(err);
+                document.getElementById('walletCandidatesContainer').innerHTML = '<div class="col-12 small text-muted-poly">Gagal memuat wallet.</div>';
+            }
+        }
+        async function showWalletDetail(address) {
+            if (!validAddr(address)) return;
+            const box = document.getElementById('walletDetail');
+            window.pauseAutoReload = true;  // jangan reload halaman saat detail dibuka
+            box.innerHTML = '<div class="small text-muted-poly">Memuat detail wallet…</div>';
+            try {
+                const res = await fetch(`/api/wallets/${address}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Gagal');
+                const st = data.stats || {}; const cells = walletStatsCells(st);
+                const rows = (data.activity || []).map(a => {
+                    const when = new Date(a.timestamp * 1000).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                    const price = a.price ? (Number(a.price) * 100).toFixed(1) + '¢' : '-';
+                    const usdc = a.usdc ? '$' + Number(a.usdc).toFixed(2) : '-';
+                    return `<tr><td class="text-nowrap">${escapeHtml(when)}</td><td>${escapeHtml(a.type || '')} ${escapeHtml(a.side || '')}</td>
+                        <td>${escapeHtml(a.outcome || '')}</td><td>${escapeHtml(a.title || '')}</td>
+                        <td class="text-end">${price}</td><td class="text-end">${usdc}</td></tr>`;
+                }).join('') || '<tr><td colspan="6" class="text-muted-poly">Belum ada aktivitas.</td></tr>';
+                const t = data.tracked;
+                const following = t && t.follow && t.status === 'tracking';
+                box.innerHTML = `<div class="weather-event-card">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                        <h6 class="weather-event-title mb-0">${walletName({ name: st.name, address })}</h6>
+                        <div class="d-flex gap-2">
+                            ${following
+                                ? `<button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${address}', 'unfollow')"><i class="bi bi-bell-slash me-1"></i>Berhenti ikuti</button>`
+                                : `<button class="btn btn-sm btn-success py-0 px-2" onclick="walletAction('${address}', 'follow')"><i class="bi bi-bell me-1"></i>Ikuti</button>`}
+                            <a class="btn btn-sm poly-btn-secondary py-0 px-2" href="${escapeHtml(data.profile_url)}" target="_blank" rel="noopener noreferrer">Polymarket <i class="bi bi-box-arrow-up-right"></i></a>
+                            <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="closeWalletDetail()" aria-label="Tutup"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                    </div>
+                    <div class="small mb-2">WR ${cells.wr} · PnL 30h ${cells.pnl} · all-time ${cells.all}
+                        ${st.margin !== null && st.margin !== undefined ? ` · margin ${(Number(st.margin) * 100).toFixed(1)}%` : ''}
+                        ${st.avg_entry !== null && st.avg_entry !== undefined ? ` · beli rata-rata ${Math.round(Number(st.avg_entry) * 100)}¢` : ''}
+                        · posisi terbuka ${safeNumber(st.open_positions)}
+                        · cuaca ${st.weather_share !== null && st.weather_share !== undefined ? Math.round(st.weather_share * 100) + '%' : '-'} · aktif ${escapeHtml(walletAgo(st.last_trade_ts))}</div>
+                    <div class="fw-semibold text-white small mb-1">Riwayat aktivitas</div>
+                    <div class="table-responsive"><table class="table table-dark table-sm small mb-0">
+                        <thead><tr class="text-muted-poly"><th>Waktu</th><th>Jenis</th><th>Outcome</th><th>Market</th><th class="text-end">Harga</th><th class="text-end">USDC</th></tr></thead>
+                        <tbody>${rows}</tbody></table></div>
+                </div>`;
+            } catch (err) {
+                box.innerHTML = `<div class="small text-danger">${escapeHtml(err.message)}</div>`;
+            }
+        }
+        function closeWalletDetail() {
+            document.getElementById('walletDetail').innerHTML = '';
+            window.pauseAutoReload = false;
+        }
+
+        // --- STATISTIK SARAN BOT ---
+        async function fetchRecommendationStats() {
+            const container = document.getElementById('recStatsContainer');
+            if (!container) return;
+            const days = document.getElementById('recStatsDays').value;
+            try {
+                const res = await fetch('/api/recommendations/stats' + (days !== '0' ? `?days=${encodeURIComponent(days)}` : ''));
+                if (!res.ok) throw new Error('Failed');
+                const s = await res.json();
+                if (!s.sent) {
+                    container.innerHTML = 'Belum ada saran yang terkirim pada periode ini.';
+                    return;
+                }
+                const pct = x => x === null || x === undefined ? '-' : Math.round(x * 100) + '%';
+                const roi = x => x === null || x === undefined ? '-' : (x >= 0 ? '+' : '') + Math.round(x * 100) + '%';
+                const odd = x => x === null || x === undefined ? '-' : (x * 100).toFixed(1) + '¢';
+                const tile = (label, value, cls = 'text-white') => `
+                    <div class="col-6 col-md-3"><div class="border border-secondary-subtle rounded p-2 h-100">
+                        <div class="text-muted-poly small">${label}</div>
+                        <div class="fs-5 fw-bold ${cls}">${value}</div></div></div>`;
+                const kinds = [['highest', 'Suhu tertinggi'], ['lowest', 'Suhu terendah']]
+                    .filter(([k]) => s.by_kind[k].decided)
+                    .map(([k, name]) => `${name}: ${s.by_kind[k].wins}/${s.by_kind[k].decided} (${pct(s.by_kind[k].win_rate)}) · ROI ${roi(s.by_kind[k].roi)}`)
+                    .join(' &nbsp;|&nbsp; ');
+                const icons = { WIN: '✅', LOSS: '❌', VOID: '⚪' };
+                const recent = s.recent.map(r => `
+                    <li class="mb-1">${icons[r.result] || ''} <span class="text-white">${escapeHtml(r.city)}</span>
+                        · ${r.kind === 'highest' ? 'max' : 'min'} ${escapeHtml(r.local_date)}
+                        · ${escapeHtml(r.bracket || '-')} @ ${odd(r.price_yes)}
+                        ${r.result === 'LOSS' && r.winning_bracket ? `<span class="text-warning">→ menang: ${escapeHtml(r.winning_bracket)}</span>` : ''}</li>`).join('');
+                container.innerHTML = `
+                    <div class="row g-2 mb-2">
+                        ${tile('Win rate', pct(s.win_rate), s.win_rate >= 0.5 ? 'text-success' : 'text-white')}
+                        ${tile('Menang / Kalah', `${safeNumber(s.wins)} / ${safeNumber(s.losses)}`)}
+                        ${tile('Odds rata-rata', odd(s.avg_odds))}
+                        ${tile('ROI per $1', roi(s.roi), s.roi > 0 ? 'text-success' : (s.roi < 0 ? 'text-danger' : 'text-white'))}
+                    </div>
+                    <div class="mb-2">Terkirim ${safeNumber(s.sent)} · sudah ada hasil ${safeNumber(s.decided)} · menunggu ${safeNumber(s.pending)}${s.void ? ` · batal ${safeNumber(s.void)}` : ''}
+                        ${s.winner_in_alternatives ? ` · saat kalah, ${safeNumber(s.winner_in_alternatives)}× pemenangnya bracket alternatif` : ''}</div>
+                    ${kinds ? `<div class="mb-2">${kinds}</div>` : ''}
+                    ${recent ? `<div class="fw-semibold text-white mt-3 mb-1">Hasil terakhir</div><ul class="list-unstyled mb-0">${recent}</ul>` : ''}`;
+            } catch (err) {
+                console.error(err);
+                container.innerHTML = 'Gagal memuat statistik.';
+            }
+        }
+
         async function fetchSuggestedMarkets() {
             const container = document.getElementById('suggestedMarketsContainer');
             const badge = document.getElementById('suggestionsCount');
@@ -1919,57 +3097,33 @@
             try {
                 const res = await fetch('/api/markets/suggestions');
                 if (!res.ok) throw new Error('Failed');
-                const list = await res.json();
-                if (badge) badge.textContent = `${list.length} available`;
-                if (!list.length) {
-                    container.innerHTML = `<div class="col-12 text-center text-muted-poly py-4">No suggested markets meeting criteria at this moment.</div>`;
+                const allEvents = await res.json();
+                const top = getSuggestionsTop();
+                const events = applyTopVolumeFilter(allEvents, top);
+                if (badge) badge.textContent = events.length === allEvents.length
+                    ? `${events.length} kota` : `${events.length} dari ${allEvents.length} kota`;
+                if (events.length) {
+                    container.innerHTML = buildSuggestionCardsHtml(events);
                     return;
                 }
-                let html = '';
-                list.forEach(sm => {
-                    const side = (sm.side === 'NO') ? 'NO' : 'YES';
-                    const isYes = (side === 'YES');
-                    const badgeClass = isYes ? 'badge-outcome-yes' : 'badge-outcome-no';
-                    const name = escapeHtml(sm.market_name);
-                    const polyUrl = safeUrl(sm.polymarket_url || `https://polymarket.com/markets?_q=${encodeURIComponent(sm.market_name || '')}`);
-                    html += `
-                        <div class="col-md-6 col-lg-4">
-                            <div class="poly-card h-100 p-3 d-flex flex-column justify-content-between">
-                                <div>
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
-                                        <span class="${badgeClass}">${side}</span>
-                                        <span class="badge bg-dark text-warning border border-warning-subtle small">
-                                            <i class="bi bi-clock me-1"></i>${escapeHtml(sm.time_remaining)}
-                                        </span>
-                                    </div>
-                                    <h6 class="fw-bold mb-3" style="min-height: 44px;">
-                                        <a href="${polyUrl}" target="_blank" rel="noopener noreferrer" class="market-title-link text-white text-decoration-none" title="Buka di Polymarket (Tab Baru)">
-                                            ${name}
-                                            <i class="bi bi-box-arrow-up-right ms-1 market-external-icon"></i>
-                                        </a>
-                                    </h6>
-                                </div>
-                                <div class="d-flex justify-content-between align-items-center pt-2 border-top border-secondary-subtle">
-                                    <div>
-                                        <span class="text-muted-poly small">Price:</span>
-                                        <span class="fw-bold text-white fs-6 ms-1">$${safeNumber(sm.current_price).toFixed(2)}</span>
-                                    </div>
-                                    <button class="btn btn-sm btn-success px-3 fw-medium"
-                                            data-market-id="${escapeHtml(sm.market_id)}"
-                                            data-market-name="${name}"
-                                            data-price="${safeNumber(sm.current_price)}"
-                                            data-side="${side}"
-                                            onclick="openPaperBuyModalFromBtn(this)">
-                                        <i class="bi bi-cart-plus me-1"></i>Paper Buy
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                });
-                container.innerHTML = html;
+                let scheduleHtml = '';
+                try {
+                    const allSched = await fetch('/api/markets/suggestions/schedule?limit=100').then(r => r.ok ? r.json() : []);
+                    const sched = applyTopVolumeFilter(allSched, top).slice(0, 8);
+                    if (sched.length) {
+                        scheduleHtml = `<div class="small fw-semibold text-white mb-2"><i class="bi bi-calendar-event me-1"></i>Jendela berikutnya</div><ul class="list-unstyled small mb-0">` +
+                            sched.map(w => `<li class="mb-1"><span class="text-white">${escapeHtml(w.city)}</span> · ${w.kind === 'highest' ? 'tertinggi' : 'terendah'} · ${escapeHtml(w.window_label)} <span class="text-warning">(${escapeHtml(w.starts_in)})</span></li>`).join('') +
+                            `</ul>`;
+                    }
+                } catch (e) { console.error(e); }
+                const hidden = allEvents.length - events.length;
+                const hiddenNote = hidden > 0
+                    ? `<div class="small mt-1">${hidden} kota lain sedang aktif tapi di luar Top ${top} volume — ubah filter untuk melihatnya.</div>` : '';
+                container.innerHTML = `<div class="col-12 text-muted-poly py-3"><div class="text-center mb-3"><i class="bi bi-inbox fs-3 d-block mb-2"></i>Belum ada kota ${top ? `Top ${top} volume ` : ''}yang sedang berada di jendela rekomendasi.${hiddenNote}</div>${scheduleHtml}</div>`;
             } catch (err) {
                 console.error(err);
+                if (badge) badge.textContent = 'Error';
+                container.innerHTML = `<div class="col-12 text-center text-muted-poly py-4">Gagal memuat rekomendasi. <button class="poly-btn-secondary ms-2 px-3 py-1" onclick="fetchSuggestedMarkets()">Coba lagi</button></div>`;
             }
         }
 
@@ -2012,6 +3166,16 @@
         document.addEventListener('DOMContentLoaded', () => {
             fetchWeatherEvents();
             fetchElonEvents();
+            initSuggestionsTopFilter();
+            fetchSuggestedMarkets();
+            fetchRecommendationStats();
+            initStationWeather();
+            initHkHourly();
+            fetchReversals();
+            fetchInsider();
+            fetchWallets();
+            fetchMyWallet();
+            fetchAutotrade();
         });
     </script>
 

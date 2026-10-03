@@ -20,7 +20,16 @@ from app.market_collector.collector import (
     prune_market_snapshots,
     run_collection_cycle,
 )
+from app.paper_trading.recommendation_alerts import run_recommendation_alerts
+from app.paper_trading.hko_alerts import run_hko_alerts
+from app.paper_trading.hko_hourly import run_hourly_forecasts
+from app.paper_trading.insider import run_insider_scan
+from app.paper_trading.recommendation_results import run_recommendation_tracking
+from app.paper_trading.reversal_watch import run_reversal_watch
 from app.paper_trading.settlement_worker import run_settlement_cycle
+from app.paper_trading.autotrade_research import run_signal_tracking
+from app.paper_trading.autotrader import run_autotrade_tick
+from app.paper_trading.wallets import run_wallet_maintenance, run_wallet_polling
 
 logger = get_logger("market_collector_runner")
 
@@ -77,6 +86,10 @@ def main():
     if args.once:
         count = run_collection_cycle()
         run_settlement_cycle()
+        run_recommendation_alerts()
+        run_recommendation_tracking()
+        run_hko_alerts()
+        run_hourly_forecasts()
         logger.info("Mode --once selesai. Total snapshot tersimpan: %d", count)
         sys.exit(0)
 
@@ -87,6 +100,16 @@ def main():
             count = run_collection_cycle()
             logger.info("Siklus berhasil, %d market tersimpan pada %s", count, start_time.isoformat())
             run_settlement_cycle()
+            run_recommendation_alerts()
+            run_recommendation_tracking()
+            run_hko_alerts()
+            run_hourly_forecasts()
+            run_reversal_watch()
+            run_wallet_maintenance()
+            run_wallet_polling()
+            run_insider_scan()
+            run_autotrade_tick(include_weather=True)
+            run_signal_tracking()
             prune_market_snapshots()
         except Exception as loop_err:
             logger.error("Error tak tertangani pada runner loop: %s", str(loop_err), exc_info=True)
@@ -96,11 +119,22 @@ def main():
         sleep_duration = max(0.0, float(interval) - elapsed)
         logger.info("Menunggu siklus berikutnya dalam %.1f detik...", sleep_duration)
 
-        slept = 0.0
+        # Selama menunggu, cek transaksi wallet yang diikuti tiap WALLET_POLL_SECONDS (alert real-time)
+        slept, since_wallet_poll, since_autotrade = 0.0, 0.0, 0.0
+        wallet_every = max(15, settings.WALLET_POLL_SECONDS)
+        autotrade_every = max(5, settings.AUTOTRADE_POLL_SECONDS)
         while _running and slept < sleep_duration:
             step = min(1.0, sleep_duration - slept)
             time.sleep(step)
             slept += step
+            since_wallet_poll += step
+            since_autotrade += step
+            if since_wallet_poll >= wallet_every:
+                since_wallet_poll = 0.0
+                run_wallet_polling()
+            if since_autotrade >= autotrade_every:  # BTC per jam: cek model vs order book tiap beberapa detik
+                since_autotrade = 0.0
+                run_autotrade_tick()
 
     logger.info("Market Collector Service dihentikan dengan aman.")
 
