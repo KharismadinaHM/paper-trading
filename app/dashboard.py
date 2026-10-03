@@ -276,6 +276,14 @@ def hk_climate_api(month: Optional[int] = None, years: int = 10, max_threshold: 
                         min_threshold=min_threshold)
 
 
+@app.get("/api/insider", dependencies=[Depends(require_auth)])
+def insider_api(hours: Optional[int] = None, limit: int = 30):
+    """Taruhan berpola insider wallet yang ditandai + ketepatan sinyal setelah market resolve."""
+    from app.paper_trading.insider import MAX_SCORE, insider_report
+    data = insider_report(hours=hours if hours and hours > 0 else None, limit=max(1, min(limit, 100)))
+    return {**data, "max_score": MAX_SCORE, "min_score": settings.INSIDER_MIN_SCORE}
+
+
 @app.get("/api/reversals", dependencies=[Depends(require_auth)])
 def reversals_api(days: Optional[int] = None, limit: int = 30):
     """Waspada berbalik: favorit ≥90¢ yang dipantau (market volume besar & likuid), warning, konfirmasi, hasil."""

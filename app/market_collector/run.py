@@ -23,6 +23,7 @@ from app.market_collector.collector import (
 from app.paper_trading.recommendation_alerts import run_recommendation_alerts
 from app.paper_trading.hko_alerts import run_hko_alerts
 from app.paper_trading.hko_hourly import run_hourly_forecasts
+from app.paper_trading.insider import run_insider_scan
 from app.paper_trading.recommendation_results import run_recommendation_tracking
 from app.paper_trading.reversal_watch import run_reversal_watch
 from app.paper_trading.settlement_worker import run_settlement_cycle
@@ -106,6 +107,7 @@ def main():
             run_reversal_watch()
             run_wallet_maintenance()
             run_wallet_polling()
+            run_insider_scan()
             run_autotrade_tick(include_weather=True)
             run_signal_tracking()
             prune_market_snapshots()

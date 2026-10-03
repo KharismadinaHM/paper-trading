@@ -416,6 +416,41 @@ class ReversalWatch(Base):
     __table_args__ = (UniqueConstraint("city", "kind", "local_date", "fav_label", name="uq_reversal_watch"),)
 
 
+class InsiderFlag(Base):
+    """
+    Taruhan besar dengan pola "insider" (wallet baru, sedikit market, beli longshot, nominal besar, porsi
+    besar dari porto, market segera selesai) beserta skor, alasan, dan hasil setelah market resolve.
+    """
+    __tablename__ = "insider_flags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    wallet: Mapped[str] = mapped_column(String(42), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    condition_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    outcome: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    outcome_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    slug: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    cash: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    shares: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    avg_price: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    reasons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)          # JSON list
+    wallet_age_days: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 1), nullable=True)
+    markets_traded: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    market_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_trade_ts: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    last_trade_ts: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    flagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    alerted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)    # WIN / LOSS / VOID / UNKNOWN
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("wallet", "condition_id", "outcome_index", name="uq_insider_flag"),
+                      Index("idx_insider_flags_flagged_at", "flagged_at"))
+
+
 class TrackedWallet(Base):
     """
     Wallet Polymarket yang dilacak. status: 'tracking' (dipantau) / 'skipped' (disembunyikan dari

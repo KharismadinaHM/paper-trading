@@ -1135,6 +1135,29 @@
             </div>
         </div>
 
+        <!-- 2d-2. INSIDER WALLET (taruhan besar berpola orang dalam + ketepatan) -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-incognito me-2 text-warning"></i>Insider Wallet</h5>
+                <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="insiderHours" onchange="fetchInsider()">
+                    <option value="24">24 jam</option><option value="168">7 hari</option><option value="0" selected>Semua waktu</option>
+                </select>
+            </div>
+            <div id="insiderSummary" class="small text-muted-poly mb-2">Memuat…</div>
+            <div class="table-responsive" style="max-height: 460px; overflow-y: auto;">
+                <table class="table table-dark table-sm small mb-0 align-middle">
+                    <thead class="sticky-top"><tr class="text-muted-poly"><th>Waktu</th><th>Skor</th><th>Wallet</th><th>Taruhan</th>
+                        <th class="text-end">Nominal</th><th class="text-end">Harga</th><th>Hasil</th><th class="text-end">Aksi</th></tr></thead>
+                    <tbody id="insiderBody"></tbody>
+                </table>
+            </div>
+            <div class="small text-muted-poly mt-3">
+                Dipindai tiap 5 menit dari trade besar di semua market (olahraga/esports & "Up or Down" dilewati). Skor 0–15 dari: wallet baru,
+                sedikit market, beli sisi longshot, nominal besar, porsi besar dari porto, market segera selesai. Heuristik, bukan bukti —
+                pola sama juga dimiliki penjudi besar. Ketepatan diisi otomatis setelah market resolve.
+            </div>
+        </div>
+
         <!-- 3. SEARCH MARKET SECTION - POLYMARKET STYLE WEATHER EVENTS -->
         <div class="poly-card p-4 mb-4">
             <!-- Header: Title + Date Tabs -->
@@ -2392,6 +2415,45 @@
             fetchHkHourly();
         }
 
+        // --- INSIDER WALLET ---
+        async function fetchInsider() {
+            const body = document.getElementById('insiderBody');
+            if (!body) return;
+            const hours = document.getElementById('insiderHours').value;
+            try {
+                const res = await fetch('/api/insider?hours=' + encodeURIComponent(hours));
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                const s = data.summary;
+                const parts = [`Ditandai <b class="text-white">${s.flags}</b>`, `selesai ${s.decided}`, `menunggu ${s.pending}`];
+                if (s.decided) parts.push(`ketepatan <b class="text-white">${s.wins}/${s.decided} (${Math.round(s.win_rate * 100)}%)</b> di harga rata-rata ${Math.round(s.avg_price * 100)}¢`,
+                                          `ROI seandainya ikut <b class="${pnlClass(s.roi)}">${(s.roi * 100).toFixed(0)}%</b>`);
+                parts.push(`ambang skor ${data.min_score}/${data.max_score}`);
+                document.getElementById('insiderSummary').innerHTML = parts.join(' · ');
+                const result = { WIN: '<span class="badge bg-success">✅ menang</span>', LOSS: '<span class="badge bg-danger">❌ kalah</span>',
+                                 VOID: '<span class="badge bg-secondary">batal</span>', UNKNOWN: '<span class="badge bg-secondary">?</span>' };
+                body.innerHTML = (data.items || []).map(it => {
+                    const name = it.name && !/^0x/i.test(it.name) ? it.name : shortAddr(it.wallet);
+                    const when = new Date(it.flagged_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                    const link = it.slug ? `https://polymarket.com/event/${encodeURIComponent(it.slug)}` : null;
+                    return `<tr>
+                        <td class="text-nowrap">${escapeHtml(when)}</td>
+                        <td><span class="badge ${it.score >= 10 ? 'bg-danger' : 'bg-warning text-dark'}">${it.score}/${data.max_score}</span></td>
+                        <td><a class="text-info text-decoration-none" href="https://polymarket.com/profile/${encodeURIComponent(it.wallet)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>
+                            <div class="text-muted-poly" style="font-size:.75rem">${it.age_days !== null ? Math.round(it.age_days) + ' hari' : ''}${it.markets_traded !== null ? ' · ' + it.markets_traded + ' market' : ''}</div></td>
+                        <td><div class="text-white">${escapeHtml(it.outcome || '')} — ${link ? `<a class="text-white" href="${link}" target="_blank" rel="noopener noreferrer">${escapeHtml(it.title || '')}</a>` : escapeHtml(it.title || '')}</div>
+                            <div class="text-muted-poly" style="font-size:.75rem">${escapeHtml((it.reasons || []).join(' · '))}</div></td>
+                        <td class="text-end">$${Math.round(it.cash).toLocaleString('en-US')}</td>
+                        <td class="text-end">${(it.avg_price * 100).toFixed(1)}¢</td>
+                        <td>${result[it.result] || '<span class="text-muted-poly">menunggu</span>'}</td>
+                        <td class="text-end"><button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="walletAction('${escapeHtml(it.wallet)}', 'follow')">Ikuti</button></td></tr>`;
+                }).join('') || '<tr><td colspan="8" class="text-muted-poly">Belum ada taruhan mencurigakan yang tercatat.</td></tr>';
+            } catch (err) {
+                console.error(err);
+                body.innerHTML = '<tr><td colspan="8" class="text-muted-poly">Gagal memuat data insider wallet.</td></tr>';
+            }
+        }
+
         // --- WASPADA BERBALIK ---
         async function fetchReversals() {
             const body = document.getElementById('reversalBody');
@@ -3110,6 +3172,7 @@
             initStationWeather();
             initHkHourly();
             fetchReversals();
+            fetchInsider();
             fetchWallets();
             fetchMyWallet();
             fetchAutotrade();

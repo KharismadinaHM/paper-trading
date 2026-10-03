@@ -125,6 +125,15 @@ class Settings(BaseSettings):
     # Alert saat porto sendiri (POLYMARKET_WALLET_ADDRESS) dan wallet yang diikuti memegang market yang sama
     WALLET_OVERLAP_ALERTS: bool = True
     WALLET_OVERLAP_CHECK_MINUTES: int = 10
+    # Insider wallet: taruhan besar berpola "tahu lebih dulu" (lihat app/paper_trading/insider.py)
+    INSIDER_ENABLED: bool = True
+    INSIDER_ALERTS: bool = True
+    INSIDER_SCAN_MINUTES: int = 5
+    INSIDER_MIN_TRADE_USD: float = 1000.0      # trade yang diambil dari feed /trades
+    INSIDER_MIN_BET_USD: float = 2000.0        # total per wallet + market + outcome
+    INSIDER_MAX_PRICE: float = 0.50            # hanya beli sisi yang dinilai pasar ≤ 50%
+    INSIDER_MIN_SCORE: int = 7                 # dari 15
+    INSIDER_EXCLUDE_SPORTS: bool = True        # lewati olahraga/esports & "Up or Down"
 
     # Portfolio Polymarket sendiri (READ-ONLY). Alamat wallet = alamat di profil Polymarket.
     POLYMARKET_WALLET_ADDRESS: Optional[str] = None

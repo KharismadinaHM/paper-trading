@@ -67,7 +67,7 @@ def build_help_message() -> str:
         "📜 `/autoriwayat` - Riwayat trade auto: menang/kalah, PnL & detail (`/autoriwayat 20 btc`)\n"
         "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover [kategori]` - Rekomendasi wallet per kategori market: cuaca, kripto, olahraga, politik, … (tombol Ikuti / Skip)\n"
-        "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"
+        "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"        "🕵️ `/insider [jam]` - Taruhan besar berpola insider (wallet baru, longshot, nominal besar) & ketepatannya\n"
         "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"
         "🔄 `/berbalik` - Riwayat waspada berbalik: favorit ≥90¢, warning, benar berbalik atau tidak (`/berbalik 7`)\n"
         "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan) · `/hk iklim` (klimatologi bulan ini + insight)\n"
@@ -482,6 +482,10 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
             elif a.lower() in STRATEGY_VERSIONS:
                 strategy = a.lower()
         return format_trade_history(limit=limit, strategy=strategy)
+    elif cmd in ("/insider", "/orangdalam"):
+        from app.paper_trading.insider import format_insider_report
+        hours = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return format_insider_report(hours=hours)
     elif cmd in ("/berbalik", "/reversal"):
         from app.paper_trading.reversal_watch import format_reversal_history
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
