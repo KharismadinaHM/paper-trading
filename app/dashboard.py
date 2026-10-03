@@ -334,6 +334,28 @@ def autotrade_config_reset_api():
     return status_summary()
 
 
+class StatsSinceRequest(BaseModel):
+    since: Optional[str] = None   # "now", tanggal/waktu ISO, atau kosong = semua waktu
+
+
+@app.post("/api/autotrade/stats-since", dependencies=[Depends(require_auth)])
+def autotrade_stats_since_api(req: StatsSinceRequest):
+    """Mulai periode statistik baru ("now" / ISO) atau kembali ke semua waktu (kosong). Data lama tidak dihapus."""
+    from datetime import datetime as _dt, timezone as _tz
+    from app.paper_trading.autotrader import set_stats_since, status_summary
+    if not req.since:
+        set_stats_since(None)
+    elif req.since == "now":
+        set_stats_since(_dt.now(_tz.utc))
+    else:
+        try:
+            value = _dt.fromisoformat(req.since)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Format waktu tidak valid")
+        set_stats_since(value if value.tzinfo else value.replace(tzinfo=_tz.utc))
+    return status_summary()
+
+
 @app.post("/api/autotrade/{action}", dependencies=[Depends(require_auth)])
 def autotrade_toggle_api(action: str):
     from app.paper_trading.autotrader import set_enabled, status_summary

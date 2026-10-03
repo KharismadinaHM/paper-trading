@@ -208,7 +208,7 @@ class TestStrategies:
         monkeypatch.setattr(at, "maker_manage", lambda: None)
         monkeypatch.setattr(at, "maybe_send_daily_report", lambda: None)
         at.run_autotrade_tick()
-        assert calls == [("btc", False), ("btc15", True)]
+        assert calls == [("btc", False), ("btc15", True), ("btc5", True)]
 
     def _event(self, favorite_first=True):
         markets = [
@@ -262,7 +262,7 @@ class TestControls:
         at.set_enabled(True)
         at.run_autotrade_tick(include_weather=True)
         # default: btc15 & maker_btc15 nonaktif → btc15 hanya mencatat sinyal (shadow)
-        assert calls == ["btc", "maker_btc", "btc15 (shadow)", "manage", "weather_pre", "weather_post"]
+        assert calls == ["btc", "maker_btc", "btc15 (shadow)", "btc5 (shadow)", "manage", "weather_pre", "weather_post"]
 
     def test_telegram_start_stop_status(self):
         assert "🟢 Auto paper trader dijalankan" in handle_incoming_message("/startbot", sender_chat_id="1", allowed_chat_id="1")
@@ -341,7 +341,9 @@ class TestBtc15AndMaker:
         state["books"]["tu"] = {"ask": 0.66, "bid": 0.65}
         assert at.maker_manage(now + timedelta(minutes=2)) == []  # ask sama dengan limit: antrian, belum terisi
         state["books"]["tu"] = {"ask": 0.65, "bid": 0.64}
-        assert at.maker_manage(now + timedelta(minutes=3)) == ["maker|btc|0xmk:filled"]
+        assert at.maker_manage(now + timedelta(minutes=3)) == []  # slippage 1¢: harus menembus > 1¢
+        state["books"]["tu"] = {"ask": 0.64, "bid": 0.63}
+        assert at.maker_manage(now + timedelta(minutes=4)) == ["maker|btc|0xmk:filled"]
         pos = get_open_positions()[0]
         assert pos["strategy_version"] == "auto_maker_btc_v1" and Decimal(str(pos["entry_price"])) == Decimal("0.66")
         assert "MAKER fill" in sent[-1]
@@ -506,3 +508,75 @@ def test_hourly_report_skipped_when_hour_is_empty(monkeypatch):
     with patch("app.paper_trading.telegram.send_telegram_message") as send:
         assert at.maybe_send_hourly_report(later) is False
     assert not send.called
+
+
+def test_slippage_added_to_taker_price_and_fee(monkeypatch):
+    monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
+                        lambda tokens: {"tok": {"ask": 0.60, "bid": 0.59, "asks": [(0.60, 100.0)]}})
+    monkeypatch.setattr("app.paper_trading.live_market_data.fetch_fee_rate", lambda token: 0.07)
+    monkeypatch.setattr(settings, "AUTOTRADE_SLIPPAGE", 0.01)
+    book = at._book_side("tok", 5.0)
+    assert book["book_price"] == pytest.approx(0.60) and book["price"] == pytest.approx(0.61)
+    assert book["slippage"] == pytest.approx(0.01) and book["fee"] == pytest.approx(0.07 * 0.61 * 0.39)
+    monkeypatch.setattr(settings, "AUTOTRADE_SLIPPAGE", 0.0)
+    assert at._book_side("tok", 5.0)["price"] == pytest.approx(0.60)
+
+
+def test_btc5_series_slug_and_window():
+    t = datetime(2026, 10, 3, 14, 37, 20, tzinfo=timezone.utc)
+    start = at.series_start("btc5", t)
+    assert start == datetime(2026, 10, 3, 14, 35, tzinfo=timezone.utc)
+    assert at.series_slug("btc5", start) == f"btc-updown-5m-{int(start.timestamp())}"
+    assert at.STRATEGY_VERSIONS["btc5"] == "auto_btc5_v1" and "maker_btc5" in at.STRATEGY_VERSIONS
+    assert at._window(at.BTC_SERIES["btc5"]["window"]()) == (2.0, 4.0)
+
+
+def test_stats_period_reset_keeps_old_data(funded, sent):
+    from app.paper_trading.models import PaperPosition, PaperTrade, PaperTradeStatus, TradeSide
+    seed_market("0xold")
+    at.execute(decision(key="btc|0xold", market_id="0xold"), NOW - timedelta(hours=3))
+    db = get_db_session()
+    pos = db.query(PaperPosition).filter_by(market_id="0xold").first()
+    db.add(PaperTrade(account_id=pos.account_id, market_id="0xold", side=TradeSide.YES, entry_price=Decimal("0.5"),
+                      position_size=Decimal("5"), shares=pos.shares, exit_price=Decimal("0"), gross_pnl=Decimal("-5"),
+                      net_pnl=Decimal("-5"), status=PaperTradeStatus.LOST, closed_at=NOW - timedelta(hours=2),
+                      strategy_version="auto_btc_v1"))
+    db.commit()
+    db.close()
+    try:
+        at.set_stats_since(None)
+        assert at.strategy_stats(now=NOW)["btc"]["settled"] >= 1
+        assert "dimulai dari sekarang" in handle_incoming_message("/autostats reset", sender_chat_id="1", allowed_chat_id="1")
+        assert at.stats_since() is not None
+        fresh = at.strategy_stats()
+        assert fresh["btc"]["settled"] == 0 and fresh["btc"]["trades"] == 0
+        assert at.strategy_stats(all_time=True)["btc"]["settled"] >= 1  # data lama tetap ada
+        text = handle_incoming_message("/autostats", sender_chat_id="1", allowed_chat_id="1")
+        assert "*Hasil (sejak " in text
+        assert "*Hasil (semua waktu)*" in handle_incoming_message("/autostats semua", sender_chat_id="1", allowed_chat_id="1")
+        handle_incoming_message("/autostats sejak 2020-01-01", sender_chat_id="1", allowed_chat_id="1")
+        assert at.stats_since().astimezone(ZoneInfo(settings.NOTIFY_TIMEZONE)).date().isoformat() == "2020-01-01"
+        from fastapi.testclient import TestClient
+        from app.dashboard import app
+        data = TestClient(app).post("/api/autotrade/stats-since", json={"since": None}).json()
+        assert data["stats_since"] is None and data["stats_label"] == "semua waktu"
+        assert TestClient(app).post("/api/autotrade/stats-since", json={"since": "kemarin"}).status_code == 400
+    finally:
+        at.set_stats_since(None)
+
+
+def test_btc5_uses_5_minute_horizon(funded, sent, monkeypatch):
+    start = NOW.replace(minute=(NOW.minute // 5) * 5, second=0)
+    now = start + timedelta(minutes=3)
+    seed_market("0x5m", at=now)
+    seen = {}
+    monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": seen.setdefault("series", series) and
+                        {"condition_id": "0x5m", "title": "BTC 5m", "up": "tu", "down": "td", "accepting": True, "slug": "s"})
+    monkeypatch.setattr(at, "_btc_klines", lambda: [])
+    monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: seen.setdefault("d", d) and
+                        {"p_up": 0.85, "price": 1, "open": 1, "change_pct": 0.1, "minutes_left": 2})
+    monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.70 if token == "tu" else 0.31,
+                                                               "fee": 0.015, "spread": 0.01, "shares": 10})
+    d = at.btc_tick(now, series="btc5")
+    assert seen == {"series": "btc5", "d": 5} and d["outcome"] == "UP" and d["strategy"] == "btc5"
+    assert get_open_positions()[0]["strategy_version"] == "auto_btc5_v1"

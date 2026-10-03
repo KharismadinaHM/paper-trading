@@ -63,7 +63,7 @@ def build_help_message() -> str:
         "🎯 `/stats` - Win rate saran beli bot (`/stats 7` untuk 7 hari terakhir)\n"
         "🤖 `/autobot` - Status auto paper trader · `/startbot` · `/stopbot` · `/tesnotif`\n"
         "🔬 `/autoresearch` - Riset auto trade: kalibrasi, ROI per edge, saran ambang (`/autoresearch 14`)\n"
-        "🏅 `/autostats` - Win rate, PnL & ROI auto trade per strategi (`/autostats 7` untuk 7 hari)\n"
+        "🏅 `/autostats` - Win rate, PnL & ROI auto trade per strategi (`/autostats 7` · `semua` · `reset` · `sejak 2026-10-02`)\n"
         "📜 `/autoriwayat` - Riwayat trade auto: menang/kalah, PnL & detail (`/autoriwayat 20 btc`)\n"
         "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover [kategori]` - Rekomendasi wallet per kategori market: cuaca, kripto, olahraga, politik, … (tombol Ikuti / Skip)\n"
@@ -452,7 +452,25 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
     elif cmd in ("/rekomendasi", "/recommendations"):
         return build_recommendations_message()
     elif cmd in ("/autobot", "/autotrade", "/autostats"):
-        from app.paper_trading.autotrader import format_status
+        from datetime import datetime, timezone
+
+        from app.core.config import settings
+        from app.paper_trading.autotrader import format_status, set_stats_since
+        word = args[0].lower() if args else ""
+        if word == "reset":
+            set_stats_since(datetime.now(timezone.utc))
+            return "🔄 Statistik auto trade dimulai dari sekarang (data lama tetap tersimpan: `/autostats semua`)."
+        if word == "sejak":
+            from datetime import date as _date
+            from zoneinfo import ZoneInfo
+            try:
+                day = _date.fromisoformat(args[1])
+            except (IndexError, ValueError):
+                return "Format: `/autostats sejak 2026-10-02`"
+            set_stats_since(datetime.combine(day, datetime.min.time(), tzinfo=ZoneInfo(settings.NOTIFY_TIMEZONE)))
+            return format_status()
+        if word in ("semua", "all"):
+            return format_status(all_time=True)
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
         return format_status(days=days)
     elif cmd in ("/autoriwayat", "/autohistory"):

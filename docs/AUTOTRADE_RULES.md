@@ -27,7 +27,7 @@ Kode: `app/paper_trading/autotrader.py`.
 
 ---
 
-## 2. BTC Up/Down (`btc` = 1 jam, `btc15` = 15 menit)
+## 2. BTC Up/Down (`btc` = 1 jam, `btc15` = 15 menit, `btc5` = 5 menit)
 
 | Aturan | Nilai / isi | Setting |
 |---|---|---|
@@ -36,6 +36,8 @@ Kode: `app/paper_trading/autotrader.py`.
 | Model peluang | `P(Up) = Φ( ln(harga sekarang / open) / (σ · √menit tersisa) )`, σ = std return 1 menit dari 120 menit terakhir, tanpa asumsi drift | — |
 | Waktu masuk 1 jam | menit ke-30 s/d 57, dicek tiap 10 detik | `AUTOTRADE_BTC_WINDOW`, `AUTOTRADE_POLL_SECONDS` |
 | Waktu masuk 15 menit | menit ke-7 s/d 14 | `AUTOTRADE_BTC15_WINDOW` |
+| Waktu masuk 5 menit | menit ke-2 s/d 4 (slug `btc-updown-5m-<unix>`, resolusi Chainlink seperti 15 menit) | `AUTOTRADE_BTC5_WINDOW` |
+| Slippage simulasi ✏️ | 1¢ per share ditambahkan ke harga ask VWAP (fee dihitung dari harga itu); maker baru terisi bila ask turun > 1¢ di bawah limit | `AUTOTRADE_SLIPPAGE` |
 | Edge minimum ✏️ | 5¢ | `AUTOTRADE_BTC_MIN_EDGE` |
 | Harga minimum ✏️ | 30¢ — underdog murah dilewati (juga untuk maker) | `AUTOTRADE_BTC_MIN_PRICE` |
 | Harga maksimum ✏️ | 90¢ | `AUTOTRADE_MAX_PRICE` |
@@ -180,7 +182,7 @@ lengkap — lalu hasilnya diisi otomatis setelah market resolve (`app/paper_trad
 |---|---|
 | `/autobot` | Status, pemakaian hari ini, aturan, limit order maker terbuka |
 | `/startbot` · `/stopbot` | Jalankan / hentikan auto trader |
-| `/autostats [hari]` | Win rate, PnL, ROI total & per strategi |
+| `/autostats [hari]` | Win rate, PnL, ROI total & per strategi. `/autostats reset` mulai periode statistik baru, `/autostats sejak YYYY-MM-DD`, `/autostats semua` (data lama tidak dihapus; juga tombol di dashboard) |
 | (otomatis, grup auto trade) | Laporan per jam: trade selesai jam itu (WR, PnL per strategi) + trade dibuka; hanya ke `TELEGRAM_AUTOTRADE_CHAT_ID`, dilewati bila jam itu kosong. Pesan "PAPER TRADE SETTLED" per posisi tidak lagi dikirim |
 | `/autoriwayat [n] [strategi]` | Riwayat trade: menang/kalah/terbuka, harga masuk & keluar, PnL, detail keputusan (juga di dashboard) |
 | `/autoresearch [hari]` | Laporan riset & saran ambang |

@@ -153,9 +153,14 @@ class Settings(BaseSettings):
     AUTOTRADE_BTC_MIN_PRICE: float = 0.30
     AUTOTRADE_BTC_WINDOW: str = "30-57"        # menit ke- dalam jam saat bot boleh masuk
     AUTOTRADE_BTC15_WINDOW: str = "7-14"       # menit ke- dalam rentang 15 menit
+    AUTOTRADE_BTC5_WINDOW: str = "2-4"         # menit ke- dalam rentang 5 menit
     # Maker: limit BUY di (P_model − margin), tanpa fee; terisi bila ask menembus di bawah limit
     AUTOTRADE_MAKER_WINDOW: str = "15-50"
     AUTOTRADE_MAKER15_WINDOW: str = "3-12"
+    AUTOTRADE_MAKER5_WINDOW: str = "1-4"
+    # Simulasi slippage eksekusi nyata (¢ per share, 0.01 = 1¢): taker membayar ask VWAP + slippage;
+    # limit maker baru dianggap terisi bila ask turun ≥ slippage di bawah harga limit.
+    AUTOTRADE_SLIPPAGE: float = 0.01
     AUTOTRADE_MAKER_MARGIN: float = 0.04
     AUTOTRADE_MAKER_MIN_EDGE: float = 0.04
     AUTOTRADE_POLL_SECONDS: int = 10

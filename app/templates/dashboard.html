@@ -2441,6 +2441,15 @@
                 renderAutotrade(await res.json());
             } catch (err) { console.error(err); }
         }
+        async function setStatsSince(since) {
+            if (since === 'now' && !confirm('Mulai periode statistik baru dari sekarang? Data lama tetap tersimpan dan bisa dilihat lagi dengan "Semua waktu".')) return;
+            try {
+                const res = await fetch('/api/autotrade/stats-since', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({ since: since || null }) });
+                if (!res.ok) throw new Error('Gagal');
+                renderAutotrade(await res.json());
+            } catch (err) { alert('Gagal mengubah periode statistik.'); }
+        }
         function renderAutotradeHistory() {
             const box = document.getElementById('autotradeHistory');
             const s = window._autotradeStatus || {};
@@ -2507,8 +2516,17 @@
                     ${tile('Posisi terbuka', `$${Number(t.open_usd).toFixed(2)} <span class="text-muted-poly small">/ ${l.max_open_usd}</span>`)}
                 </div>
                 <div class="mb-3">Aturan: $${l.order_usd}/order · harga ≤${Math.round(l.max_price * 100)}¢ · edge BTC ≥${Math.round(l.btc_min_edge * 100)}¢
-                    (1 jam menit ${escapeHtml(l.btc_window)}, 15 menit menit ${escapeHtml(l.btc15_window)}) · maker limit P−${Math.round(l.maker_margin * 100)}¢
+                    (1 jam menit ${escapeHtml(l.btc_window)}, 15 menit menit ${escapeHtml(l.btc15_window)}, 5 menit menit ${escapeHtml(l.btc5_window)})
+                    · slippage ${(Number(l.slippage || 0) * 100).toFixed(1)}¢ · maker limit P−${Math.round(l.maker_margin * 100)}¢
                     · edge cuaca ≥${Math.round(l.weather_min_edge * 100)}¢ · stop bila rugi hari ini ≥ $${l.max_daily_loss} · strategi: ${escapeHtml((s.strategies || []).join(', '))}</div>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                    <div class="fw-semibold text-white">Hasil per strategi <span class="text-muted-poly fw-normal">(${escapeHtml(s.stats_label || 'semua waktu')})</span></div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="setStatsSince('now')" title="Statistik dihitung ulang mulai sekarang; data lama tetap tersimpan">
+                            <i class="bi bi-arrow-counterclockwise"></i> Mulai periode baru</button>
+                        ${s.stats_since ? `<button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="setStatsSince('')">Semua waktu</button>` : ''}
+                    </div>
+                </div>
                 <div class="table-responsive mb-3"><table class="table table-dark table-sm small mb-0">
                     <thead><tr class="text-muted-poly"><th>Strategi</th><th class="text-end">Trade</th><th class="text-end">Selesai</th><th class="text-end">WR</th><th class="text-end">PnL</th><th class="text-end">ROI</th><th class="text-end">Terbuka</th></tr></thead>
                     <tbody>${stats}</tbody></table></div>

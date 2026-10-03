@@ -37,8 +37,9 @@ from app.paper_trading.models import (
 logger = get_logger("autotrader")
 
 STRATEGY_VERSIONS = {
-    "btc": "auto_btc_v1", "btc15": "auto_btc15_v1", "maker_btc": "auto_maker_btc_v1",
-    "maker_btc15": "auto_maker_btc15_v1", "weather": "auto_weather_v1", "weather_post": "auto_weather_post_v1",
+    "btc": "auto_btc_v1", "btc15": "auto_btc15_v1", "btc5": "auto_btc5_v1", "maker_btc": "auto_maker_btc_v1",
+    "maker_btc15": "auto_maker_btc15_v1", "maker_btc5": "auto_maker_btc5_v1",
+    "weather": "auto_weather_v1", "weather_post": "auto_weather_post_v1",
 }
 BINANCE = "https://data-api.binance.vision"
 ET = ZoneInfo("America/New_York")
@@ -107,6 +108,7 @@ EDITABLE_CONFIG: Dict[str, Tuple[str, float, float, str]] = {
     "MAX_SPREAD": ("float", 0.01, 0.5, "Spread order book maksimum (0–1)"),
     "BTC_MIN_EDGE": ("float", 0, 0.5, "Edge minimum BTC taker (0–1)"),
     "BTC_MIN_PRICE": ("float", 0, 0.9, "Harga beli minimum BTC, taker & maker (0–1)"),
+    "SLIPPAGE": ("float", 0, 0.1, "Simulasi slippage per share (0.01 = 1¢)"),
     "WEATHER_MIN_EDGE": ("float", 0, 0.5, "Edge minimum cuaca (0–1)"),
     "MAKER_MARGIN": ("float", 0.01, 0.3, "Maker: harga limit = P − margin"),
     "MAKER_MIN_EDGE": ("float", 0, 0.3, "Maker: edge minimum"),
@@ -366,7 +368,9 @@ def format_decision(d: Dict[str, Any], order: Dict[str, Any]) -> str:
     side = d.get("outcome") or d["side"]
     lines = [
         f"🤖 AUTO BUY (paper) · {d['title']}",
-        f"Beli {side} {float(order['shares']):,.2f} sh @ {d['price'] * 100:.1f}¢ + fee {d['fee'] * 100:.2f}¢ = ${d['size']:.2f}",
+        f"Beli {side} {float(order['shares']):,.2f} sh @ {d['price'] * 100:.1f}¢"
+        + (f" (termasuk slippage {d['features']['slippage'] * 100:.1f}¢)" if (d.get("features") or {}).get("slippage") else "")
+        + f" + fee {d['fee'] * 100:.2f}¢ = ${d['size']:.2f}",
         f"Model {d['prob'] * 100:.0f}% vs biaya {(d['price'] + d['fee']) * 100:.1f}¢ → edge {d['edge'] * 100:+.1f}¢",
     ]
     if d.get("detail"):
@@ -388,7 +392,11 @@ def _book_side(token: str, usd: float) -> Optional[Dict[str, float]]:
         return None
     spread = (book["ask"] - book["bid"]) if book.get("bid") is not None else None
     rate = fetch_fee_rate(token)
-    return {"price": fill["price"], "fee": taker_fee(fill["price"], rate), "spread": spread, "shares": fill["shares"]}
+    # Simulasi slippage: eksekusi nyata kalah cepat dari bot lain / harga bergeser saat order dikirim
+    slippage = float(cfg("SLIPPAGE") or 0)
+    price = min(0.99, fill["price"] + slippage)
+    return {"price": price, "fee": taker_fee(price, rate), "spread": spread, "shares": fill["shares"],
+            "book_price": fill["price"], "slippage": round(price - fill["price"], 4)}
 
 
 # --- Strategi BTC Up/Down (1 jam & 15 menit) ------------------------------------------------
@@ -401,6 +409,7 @@ def _book_side(token: str, usd: float) -> Optional[Dict[str, float]]:
 BTC_SERIES = {
     "btc": {"minutes": 60, "window": lambda: settings.AUTOTRADE_BTC_WINDOW, "label": "1 jam"},
     "btc15": {"minutes": 15, "window": lambda: settings.AUTOTRADE_BTC15_WINDOW, "label": "15 menit"},
+    "btc5": {"minutes": 5, "window": lambda: settings.AUTOTRADE_BTC5_WINDOW, "label": "5 menit"},
 }
 
 
@@ -413,6 +422,8 @@ def hourly_slug(start_utc: datetime) -> str:
 def series_slug(series: str, start_utc: datetime) -> str:
     if series == "btc15":
         return f"btc-updown-15m-{int(start_utc.timestamp())}"
+    if series == "btc5":
+        return f"btc-updown-5m-{int(start_utc.timestamp())}"
     return hourly_slug(start_utc)
 
 
@@ -499,7 +510,7 @@ def _btc_detail(model: Dict[str, float]) -> str:
             f"sisa {model['minutes_left']:.0f} menit")
 
 
-SIGNAL_BUCKET_MINUTES = {"btc": 5, "btc15": 2}
+SIGNAL_BUCKET_MINUTES = {"btc": 5, "btc15": 2, "btc5": 1}
 
 
 def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool = False) -> Optional[Dict[str, Any]]:
@@ -543,6 +554,7 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
     features = {"minute": round(minute, 2), "minutes_left": round(model["minutes_left"], 2),
                 "change_pct": round(model["change_pct"], 4), "sigma_1m": model.get("sigma"),
                 "btc": model["price"], "open": model["open"], "spread": best["spread"], "depth_shares": best["shares"],
+                "slippage": best.get("slippage"),
                 "other_side_edge": round(min(sides, key=lambda x: x["edge"])["edge"], 4) if len(sides) > 1 else None}
     bucket = int(minute // SIGNAL_BUCKET_MINUTES[series])
     decision = {
@@ -565,7 +577,8 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
 # yang melewati harga kita — antrian di harga yang sama dianggap tidak terisi). Order dibatalkan bila
 # edge model hilang, dan kedaluwarsa di akhir jendela. Rebate maker tidak dihitung (konservatif).
 
-MAKER_WINDOWS = {"btc": lambda: settings.AUTOTRADE_MAKER_WINDOW, "btc15": lambda: settings.AUTOTRADE_MAKER15_WINDOW}
+MAKER_WINDOWS = {"btc": lambda: settings.AUTOTRADE_MAKER_WINDOW, "btc15": lambda: settings.AUTOTRADE_MAKER15_WINDOW,
+                 "btc5": lambda: settings.AUTOTRADE_MAKER5_WINDOW}
 
 
 def _open_limit_orders(db=None) -> List[AutotradeLimitOrder]:
@@ -651,8 +664,8 @@ def maker_manage(now: Optional[datetime] = None) -> List[str]:
         book = books.get(str(o.token_id)) or {}
         limit = float(o.limit_price)
         status, reason = None, None
-        if book.get("ask") is not None and book["ask"] < limit - 1e-9:
-            status = "filled"
+        if book.get("ask") is not None and book["ask"] < limit - float(cfg("SLIPPAGE") or 0) - 1e-9:
+            status = "filled"  # slippage: ask harus menembus limit lebih dalam (antrian & adverse selection)
         elif now >= expires:
             status, reason = "expired", "tidak terisi sampai akhir jendela"
         else:
@@ -819,6 +832,7 @@ def weather_evaluate(event: Dict[str, Any], now: datetime, phase: str = "pre") -
             "favorite_price": favorite.get("ask") or favorite.get("price_yes"), "bracket": target.get("bracket"),
             "hours_to_peak_end": round((peak_end - now).total_seconds() / 3600, 2),
             "spread": book["spread"] if book else None, "station": (event.get("observation") or {}).get("station"),
+            "slippage": book.get("slippage") if book else None,
         },
     }
 
@@ -880,10 +894,32 @@ def run_autotrade_tick(include_weather: bool = False) -> None:
         logger.error("Auto trader gagal: %s", err, exc_info=True)
 
 
-def strategy_stats(days: Optional[int] = None, now: Optional[datetime] = None) -> Dict[str, Dict[str, Any]]:
-    """Per strategi: trade, selesai, menang, win rate, PnL terealisasi, ROI, posisi terbuka."""
+def stats_since() -> Optional[datetime]:
+    """Awal periode statistik (diatur lewat /autostats reset / sejak); None = semua waktu."""
+    raw = _get_state("stats_since")
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def set_stats_since(since: Optional[datetime]) -> Optional[datetime]:
+    """Mulai periode statistik baru (data lama tetap tersimpan); None = kembali ke semua waktu."""
+    _set_state("stats_since", since.astimezone(timezone.utc).isoformat() if since else "")
+    return since
+
+
+def strategy_stats(days: Optional[int] = None, now: Optional[datetime] = None,
+                   all_time: bool = False) -> Dict[str, Dict[str, Any]]:
+    """
+    Per strategi: trade, selesai, menang, win rate, PnL terealisasi, ROI, posisi terbuka. Periode: `days`
+    hari terakhir bila diisi; selain itu sejak stats_since() (kecuali all_time=True).
+    """
     now = now or datetime.now(timezone.utc)
-    since = now - timedelta(days=days) if days else None
+    since = now - timedelta(days=days) if days else (None if all_time else stats_since())
     db = get_db_session()
     try:
         out = {}
@@ -1025,11 +1061,13 @@ def status_summary(now: Optional[datetime] = None) -> Dict[str, Any]:
                        "max_price": cfg("MAX_PRICE"), "btc_min_edge": cfg("BTC_MIN_EDGE"),
                        "weather_min_edge": cfg("WEATHER_MIN_EDGE"),
                        "btc_window": settings.AUTOTRADE_BTC_WINDOW, "btc15_window": settings.AUTOTRADE_BTC15_WINDOW,
+                       "btc5_window": settings.AUTOTRADE_BTC5_WINDOW, "slippage": float(cfg("SLIPPAGE") or 0),
                        "maker_window": settings.AUTOTRADE_MAKER_WINDOW,
                        "maker15_window": settings.AUTOTRADE_MAKER15_WINDOW,
                        "maker_margin": cfg("MAKER_MARGIN")},
             "config": get_config(),
-            "stats": strategy_stats(now=now), "recent": recent_decisions(), "history": trade_history(limit=30, now=now),
+            "stats": strategy_stats(now=now), "stats_label": stats_label(),
+            "stats_since": (lambda d: d.isoformat() if d else None)(stats_since()), "recent": recent_decisions(), "history": trade_history(limit=30, now=now),
             "open_orders": [{"strategy": o.strategy, "label": o.label, "limit": float(o.limit_price),
                              "prob": float(o.model_prob or 0), "size": float(o.size_usd), "expires_at": o.expires_at}
                             for o in _open_limit_orders()]}
@@ -1040,7 +1078,16 @@ def md(text: Any) -> str:
     return _md(text)
 
 
-def format_status(days: Optional[int] = None) -> str:
+def stats_label(days: Optional[int] = None, all_time: bool = False) -> str:
+    if days:
+        return f"{days} hari"
+    since = None if all_time else stats_since()
+    if since is None:
+        return "semua waktu"
+    return f"sejak {since.astimezone(ZoneInfo(settings.NOTIFY_TIMEZONE)):%d %b %H:%M} {settings.NOTIFY_TIMEZONE_LABEL}"
+
+
+def format_status(days: Optional[int] = None, all_time: bool = False) -> str:
     s = status_summary()
     t, lim = s["today"], s["limits"]
     lines = [
@@ -1048,7 +1095,8 @@ def format_status(days: Optional[int] = None) -> str:
         f"Hari ini ({t['day']}): {t['trades']} trade · beli ${t['spent']:.2f}/{lim['max_daily_usd']:.0f} · "
         f"PnL terealisasi {t['realized_pnl']:+.2f} (stop di -{lim['max_daily_loss']:.0f}) · terbuka ${t['open_usd']:.2f}",
         f"Aturan: ${lim['order_usd']:.0f}/order · harga ≤{lim['max_price'] * 100:.0f}¢ · edge BTC ≥{lim['btc_min_edge'] * 100:.0f}¢ "
-        f"(1 jam menit {lim['btc_window']}, 15 menit menit {lim['btc15_window']}) · maker limit P−{lim['maker_margin'] * 100:.0f}¢ "
+        f"(1 jam menit {lim['btc_window']}, 15 menit menit {lim['btc15_window']}, 5 menit menit {lim['btc5_window']}) "
+        f"· slippage {lim['slippage'] * 100:.1f}¢ · maker limit P−{lim['maker_margin'] * 100:.0f}¢ "
         f"· edge cuaca ≥{lim['weather_min_edge'] * 100:.0f}¢",
     ]
     if s["open_orders"]:
@@ -1056,8 +1104,8 @@ def format_status(days: Optional[int] = None) -> str:
         for o in s["open_orders"][:5]:
             lines.append(f"  • {md(o['label'])} @ {o['limit'] * 100:.0f}¢ (model {o['prob'] * 100:.0f}%)")
     lines.append("")
-    stats = strategy_stats(days=days)
-    label = f"{days} hari" if days else "semua waktu"
+    stats = strategy_stats(days=days, all_time=all_time)
+    label = stats_label(days, all_time)
     lines.append(f"*Hasil ({label})*")
     trades = sum(st["trades"] for st in stats.values())
     settled = sum(st["settled"] for st in stats.values())
@@ -1075,7 +1123,8 @@ def format_status(days: Optional[int] = None) -> str:
         roi = f"{st['roi'] * 100:+.1f}%" if st["roi"] is not None else "-"
         lines.append(f"• {md(name)}: {st['trades']} trade · selesai {st['settled']} · WR {wr} · "
                      f"PnL {st['pnl']:+.2f} · ROI {roi} · terbuka {st['open']}")
-    lines += ["", "`/stopbot` hentikan · `/startbot` jalankan · `/autostats 7` hasil 7 hari"]
+    lines += ["", "`/stopbot` hentikan · `/startbot` jalankan · `/autostats 7` hasil 7 hari · `/autostats semua` · "
+                  "`/autostats reset` mulai periode baru"]
     return "\n".join(lines)
 
 

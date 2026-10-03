@@ -26,11 +26,11 @@ MIN_SAMPLE = 30                      # sampel minimum sebelum saran ambang dikel
 EDGE_THRESHOLDS = [0.0, 0.02, 0.03, 0.05, 0.08, 0.10, 0.15]
 EDGE_BUCKETS = [(-1.0, 0.0, "< 0¢"), (0.0, 0.03, "0–3¢"), (0.03, 0.05, "3–5¢"), (0.05, 0.08, "5–8¢"),
                 (0.08, 1.0, "≥ 8¢")]
-WAIT_BEFORE_CHECK = {"btc": timedelta(minutes=70), "btc15": timedelta(minutes=25)}
+WAIT_BEFORE_CHECK = {"btc": timedelta(minutes=70), "btc15": timedelta(minutes=25), "btc5": timedelta(minutes=12)}
 WEATHER_WAIT = timedelta(hours=8)
 CHECK_INTERVAL = timedelta(minutes=30)
 RETENTION = timedelta(days=120)
-THRESHOLD_SETTING = {"btc": "BTC_MIN_EDGE", "btc15": "BTC_MIN_EDGE", "weather": "WEATHER_MIN_EDGE",
+THRESHOLD_SETTING = {"btc": "BTC_MIN_EDGE", "btc15": "BTC_MIN_EDGE", "btc5": "BTC_MIN_EDGE", "weather": "WEATHER_MIN_EDGE",
                      "weather_post": "WEATHER_MIN_EDGE"}
 # Sinyal yang HANYA terhalang oleh ambang edge (layak dipakai untuk menguji ambang lain)
 EDGE_ONLY_REASONS = {None, "edge di bawah minimum"}
@@ -182,7 +182,7 @@ def calibration(rows) -> List[Dict[str, Any]]:
 
 def _minute_bucket(r):
     minute = r["features"].get("minute")
-    step = 5 if r["strategy"] == "btc" else 2
+    step = {"btc": 5, "btc5": 1}.get(r["strategy"], 2)
     return f"menit {int(minute // step * step)}+" if minute is not None else None
 
 
@@ -200,7 +200,7 @@ def maker_stats(days: Optional[int] = None, now: Optional[datetime] = None) -> D
     db = get_db_session()
     try:
         out = {}
-        for strategy in ("maker_btc", "maker_btc15"):
+        for strategy in ("maker_btc", "maker_btc15", "maker_btc5"):
             query = db.query(AutotradeLimitOrder).filter(AutotradeLimitOrder.strategy == strategy)
             if days:
                 query = query.filter(AutotradeLimitOrder.created_at >= now - timedelta(days=days))
@@ -284,7 +284,7 @@ def research_report(days: Optional[int] = None, now: Optional[datetime] = None) 
                              for lo, hi, label in EDGE_BUCKETS],
             "by_reason": sorted(_group(resolved, lambda r: r["skip_reason"] or "ditrade"), key=lambda g: -g["n"]),
             "by_minute": sorted(_group(resolved, _minute_bucket), key=lambda g: g["key"])
-            if strategy in ("btc", "btc15") else [],
+            if strategy in ("btc", "btc15", "btc5") else [],
             "by_city": sorted(_group(resolved, lambda r: r["features"].get("city")), key=lambda g: -g["n"])[:10]
             if strategy.startswith("weather") else [],
             "by_agree": _group(resolved, lambda r: {True: "sepakat", False: "beda"}.get(r["features"].get("agree")))
