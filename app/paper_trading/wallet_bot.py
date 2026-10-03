@@ -60,16 +60,34 @@ def _button(text: str, action: str, address: str) -> Dict[str, str]:
     return {"text": text, "callback_data": f"{action}:{address}"}
 
 
-def build_discover_message(refresh: bool = False) -> BotReply:
+CATEGORY_BUTTONS = ("WEATHER", "CRYPTO", "SPORTS", "POLITICS", "ECONOMICS", "FINANCE", "TECH", "CULTURE", "ESPORTS",
+                    "MENTIONS", "OVERALL")
+
+
+def _category_keyboard(current: str) -> List[List[Dict[str, str]]]:
+    from app.paper_trading.wallets import category_label
+
+    buttons = [{"text": ("• " if c == current else "") + category_label(c).split(" ")[0].capitalize(),
+                "callback_data": f"dc:{c}"} for c in CATEGORY_BUTTONS]
+    return [buttons[i:i + 4] for i in range(0, len(buttons), 4)]
+
+
+def build_discover_message(refresh: bool = False, category: Optional[str] = None) -> BotReply:
     from app.paper_trading import wallets
 
-    if refresh or wallets.candidates_age() is None:
-        wallets.discover_wallets()
-    candidates = wallets.list_candidates()[:5]
+    category = wallets.normalize_category(category) or wallets.default_category()
+    wallets.LAST_CATEGORY["value"] = category
+    if refresh:
+        wallets.discover_wallets(category=category)
+    else:
+        wallets.refresh_candidates_if_stale(category=category)
+    candidates = wallets.list_candidates(category)[:5]
+    label = md(wallets.category_label(category))
     if not candidates:
-        return BotReply("🔎 Belum ada wallet yang memenuhi kriteria (cukup posisi selesai & aktif 7 hari terakhir).\n"
-                        "Coba `/discover refresh` nanti.")
-    lines = [f"🔎 *Wallet menarik · market {md(settings.WALLET_DISCOVERY_CATEGORY.lower())}*", ""]
+        return BotReply(f"🔎 Belum ada wallet market {label} yang memenuhi kriteria (cukup posisi selesai & aktif 7 hari "
+                        f"terakhir).\nCoba kategori lain atau `/discover {category.lower()} refresh` nanti.",
+                        {"inline_keyboard": _category_keyboard(category)})
+    lines = [f"🔎 *Wallet menarik · market {label}*", ""]
     keyboard: List[List[Dict[str, str]]] = []
     for c in candidates:
         lines.append(f"*{c['rank']}. {_label(c)}*")
@@ -81,7 +99,8 @@ def build_discover_message(refresh: bool = False) -> BotReply:
         keyboard.append([_button(f"✅ Ikuti #{c['rank']} {name}", "wf", c["address"]),
                          _button(f"⏭ Skip #{c['rank']}", "ws", c["address"])])
     lines.append("Ikuti = alert real-time setiap wallet ini bertransaksi. Atau ketik `/follow <nomor>` / `/skip <nomor>`.")
-    return BotReply("\n".join(lines), {"inline_keyboard": keyboard})
+    lines.append("Kategori lain: tombol di bawah atau `/discover kripto`, `/discover olahraga`, `/discover politik` …")
+    return BotReply("\n".join(lines), {"inline_keyboard": keyboard + _category_keyboard(category)})
 
 
 def build_wallets_message() -> BotReply:
@@ -246,7 +265,14 @@ def handle_wallet_command(cmd: str, args: List[str]) -> Optional[BotReply]:
     query = " ".join(args).strip()
     try:
         if cmd in ("/discover", "/cariwallet"):
-            return build_discover_message(refresh=query.lower() == "refresh")
+            from app.paper_trading.wallets import normalize_category
+            words = [w.lower() for w in args]
+            category = next((normalize_category(w) for w in words if normalize_category(w)), None)
+            unknown = [w for w in words if w != "refresh" and not normalize_category(w)]
+            if unknown:
+                return BotReply(f"Kategori '{md(unknown[0])}' tidak dikenal. Pilih: cuaca, kripto, olahraga, politik, "
+                                "ekonomi, keuangan, teknologi, budaya, esports, mentions, semua.")
+            return build_discover_message(refresh="refresh" in words, category=category)
         if cmd == "/wallets":
             return build_wallets_message()
         if cmd in ("/porto", "/portfolio"):
@@ -270,6 +296,12 @@ def handle_wallet_callback(data: str) -> Optional[BotReply]:
     from app.paper_trading.wallets import WalletError
 
     prefix, _, address = str(data or "").partition(":")
+    if prefix == "dc":
+        try:
+            return build_discover_message(category=address)
+        except Exception as err:
+            logger.error("Discover kategori %s gagal: %s", address, err, exc_info=True)
+            return BotReply("⚠️ Gagal mengambil data dari Polymarket. Coba lagi sebentar lagi.")
     action = CALLBACK_ACTIONS.get(prefix)
     if not action or not address:
         return None

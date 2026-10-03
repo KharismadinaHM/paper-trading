@@ -203,7 +203,8 @@ class TestTelegram:
         reply = self._msg("/discover refresh")
         assert "Wallet menarik" in reply and "Kenapa:" in reply and "Alice" in reply
         buttons = [b for row in reply.reply_markup["inline_keyboard"] for b in row]
-        assert {b["callback_data"] for b in buttons} == {f"wf:{A}", f"ws:{A}"}
+        assert {b["callback_data"] for b in buttons if not b["callback_data"].startswith("dc:")} == {f"wf:{A}", f"ws:{A}"}
+        assert "dc:CRYPTO" in {b["callback_data"] for b in buttons}  # tombol pindah kategori
 
     def test_follow_by_number_then_wallets_list(self, api):
         self._msg("/discover refresh")
@@ -271,3 +272,80 @@ def test_score_balances_win_rate_and_margin():
     near_certain = {"wins": 99, "resolved": 100, "pnl": 100, "margin": 0.01}
     edge = {"wins": 60, "resolved": 100, "pnl": 100, "margin": 0.08}
     assert wl.score(edge) > wl.score(near_certain)
+
+
+class TestCategories:
+
+    def test_normalize_category_aliases(self):
+        assert wl.normalize_category("kripto") == "CRYPTO" and wl.normalize_category("Sports") == "SPORTS"
+        assert wl.normalize_category("olahraga") == "SPORTS" and wl.normalize_category("semua") == "OVERALL"
+        assert wl.normalize_category("moon") is None and wl.normalize_category("") is None
+
+    def test_discovery_is_per_category(self, api):
+        wl.discover_wallets(now=NOW, category="CRYPTO")
+        params = [p for path, p in api.calls if path == "/v1/leaderboard" and not p.get("user")]
+        assert params[-1]["category"] == "CRYPTO"
+        assert [c["address"] for c in wl.list_candidates("CRYPTO")] == [A]
+        assert wl.list_candidates("CRYPTO")[0]["category"] == "CRYPTO"
+        assert "PnL kripto bulan ini" in wl.list_candidates("CRYPTO")[0]["reason"]
+        assert wl.list_candidates("WEATHER") == []  # kategori lain tidak tercampur
+        assert wl.candidates_age(category="WEATHER") is None and wl.candidates_age(category="CRYPTO") is not None
+        wl.discover_wallets(now=NOW, category="WEATHER")
+        assert len(wl.list_candidates("CRYPTO")) == 1 and len(wl.list_candidates("WEATHER")) == 1
+
+    def test_discover_command_and_category_button(self, api):
+        reply = handle_incoming_message("/discover kripto", sender_chat_id="1", allowed_chat_id="1")
+        assert "Wallet menarik · market kripto" in reply
+        assert "/discover kripto" not in handle_incoming_message("/discover moon", sender_chat_id="1", allowed_chat_id="1")
+        assert "tidak dikenal" in handle_incoming_message("/discover moon", sender_chat_id="1", allowed_chat_id="1")
+        assert "✅ Mengikuti Alice" in handle_incoming_message("/follow 1", sender_chat_id="1", allowed_chat_id="1")
+        with patch("app.paper_trading.telegram.answer_callback_query", return_value={"success": True}), \
+             patch("app.paper_trading.telegram_bot.send_telegram_message", return_value={"success": True}):
+            reply = handle_callback_query({"id": "q", "data": "dc:SPORTS", "message": {"chat": {"id": 1}}},
+                                          token="t", allowed_chat_id="1")
+        assert "market olahraga" in reply
+
+    def test_dashboard_api_category(self, api):
+        from fastapi.testclient import TestClient
+        from app.dashboard import app
+        client = TestClient(app)
+        assert client.post("/api/wallets/discover", params={"category": "SPORTS"}).status_code == 200
+        data = client.get("/api/wallets", params={"category": "sports"}).json()
+        assert data["category"] == "SPORTS" and data["candidates"][0]["address"] == A
+        assert client.post("/api/wallets/discover", params={"category": "moon"}).status_code == 400
+        assert 'id="walletCategory"' in client.get("/").text
+
+
+class TestPortfolioOverlap:
+
+    def _me(self, monkeypatch, api, outcome="Yes"):
+        me = "0x" + "e" * 40
+        monkeypatch.setattr(settings, "POLYMARKET_WALLET_ADDRESS", me)
+        api.positions[me] = [{"conditionId": "0xc1", "outcome": outcome, "size": 12, "avgPrice": 0.45, "curPrice": 0.6,
+                              "title": "Will the highest temperature in Hong Kong be 33°C?", "eventSlug": "hk"}]
+        return me
+
+    def test_trade_alert_marks_same_market_as_portfolio(self, api, sent, monkeypatch):
+        self._me(monkeypatch, api)
+        wl.set_follow(A, True, now=NOW - timedelta(hours=1))
+        api.activity[A] = [trade(TS - 60, side="SELL")]
+        assert wl.poll_followed_wallets(now=NOW) == 1
+        text = sent[-1]
+        assert "📌 market yang sama dengan porto Anda" in text
+        assert "Porto Anda juga di market ini: Yes 12.0 sh @ 45¢ — ⚠️ wallet ini MENJUAL sisi yang Anda pegang" in text
+
+    def test_overlap_alert_once_with_direction(self, api, sent, monkeypatch):
+        self._me(monkeypatch, api, outcome="No")
+        wl.set_follow(A, True, now=NOW)
+        api.positions[A] = [{"conditionId": "0xc1", "outcome": "Yes", "size": 300, "avgPrice": 0.4, "title": "HK 33",
+                             "eventSlug": "hk"}, {"conditionId": "0xother", "outcome": "Yes", "size": 5, "avgPrice": 0.5}]
+        sent.clear()
+        assert wl.check_portfolio_overlap(NOW) == 1
+        assert wl.check_portfolio_overlap(NOW) == 0  # sekali per wallet & market
+        text = sent[0]
+        assert text.startswith("🤝 Porto Anda sama dengan Alice")
+        assert "Anda: No 12.0 sh @ 45¢" in text and "Wallet: Yes 300.0 sh @ 40¢" in text and "berlawanan" in text
+
+    def test_no_overlap_check_without_own_wallet(self, api, sent, monkeypatch):
+        monkeypatch.setattr(settings, "POLYMARKET_WALLET_ADDRESS", None)
+        assert wl.check_portfolio_overlap(NOW) == 0

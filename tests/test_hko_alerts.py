@@ -230,7 +230,10 @@ def test_history_command_and_csv(env):
     for minute, temp in ((0, 31.0), (10, 31.4), (20, 32.1)):
         step(env, hkt(9, minute), temp)
     text = hk.format_history(datetime(2026, 9, 29).date())
-    assert "Riwayat HKO" in text and "`09:10  31.4  31.4  +0.4`" in text and "Max hari ini 32.1°C" in text
+    assert "Riwayat HKO" in text and "`29 09:10  31.4  31.4  +0.4`" in text
+    assert "Max hari ini" not in text and "CSV" not in text  # tanpa footer
+    rolling = hk.format_history(now=hkt(9, 25).astimezone(timezone.utc))
+    assert "Riwayat HKO 24 jam* (28 Sep 09:25 – 29 Sep 09:25 HKT)" in rolling and "`29 09:20  32.1" in rolling
     reply = handle_incoming_message("/hk riwayat 2026-09-29", sender_chat_id="1", allowed_chat_id="1")
     assert "Riwayat HKO* 29 Sep 2026" in reply
     assert "Format tanggal" in handle_incoming_message("/hk riwayat kemarin", sender_chat_id="1", allowed_chat_id="1")

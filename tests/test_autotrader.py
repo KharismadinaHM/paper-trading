@@ -472,3 +472,37 @@ def test_history_detail_rebuilt_for_old_rows():
                                                                            "minute": 41, "minutes_left": 19})
     assert at._history_detail("weather", {"estimate": 33.4, "kind": "highest", "unit": "C", "sigma": 0.6,
                                           "source": "HKO", "favorite": "33°C"}).startswith("Perkiraan max 33.4°C")
+
+
+def test_hourly_report_only_to_group_and_once_per_hour(funded, monkeypatch):
+    from app.paper_trading.models import PaperPosition, PaperTrade, PaperTradeStatus, TradeSide
+    seed_market("0xhr")
+    end = NOW.replace(minute=0, second=0)
+    with patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": True}):
+        at.execute(decision(key="btc|0xhr", market_id="0xhr"), end - timedelta(minutes=30))
+    db = get_db_session()
+    pos = db.query(PaperPosition).filter_by(market_id="0xhr").first()
+    db.add(PaperTrade(account_id=pos.account_id, market_id="0xhr", side=TradeSide.YES, entry_price=Decimal("0.567"),
+                      position_size=Decimal("5"), shares=pos.shares, exit_price=Decimal("1"), gross_pnl=Decimal("3.8"),
+                      net_pnl=Decimal("3.8"), status=PaperTradeStatus.WON, closed_at=end - timedelta(minutes=5),
+                      strategy_version="auto_btc_v1"))
+    db.commit()
+    db.close()
+    monkeypatch.setattr(settings, "TELEGRAM_AUTOTRADE_CHAT_ID", None)
+    assert at.maybe_send_hourly_report(end + timedelta(minutes=1)) is False  # tanpa grup: tidak dikirim ke pribadi
+    monkeypatch.setattr(settings, "TELEGRAM_AUTOTRADE_CHAT_ID", "-100")
+    with patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": True}) as send:
+        assert at.maybe_send_hourly_report(end + timedelta(minutes=1)) is True
+        assert at.maybe_send_hourly_report(end + timedelta(minutes=20)) is False  # sekali per jam
+    text, kwargs = send.call_args[0][0], send.call_args[1]
+    assert kwargs["chat_id"] == "-100"
+    assert "⏱ Auto trade ·" in text and "Selesai 1 · WR 100% (1/1) · PnL +3.80" in text and "• btc: 1/1 menang" in text
+    assert "Dibuka 1 trade ($5.00)" in text
+
+
+def test_hourly_report_skipped_when_hour_is_empty(monkeypatch):
+    monkeypatch.setattr(settings, "TELEGRAM_AUTOTRADE_CHAT_ID", "-100")
+    later = NOW + timedelta(days=30)
+    with patch("app.paper_trading.telegram.send_telegram_message") as send:
+        assert at.maybe_send_hourly_report(later) is False
+    assert not send.called

@@ -858,6 +858,10 @@ def weather_tick(now: Optional[datetime] = None, phase: str = "pre") -> List[Dic
 def run_autotrade_tick(include_weather: bool = False) -> None:
     """Dipanggil dari collector: BTC tiap AUTOTRADE_POLL_SECONDS, cuaca tiap siklus. Tidak pernah melempar exception."""
     try:
+        maybe_send_hourly_report()  # juga saat bot berhenti: posisi terbuka tetap di-settle
+    except Exception as err:
+        logger.error("Laporan per jam auto trade gagal: %s", err, exc_info=True)
+    try:
         if not is_enabled():
             return
         strategies = enabled_strategies()
@@ -1073,6 +1077,75 @@ def format_status(days: Optional[int] = None) -> str:
                      f"PnL {st['pnl']:+.2f} · ROI {roi} · terbuka {st['open']}")
     lines += ["", "`/stopbot` hentikan · `/startbot` jalankan · `/autostats 7` hasil 7 hari"]
     return "\n".join(lines)
+
+
+def hourly_summary(start: datetime, end: datetime) -> Dict[str, Any]:
+    """Trade auto yang dibuka & selesai dalam [start, end): jumlah, win rate, PnL total & per strategi."""
+    db = get_db_session()
+    try:
+        opened = (db.query(AutotradeDecision).filter(AutotradeDecision.status == "filled",
+                                                     AutotradeDecision.created_at >= start,
+                                                     AutotradeDecision.created_at < end).all())
+        versions = {v: k for k, v in STRATEGY_VERSIONS.items()}
+        closed = (db.query(PaperTrade).filter(PaperTrade.strategy_version.in_(list(versions)),
+                                              PaperTrade.closed_at >= start, PaperTrade.closed_at < end).all())
+        per: Dict[str, Dict[str, Any]] = {}
+        for t in closed:
+            row = per.setdefault(versions[t.strategy_version], {"settled": 0, "wins": 0, "pnl": 0.0, "cost": 0.0})
+            pnl = float(t.net_pnl or 0)
+            row["settled"] += 1
+            row["wins"] += 1 if pnl > 0 else 0
+            row["pnl"] += pnl
+            row["cost"] += float(t.position_size or 0)
+        return {"opened": len(opened), "opened_usd": round(sum(float(d.size_usd or 0) for d in opened), 2),
+                "settled": len(closed), "wins": sum(r["wins"] for r in per.values()),
+                "pnl": round(sum(r["pnl"] for r in per.values()), 2),
+                "cost": round(sum(r["cost"] for r in per.values()), 2), "per_strategy": per}
+    finally:
+        db.close()
+
+
+def format_hourly_report(start: datetime, end: datetime, summary: Dict[str, Any]) -> str:
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    s = summary
+    lines = [f"⏱ Auto trade · {start.astimezone(tz):%H:%M}–{end.astimezone(tz):%H:%M} {settings.NOTIFY_TIMEZONE_LABEL}"]
+    if s["settled"]:
+        roi = f" · ROI {s['pnl'] / s['cost'] * 100:+.1f}%" if s["cost"] else ""
+        lines.append(f"Selesai {s['settled']} · WR {s['wins'] / s['settled'] * 100:.0f}% ({s['wins']}/{s['settled']}) · "
+                     f"PnL {s['pnl']:+.2f}{roi}")
+        for name, r in sorted(s["per_strategy"].items()):
+            lines.append(f"• {name}: {r['wins']}/{r['settled']} menang · PnL {r['pnl']:+.2f}")
+    else:
+        lines.append("Belum ada trade yang selesai jam ini")
+    lines.append(f"Dibuka {s['opened']} trade (${s['opened_usd']:.2f})")
+    t = today_summary(end)
+    lines.append(f"Hari ini: {t['trades']} trade · PnL terealisasi {t['realized_pnl']:+.2f} · terbuka ${t['open_usd']:.2f}")
+    return "\n".join(lines)
+
+
+def maybe_send_hourly_report(now: Optional[datetime] = None) -> bool:
+    """
+    Tiap pergantian jam: rangkuman 1 jam terakhir (win rate & PnL trade yang selesai, trade dibuka) — hanya
+    ke grup auto trade (TELEGRAM_AUTOTRADE_CHAT_ID), tidak ke chat pribadi. Dilewati bila jam itu kosong.
+    """
+    from app.paper_trading.telegram import send_telegram_message
+
+    if not settings.TELEGRAM_AUTOTRADE_CHAT_ID:
+        return False
+    now = now or datetime.now(timezone.utc)
+    end = now.replace(minute=0, second=0, microsecond=0)
+    key = end.strftime("%Y-%m-%dT%H")
+    if _get_state("last_hourly_report") == key:
+        return False
+    _set_state("last_hourly_report", key, now)
+    start = end - timedelta(hours=1)
+    summary = hourly_summary(start, end)
+    if not summary["opened"] and not summary["settled"]:
+        return False
+    result = send_telegram_message(format_hourly_report(start, end, summary), chat_id=settings.TELEGRAM_AUTOTRADE_CHAT_ID)
+    if not result.get("success"):
+        logger.warning("Laporan per jam auto trade tidak terkirim: %s", result.get("error"))
+    return bool(result.get("success"))
 
 
 def maybe_send_daily_report(now: Optional[datetime] = None) -> bool:

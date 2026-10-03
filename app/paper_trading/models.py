@@ -435,9 +435,13 @@ class TrackedWallet(Base):
 
 
 class WalletCandidate(Base):
-    """Hasil pencarian wallet menarik (leaderboard + statistik), diperbarui berkala."""
-    __tablename__ = "wallet_candidates"
+    """
+    Hasil pencarian wallet menarik per kategori market (leaderboard kategori + statistik), diperbarui
+    berkala. Menggantikan tabel lama wallet_candidates (tanpa kategori).
+    """
+    __tablename__ = "wallet_category_candidates"
 
+    category: Mapped[str] = mapped_column(String(20), primary_key=True)   # WEATHER, CRYPTO, SPORTS, …
     address: Mapped[str] = mapped_column(String(42), primary_key=True)
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     rank: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -1104,8 +1104,17 @@
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <div class="fw-semibold text-white"><i class="bi bi-stars me-1 text-warning"></i>Rekomendasi wallet menarik
                     <span class="small text-muted-poly fw-normal" id="walletCandidatesAge"></span></div>
-                <button class="btn btn-sm poly-btn-secondary py-1 px-3" id="walletDiscoverBtn" onclick="rediscoverWallets()">
-                    <i class="bi bi-arrow-repeat"></i> Cari ulang</button>
+                <div class="d-flex gap-2 align-items-center">
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="walletCategory"
+                            onchange="onWalletCategoryChange()" aria-label="Kategori market">
+                        <option value="WEATHER">Cuaca</option><option value="CRYPTO">Kripto</option><option value="SPORTS">Olahraga</option>
+                        <option value="POLITICS">Politik</option><option value="ECONOMICS">Ekonomi</option><option value="FINANCE">Keuangan</option>
+                        <option value="TECH">Teknologi</option><option value="CULTURE">Budaya & hiburan</option><option value="ESPORTS">Esports</option>
+                        <option value="MENTIONS">Mentions</option><option value="OVERALL">Semua market</option>
+                    </select>
+                    <button class="btn btn-sm poly-btn-secondary py-1 px-3" id="walletDiscoverBtn" onclick="rediscoverWallets()">
+                        <i class="bi bi-arrow-repeat"></i> Cari ulang</button>
+                </div>
             </div>
             <div class="row g-3 mb-4" id="walletCandidatesContainer"><div class="col-12 small text-muted-poly">Memuat…</div></div>
 
@@ -2807,9 +2816,10 @@
         async function rediscoverWallets() {
             const btn = document.getElementById('walletDiscoverBtn');
             if (btn) btn.disabled = true;
-            walletNotice('Menganalisis wallet leaderboard… (±30 detik)');
+            const label = document.getElementById('walletCategory').selectedOptions[0].textContent;
+            walletNotice(`Menganalisis wallet leaderboard ${label}… (±30 detik)`);
             try {
-                const res = await fetch('/api/wallets/discover', { method: 'POST' });
+                const res = await fetch('/api/wallets/discover?category=' + encodeURIComponent(walletCategory()), { method: 'POST' });
                 if (!res.ok) throw new Error('Gagal mencari wallet');
                 walletNotice('Rekomendasi diperbarui.');
                 await fetchWallets();
@@ -2870,11 +2880,29 @@
                     </td></tr>`;
             }).join('');
         }
-        async function fetchWallets() {
+        const WALLET_CATEGORY_KEY = 'walletCategory';
+        function walletCategory() {
+            const sel = document.getElementById('walletCategory');
+            return sel ? sel.value : 'WEATHER';
+        }
+        function onWalletCategoryChange() {
+            try { localStorage.setItem(WALLET_CATEGORY_KEY, walletCategory()); } catch (e) { /* abaikan */ }
+            document.getElementById('walletCandidatesContainer').innerHTML = '<div class="col-12 small text-muted-poly">Memuat…</div>';
+            fetchWallets(true);
+        }
+        (function initWalletCategory() {
+            const sel = document.getElementById('walletCategory');
+            let saved = null;
+            try { saved = localStorage.getItem(WALLET_CATEGORY_KEY); } catch (e) { /* abaikan */ }
+            if (sel && saved && [...sel.options].some(o => o.value === saved)) sel.value = saved;
+        })();
+        async function fetchWallets(autoDiscover = false) {
             try {
-                const res = await fetch('/api/wallets');
+                const res = await fetch('/api/wallets?category=' + encodeURIComponent(walletCategory()));
                 if (!res.ok) throw new Error('Failed');
                 const data = await res.json();
+                // Kategori yang belum pernah dianalisis: jalankan pencarian otomatis
+                if (autoDiscover && data.candidates_age_minutes === null) { rediscoverWallets(); return; }
                 renderWalletCandidates(data.candidates || []);
                 renderWalletTracked(data.tracked || []);
                 const age = document.getElementById('walletCandidatesAge');

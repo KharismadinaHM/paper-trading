@@ -563,31 +563,56 @@ def readings_for_day(day: Optional["date"] = None) -> List[Dict[str, Any]]:
     return out
 
 
-def format_history(day: Optional["date"] = None) -> str:
-    """/hk riwayat: timeline bacaan HKO per 10 menit (sejak 07:00 HKT) + alert yang terkirim."""
-    rows = readings_for_day(day)
-    label = (day or datetime.now(HKT).date()).strftime("%d %b %Y")
+def readings_between(start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    """Bacaan HKO tersimpan dalam rentang waktu, urut waktu."""
+    db = get_db_session()
+    try:
+        rows = (db.query(StationReading).filter(StationReading.station == STATION,
+                                                StationReading.observed_at >= start.astimezone(timezone.utc),
+                                                StationReading.observed_at <= end.astimezone(timezone.utc))
+                .order_by(StationReading.observed_at).all())
+        alerts = (db.query(StationAlert).filter(StationAlert.station == STATION,
+                                                StationAlert.sent_at >= start.astimezone(timezone.utc)).all())
+    finally:
+        db.close()
+    alert_times = [_aware(a.sent_at).astimezone(HKT) for a in alerts]
+    out = []
+    for r in rows:
+        at = _aware(r.observed_at).astimezone(HKT)
+        out.append({"at": at, "temp": float(r.temp),
+                    "max": float(r.max_since_midnight) if r.max_since_midnight is not None else None,
+                    "min": float(r.min_since_midnight) if r.min_since_midnight is not None else None,
+                    "alerts": [t for t in alert_times if at <= t < at + timedelta(minutes=10)]})
+    return out
+
+
+def format_history(day: Optional["date"] = None, now: Optional[datetime] = None) -> str:
+    """
+    /hk riwayat: bacaan HKO 24 jam ke belakang (atau satu tanggal HKT bila `day` diisi). 3 jam terakhir per
+    10 menit, sebelumnya per 30 menit agar muat satu pesan Telegram.
+    """
+    now = now or datetime.now(timezone.utc)
+    if day is not None:
+        start = datetime.combine(day, datetime.min.time(), tzinfo=HKT)
+        end = start + timedelta(days=1) - timedelta(seconds=1)
+        title = f"🇭🇰 *Riwayat HKO* {day:%d %b %Y} (HKT)"
+    else:
+        end = now.astimezone(HKT)
+        start = end - timedelta(hours=24)
+        title = f"🇭🇰 *Riwayat HKO 24 jam* ({start:%d %b %H:%M} – {end:%d %b %H:%M} HKT)"
+    rows = readings_between(start, end)
     if not rows:
-        return (f"🇭🇰 Belum ada bacaan HKO tersimpan untuk {label}. Bacaan disimpan tiap siklus collector "
-                "sejak alert HK aktif.")
-    shown = [r for r in rows if r["at"].hour >= 7] or rows
-    if len(shown) > 80:  # batas panjang pesan Telegram: jam awal per 20 menit, 2 jam terakhir penuh
-        cutoff = shown[-1]["at"] - timedelta(hours=2)
-        shown = [r for r in shown if r["at"] >= cutoff or r["at"].minute % 20 == 0]
-    lines = [f"🇭🇰 *Riwayat HKO* {label} (HKT, per 10 menit)", "`jam    suhu   max    Δ`"]
+        return f"{title}\nBelum ada bacaan HKO tersimpan pada rentang ini."
+    detail_from = rows[-1]["at"] - timedelta(hours=3)
+    shown = [r for r in rows if r["at"] >= detail_from or r["at"].minute % 30 == 0]
+    lines = [title, "`tgl jam    suhu   max    Δ`"]
     prev = None
     for r in shown:
         delta = f"{r['temp'] - prev:+.1f}" if prev is not None else "  "
         prev = r["temp"]
         mark = " 🔺" if r["alerts"] else ""
         max_txt = f"{r['max']:.1f}" if r["max"] is not None else "-"
-        lines.append(f"`{r['at']:%H:%M}  {r['temp']:4.1f}  {max_txt:>4}  {delta:>4}`{mark}")
-    top = max((r for r in rows if r["max"] is not None), key=lambda r: r["max"], default=None)
-    if top:
-        first = next(r for r in rows if r["max"] == top["max"])
-        lines += ["", f"Max hari ini {top['max']:.1f}°C (pertama tercatat {first['at']:%H:%M} HKT) · "
-                      f"{len(rows)} bacaan · 🔺 = alert terkirim"]
-    lines.append("CSV lengkap: dashboard → /api/hk/readings.csv")
+        lines.append(f"`{r['at']:%d %H:%M}  {r['temp']:4.1f}  {max_txt:>4}  {delta:>4}`{mark}")
     return "\n".join(lines)
 
 

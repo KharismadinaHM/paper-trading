@@ -31,6 +31,51 @@ ADDRESS_RE = re.compile(r"0x[a-fA-F0-9]{40}")
 STATS_TTL = 10 * 60
 WEATHER_RE = re.compile(r"temperature|weather|rain|snow|hurricane", re.I)
 
+# Kategori leaderboard Polymarket (data-api /v1/leaderboard?category=…) dan label Indonesia
+CATEGORIES: Dict[str, str] = {
+    "WEATHER": "cuaca", "CRYPTO": "kripto", "SPORTS": "olahraga", "POLITICS": "politik",
+    "ECONOMICS": "ekonomi", "FINANCE": "keuangan", "TECH": "teknologi", "CULTURE": "budaya & hiburan",
+    "MENTIONS": "mentions", "ESPORTS": "esports", "OVERALL": "semua market",
+}
+CATEGORY_ALIASES = {
+    "cuaca": "WEATHER", "weather": "WEATHER", "suhu": "WEATHER",
+    "kripto": "CRYPTO", "crypto": "CRYPTO", "btc": "CRYPTO", "bitcoin": "CRYPTO",
+    "olahraga": "SPORTS", "sport": "SPORTS", "sports": "SPORTS", "bola": "SPORTS",
+    "politik": "POLITICS", "politics": "POLITICS", "pemilu": "POLITICS",
+    "ekonomi": "ECONOMICS", "economics": "ECONOMICS", "economy": "ECONOMICS",
+    "keuangan": "FINANCE", "finance": "FINANCE", "saham": "FINANCE",
+    "teknologi": "TECH", "tech": "TECH", "ai": "TECH",
+    "budaya": "CULTURE", "culture": "CULTURE", "hiburan": "CULTURE", "pop": "CULTURE",
+    "mentions": "MENTIONS", "mention": "MENTIONS",
+    "esports": "ESPORTS", "esport": "ESPORTS", "game": "ESPORTS",
+    "semua": "OVERALL", "overall": "OVERALL", "all": "OVERALL",
+}
+# Pola judul market untuk "porsi transaksi di kategori ini" (kategori lain: tidak dihitung)
+CATEGORY_RE = {
+    "WEATHER": WEATHER_RE,
+    "CRYPTO": re.compile(r"bitcoin|\bbtc\b|ethereum|\beth\b|solana|\bxrp\b|crypto|dogecoin|\bsol\b", re.I),
+    "SPORTS": re.compile(r"\bvs\.?\b|nba|nfl|mlb|nhl|premier league|champions league|uefa|\bfc\b|grand prix|open\b", re.I),
+    "POLITICS": re.compile(r"election|president|trump|senate|congress|prime minister|parliament|vote", re.I),
+}
+
+
+def default_category() -> str:
+    return (settings.WALLET_DISCOVERY_CATEGORY or "WEATHER").upper()
+
+
+def normalize_category(text: Optional[str]) -> Optional[str]:
+    """'kripto' / 'crypto' / 'CRYPTO' → 'CRYPTO'; None bila tidak dikenal."""
+    t = str(text or "").strip()
+    if not t:
+        return None
+    if t.upper() in CATEGORIES:
+        return t.upper()
+    return CATEGORY_ALIASES.get(t.lower())
+
+
+def category_label(category: str) -> str:
+    return CATEGORIES.get(category, category.lower())
+
 
 class WalletError(ValueError):
     pass
@@ -114,7 +159,8 @@ def _parse_end(value: Any) -> Optional[datetime]:
         return None
 
 
-def compute_stats(address: str, days: Optional[int] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
+def compute_stats(address: str, days: Optional[int] = None, now: Optional[datetime] = None,
+                  category: Optional[str] = None) -> Dict[str, Any]:
     """Statistik wallet dalam `days` hari terakhir (default WALLET_STATS_DAYS)."""
     now = now or datetime.now(timezone.utc)
     days = days or settings.WALLET_STATS_DAYS
@@ -150,6 +196,8 @@ def compute_stats(address: str, days: Optional[int] = None, now: Optional[dateti
     alltime = leaderboard_entry(address, "ALL")
     recent = [a for a in activity if int(a.get("timestamp") or 0) >= cutoff_ts]
     weather = sum(1 for a in recent if WEATHER_RE.search(str(a.get("title") or "")))
+    pattern = CATEGORY_RE.get(category or "")
+    in_category = sum(1 for a in recent if pattern.search(str(a.get("title") or ""))) if pattern else None
     last_ts = max((int(a.get("timestamp") or 0) for a in activity), default=None)
     volume = sum(float(a.get("usdcSize") or 0) for a in recent)
     return {
@@ -176,6 +224,8 @@ def compute_stats(address: str, days: Optional[int] = None, now: Optional[dateti
         "trades_sampled": len(recent),
         "recent_volume": round(volume, 2),
         "weather_share": round(weather / len(recent), 2) if recent else None,
+        "category": category,
+        "category_share": round(in_category / len(recent), 2) if recent and in_category is not None else None,
         "last_trade_ts": last_ts,
         "computed_at": now.isoformat(),
     }
@@ -223,12 +273,14 @@ def money(value: Optional[float]) -> str:
     return sign + body
 
 
-def reason_for(stats: Dict[str, Any], leaderboard: Optional[Dict[str, Any]] = None) -> str:
+def reason_for(stats: Dict[str, Any], leaderboard: Optional[Dict[str, Any]] = None,
+               category: Optional[str] = None) -> str:
     """Alasan rekomendasi dalam satu kalimat."""
+    category = category or stats.get("category") or default_category()
     parts = []
     if leaderboard:
-        parts.append(f"peringkat #{leaderboard['rank']} PnL cuaca bulan ini ({money(leaderboard.get('pnl'))} "
-                     f"dari volume {money(leaderboard.get('vol')).lstrip('+')})")
+        parts.append(f"peringkat #{leaderboard['rank']} PnL {category_label(category)} bulan ini "
+                     f"({money(leaderboard.get('pnl'))} dari volume {money(leaderboard.get('vol')).lstrip('+')})")
     if stats.get("win_rate") is not None:
         span = stats.get("sample_days") or stats["days"]
         parts.append(f"win rate {stats['win_rate'] * 100:.0f}% ({stats['wins']}/{stats['resolved']} posisi selesai, "
@@ -245,7 +297,9 @@ def reason_for(stats: Dict[str, Any], leaderboard: Optional[Dict[str, Any]] = No
             parts.append(f"rata-rata beli {entry:.0f}¢ — pola bracket murah")
         else:
             parts.append(f"rata-rata beli {entry:.0f}¢")
-    if stats.get("weather_share") is not None:
+    if stats.get("category_share") is not None:
+        parts.append(f"{stats['category_share'] * 100:.0f}% transaksi di market {category_label(category)}")
+    elif stats.get("weather_share") is not None and category == "WEATHER":
         parts.append(f"{stats['weather_share'] * 100:.0f}% transaksi di market cuaca")
     if stats.get("last_trade_ts"):
         parts.append(f"aktif {ago(stats['last_trade_ts'])}")
@@ -254,8 +308,8 @@ def reason_for(stats: Dict[str, Any], leaderboard: Optional[Dict[str, Any]] = No
 
 # --- Discovery ----------------------------------------------------------------------------
 
-def fetch_leaderboard(limit: int = 25) -> List[Dict[str, Any]]:
-    rows = _get("/v1/leaderboard", category=settings.WALLET_DISCOVERY_CATEGORY, timePeriod="MONTH",
+def fetch_leaderboard(limit: int = 25, category: Optional[str] = None) -> List[Dict[str, Any]]:
+    rows = _get("/v1/leaderboard", category=category or default_category(), timePeriod="MONTH",
                 orderBy="PNL", limit=limit) or []
     return [{"address": str(r.get("proxyWallet") or "").lower(), "name": clean_name(r.get("userName")),
              "rank": int(r.get("rank") or 0), "pnl": float(r.get("pnl") or 0), "vol": float(r.get("vol") or 0)}
@@ -279,20 +333,22 @@ def score(stats: Dict[str, Any]) -> float:
     return round((0.5 * wr_part + 0.5 * margin_part) * profitable, 6)
 
 
-def discover_wallets(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
-    """Hitung ulang kandidat wallet menarik dan simpan ke wallet_candidates."""
+def discover_wallets(now: Optional[datetime] = None, category: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Hitung ulang kandidat wallet menarik untuk satu kategori market dan simpan."""
     now = now or datetime.now(timezone.utc)
+    category = normalize_category(category) or default_category()
     db = get_db_session()
     try:
         excluded = {w.address for w in db.query(TrackedWallet)}
     finally:
         db.close()
-    board = [r for r in fetch_leaderboard(limit=settings.WALLET_DISCOVERY_CANDIDATES * 2) if r["address"] not in excluded]
+    board = [r for r in fetch_leaderboard(limit=settings.WALLET_DISCOVERY_CANDIDATES * 2, category=category)
+             if r["address"] not in excluded]
     board = board[:settings.WALLET_DISCOVERY_CANDIDATES]
 
     def evaluate(entry):
         try:
-            return entry, compute_stats(entry["address"], now=now)
+            return entry, compute_stats(entry["address"], now=now, category=category)
         except Exception as err:
             logger.warning("Gagal menghitung statistik wallet %s: %s", entry["address"], err)
             return entry, None
@@ -307,39 +363,46 @@ def discover_wallets(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
             continue
         stats["name"] = stats.get("name") or clean_name(entry["name"])
         candidates.append({"address": entry["address"], "name": stats["name"], "score": score(stats),
-                           "reason": reason_for(stats, entry), "stats": stats, "leaderboard": entry})
+                           "reason": reason_for(stats, entry, category), "stats": stats, "leaderboard": entry})
     candidates.sort(key=lambda c: -c["score"])
 
     db = get_db_session()
     try:
-        db.query(WalletCandidate).delete()
+        db.query(WalletCandidate).filter(WalletCandidate.category == category).delete()
         for rank, c in enumerate(candidates, start=1):
-            db.add(WalletCandidate(address=c["address"], name=c["name"], rank=rank, score=Decimal(str(c["score"])),
+            db.add(WalletCandidate(category=category, address=c["address"], name=c["name"], rank=rank, score=Decimal(str(c["score"])),
                                    reason=c["reason"], stats_json=json.dumps({**c["stats"], "leaderboard": c["leaderboard"]}),
                                    discovered_at=now))
         db.commit()
     finally:
         db.close()
-    logger.info("Discovery wallet: %d kandidat", len(candidates))
-    return list_candidates()
+    logger.info("Discovery wallet %s: %d kandidat", category, len(candidates))
+    return list_candidates(category)
 
 
-def list_candidates() -> List[Dict[str, Any]]:
+def list_candidates(category: Optional[str] = None, all_categories: bool = False) -> List[Dict[str, Any]]:
+    """Kandidat satu kategori (default WALLET_DISCOVERY_CATEGORY) urut peringkat, tanpa wallet yang sudah dilacak."""
+    category = normalize_category(category) or default_category()
     db = get_db_session()
     try:
         tracked = {w.address for w in db.query(TrackedWallet)}
-        rows = db.query(WalletCandidate).order_by(WalletCandidate.rank).all()
-        return [{"address": r.address, "name": r.name, "rank": r.rank, "reason": r.reason,
+        q = db.query(WalletCandidate)
+        if not all_categories:
+            q = q.filter(WalletCandidate.category == category)
+        rows = q.order_by(WalletCandidate.category, WalletCandidate.rank).all()
+        return [{"address": r.address, "name": r.name, "rank": r.rank, "reason": r.reason, "category": r.category,
                  "stats": json.loads(r.stats_json or "{}"), "discovered_at": r.discovered_at}
                 for r in rows if r.address not in tracked]
     finally:
         db.close()
 
 
-def candidates_age(now: Optional[datetime] = None) -> Optional[timedelta]:
+def candidates_age(now: Optional[datetime] = None, category: Optional[str] = None) -> Optional[timedelta]:
+    category = normalize_category(category) or default_category()
     db = get_db_session()
     try:
-        latest = db.query(WalletCandidate.discovered_at).order_by(WalletCandidate.discovered_at.desc()).first()
+        latest = (db.query(WalletCandidate.discovered_at).filter(WalletCandidate.category == category)
+                  .order_by(WalletCandidate.discovered_at.desc()).first())
     finally:
         db.close()
     if not latest:
@@ -348,10 +411,13 @@ def candidates_age(now: Optional[datetime] = None) -> Optional[timedelta]:
     return (now or datetime.now(timezone.utc)) - at
 
 
-def refresh_candidates_if_stale(now: Optional[datetime] = None) -> None:
-    age = candidates_age(now)
+def refresh_candidates_if_stale(now: Optional[datetime] = None, category: Optional[str] = None) -> bool:
+    """Discovery ulang bila kandidat kategori ini belum ada / lebih tua dari WALLET_DISCOVERY_REFRESH_HOURS."""
+    age = candidates_age(now, category)
     if age is None or age > timedelta(hours=settings.WALLET_DISCOVERY_REFRESH_HOURS):
-        discover_wallets(now=now)
+        discover_wallets(now=now, category=category)
+        return True
+    return False
 
 
 # --- Tracking / follow --------------------------------------------------------------------
@@ -372,17 +438,19 @@ def list_tracked(include_skipped: bool = False) -> List[Dict[str, Any]]:
         db.close()
 
 
-def resolve_wallet(query: str) -> str:
+LAST_CATEGORY: Dict[str, Optional[str]] = {"value": None}  # kategori /discover terakhir (untuk /follow <nomor>)
+
+
+def resolve_wallet(query: str, category: Optional[str] = None) -> str:
     """Alamat dari input: 0x…, URL profil, nama wallet yang dilacak/kandidat, atau nomor kandidat /discover."""
     text = str(query or "").strip()
     if ADDRESS_RE.search(text):
         return normalize_address(text)
-    candidates = list_candidates()
     if text.isdigit():
-        for c in candidates:
+        for c in list_candidates(category or LAST_CATEGORY.get("value")):
             if c["rank"] == int(text):
                 return c["address"]
-    for item in list_tracked(include_skipped=True) + candidates:
+    for item in list_tracked(include_skipped=True) + list_candidates(all_categories=True):
         if item.get("name") and item["name"].lower() == text.lower():
             return item["address"]
     raise WalletError(f"Wallet '{text}' tidak ditemukan. Pakai alamat 0x…, nama, atau nomor dari /discover.")
@@ -442,7 +510,7 @@ def skip_wallet(address: str, now: Optional[datetime] = None) -> None:
     try:
         wallet = db.get(TrackedWallet, address)
         if wallet is None:
-            candidate = db.get(WalletCandidate, address)
+            candidate = db.query(WalletCandidate).filter(WalletCandidate.address == address).first()
             wallet = TrackedWallet(address=address, added_at=now or datetime.now(timezone.utc), source="discover",
                                    name=candidate.name if candidate else None)
             db.add(wallet)
@@ -497,15 +565,35 @@ def _label(wallet: TrackedWallet) -> str:
     return f"{wallet.name} ({short(wallet.address)})" if wallet.name else short(wallet.address)
 
 
-def format_trade_alert(wallet: TrackedWallet, trades: List[Dict[str, Any]]) -> str:
+def _mine_line(trade: Dict[str, Any], mine: List[Dict[str, Any]]) -> str:
+    """Keterangan posisi porto sendiri di market yang sama dengan transaksi wallet yang diikuti."""
+    holding = ", ".join(f"{m['outcome']} {m['size']:,.1f} sh @ {m['avg_price'] * 100:.0f}¢" for m in mine)
+    same = any(m["outcome"] == trade.get("outcome") for m in mine)
+    if trade.get("side") == "SELL" and same:
+        note = "⚠️ wallet ini MENJUAL sisi yang Anda pegang"
+    elif trade.get("side") == "BUY" and same:
+        note = "searah dengan Anda"
+    elif trade.get("side") == "BUY":
+        note = "⚠️ wallet ini membeli sisi BERLAWANAN"
+    else:
+        note = "wallet ini menjual sisi lawan Anda"
+    return f"  📌 Porto Anda juga di market ini: {holding} — {note}"
+
+
+def format_trade_alert(wallet: TrackedWallet, trades: List[Dict[str, Any]],
+                       my_positions: Optional[Dict[str, List[Dict[str, Any]]]] = None) -> str:
     tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
     label = settings.NOTIFY_TIMEZONE_LABEL
-    lines = [f"👛 {_label(wallet)} bertransaksi:"]
+    my_positions = my_positions or {}
+    overlap = any(t.get("condition_id") in my_positions for t in trades[:6])
+    lines = [f"👛 {_label(wallet)} bertransaksi{' · 📌 market yang sama dengan porto Anda' if overlap else ''}:"]
     for t in trades[:6]:
         at = datetime.fromtimestamp(t["timestamp"], tz)
         price = f"{float(t['price']) * 100:.1f}¢" if t.get("price") is not None else "-"
         lines.append(f"• {t['side']} {t.get('outcome') or ''} — {t.get('title')}".replace("  ", " "))
         lines.append(f"  {float(t['size']):,.1f} shares @ {price} (${float(t['usdc']):,.2f}) · {at:%H:%M} {label}")
+        if t.get("condition_id") in my_positions:
+            lines.append(_mine_line(t, my_positions[t["condition_id"]]))
         if t.get("event_slug"):
             lines.append(f"  https://polymarket.com/event/{t['event_slug']}")
     if len(trades) > 6:
@@ -520,6 +608,7 @@ def _group_trades(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for r in sorted(rows, key=lambda r: int(r.get("timestamp") or 0)):
         key = (r.get("conditionId"), r.get("side"), r.get("outcome"))
         g = groups.setdefault(key, {"side": r.get("side"), "outcome": r.get("outcome"), "title": r.get("title"),
+                                    "condition_id": r.get("conditionId"),
                                     "event_slug": r.get("eventSlug"), "size": 0.0, "usdc": 0.0,
                                     "timestamp": int(r.get("timestamp") or 0)})
         g["size"] += float(r.get("size") or 0)
@@ -559,7 +648,7 @@ def poll_followed_wallets(now: Optional[datetime] = None) -> int:
                 continue
             trades = [t for t in _group_trades(fresh) if t["usdc"] >= settings.WALLET_ALERT_MIN_USDC]
             if trades:
-                result = send_telegram_message(format_trade_alert(wallet, trades))
+                result = send_telegram_message(format_trade_alert(wallet, trades, my_open_positions()))
                 if not result.get("success"):
                     logger.warning("Alert wallet tidak terkirim: %s", result.get("error"))
                     continue  # coba lagi siklus berikutnya
@@ -577,13 +666,111 @@ def poll_followed_wallets(now: Optional[datetime] = None) -> int:
         db.close()
 
 
+# --- Porto sendiri vs wallet yang diikuti -------------------------------------------------
+
+def _open_positions(address: str) -> Dict[str, List[Dict[str, Any]]]:
+    """{conditionId: [{outcome, size, avg_price, title, slug}]} posisi terbuka (belum resolve) sebuah wallet."""
+    rows = _get("/positions", user=address, limit=500, sizeThreshold=0.1) or []
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for p in rows:
+        if p.get("redeemable") or not p.get("conditionId"):
+            continue
+        out.setdefault(p["conditionId"], []).append({
+            "outcome": p.get("outcome"), "size": float(p.get("size") or 0), "avg_price": float(p.get("avgPrice") or 0),
+            "cur_price": float(p.get("curPrice") or 0), "title": p.get("title"), "slug": p.get("eventSlug")})
+    return out
+
+
+def my_open_positions() -> Dict[str, List[Dict[str, Any]]]:
+    """Posisi terbuka porto sendiri (POLYMARKET_WALLET_ADDRESS), di-cache 60 detik; kosong bila tidak diatur."""
+    from app.paper_trading.live_market_data import _cached
+    from app.paper_trading.my_wallet import wallet_address
+
+    address = wallet_address()
+    if not address:
+        return {}
+    try:
+        return _cached(f"my_positions:{address}", 60, lambda: _open_positions(address))
+    except Exception as err:
+        logger.warning("Gagal mengambil posisi porto sendiri: %s", err)
+        return {}
+
+
+def format_overlap_alert(wallet: TrackedWallet, condition_id: str, mine: List[Dict[str, Any]],
+                         theirs: List[Dict[str, Any]]) -> str:
+    title = (mine or theirs)[0].get("title") or condition_id
+    same = {m["outcome"] for m in mine} & {t["outcome"] for t in theirs}
+    lines = [f"🤝 Porto Anda sama dengan {_label(wallet)}",
+             f"Market: {title}",
+             "Anda: " + ", ".join(f"{m['outcome']} {m['size']:,.1f} sh @ {m['avg_price'] * 100:.0f}¢" for m in mine),
+             "Wallet: " + ", ".join(f"{t['outcome']} {t['size']:,.1f} sh @ {t['avg_price'] * 100:.0f}¢" for t in theirs),
+             f"Harga sekarang {mine[0]['cur_price'] * 100:.0f}¢ · "
+             + ("✅ searah (sisi yang sama)" if same else "⚠️ berlawanan (wallet ini di sisi lawan)")]
+    slug = mine[0].get("slug") or theirs[0].get("slug")
+    if slug:
+        lines.append(f"https://polymarket.com/event/{slug}")
+    return "\n".join(lines)
+
+
+def check_portfolio_overlap(now: Optional[datetime] = None) -> int:
+    """
+    Bandingkan posisi terbuka porto sendiri dengan wallet yang diikuti; kirim alert sekali per
+    (wallet, market) saat keduanya memegang market yang sama. Kembalikan jumlah alert.
+    """
+    from app.paper_trading.telegram import send_telegram_message
+
+    if not settings.WALLET_OVERLAP_ALERTS:
+        return 0
+    mine = my_open_positions()
+    if not mine:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    sent = 0
+    db = get_db_session()
+    try:
+        for wallet in db.query(TrackedWallet).filter_by(follow=True, status="tracking").all():
+            try:
+                theirs = _open_positions(wallet.address)
+            except Exception as err:
+                logger.warning("Gagal mengambil posisi %s: %s", wallet.address, err)
+                continue
+            for condition_id in set(mine) & set(theirs):
+                key = f"overlap:{condition_id}"[:80]
+                if db.get(WalletAlertLog, (key, wallet.address)) is not None:
+                    continue
+                result = send_telegram_message(format_overlap_alert(wallet, condition_id, mine[condition_id],
+                                                                    theirs[condition_id]))
+                if not result.get("success"):
+                    logger.warning("Alert porto sama tidak terkirim: %s", result.get("error"))
+                    continue
+                db.add(WalletAlertLog(transaction_hash=key, asset=wallet.address, address=wallet.address,
+                                      timestamp=int(now.timestamp())))
+                db.commit()
+                sent += 1
+        return sent
+    finally:
+        db.close()
+
+
+_last_overlap_check: Dict[str, float] = {"at": 0.0}
+
+
 def run_wallet_polling() -> int:
     """Dipanggil dari loop collector; tidak pernah melempar exception."""
+    import time as _time
+
+    sent = 0
     try:
-        return poll_followed_wallets()
+        sent += poll_followed_wallets()
     except Exception as err:
         logger.error("Gagal polling wallet: %s", err, exc_info=True)
-        return 0
+    if _time.monotonic() - _last_overlap_check["at"] >= settings.WALLET_OVERLAP_CHECK_MINUTES * 60:
+        _last_overlap_check["at"] = _time.monotonic()
+        try:
+            sent += check_portfolio_overlap()
+        except Exception as err:
+            logger.error("Gagal cek porto sama dengan wallet: %s", err, exc_info=True)
+    return sent
 
 
 def run_wallet_maintenance() -> None:

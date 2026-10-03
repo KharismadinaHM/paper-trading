@@ -376,18 +376,22 @@ def _wallet_call(fn, *args, **kwargs):
 
 
 @app.get("/api/wallets", dependencies=[Depends(require_auth)])
-def list_wallets_api():
-    """Wallet yang dilacak + kandidat rekomendasi (dari cache database)."""
+def list_wallets_api(category: Optional[str] = None):
+    """Wallet yang dilacak + kandidat rekomendasi satu kategori market (dari cache database)."""
     from app.paper_trading import wallets
-    return {"tracked": wallets.list_tracked(), "candidates": wallets.list_candidates()[:10],
-            "candidates_age_minutes": (lambda a: round(a.total_seconds() / 60) if a else None)(wallets.candidates_age())}
+    cat = wallets.normalize_category(category) or wallets.default_category()
+    return {"tracked": wallets.list_tracked(), "candidates": wallets.list_candidates(cat)[:10],
+            "category": cat, "categories": wallets.CATEGORIES,
+            "candidates_age_minutes": (lambda a: round(a.total_seconds() / 60) if a else None)(wallets.candidates_age(category=cat))}
 
 
 @app.post("/api/wallets/discover", dependencies=[Depends(require_auth)])
-def discover_wallets_api():
-    """Hitung ulang rekomendasi wallet menarik (leaderboard + statistik)."""
+def discover_wallets_api(category: Optional[str] = None):
+    """Hitung ulang rekomendasi wallet menarik satu kategori market (leaderboard kategori + statistik)."""
     from app.paper_trading import wallets
-    return {"candidates": _wallet_call(wallets.discover_wallets)[:10]}
+    if category and not wallets.normalize_category(category):
+        raise HTTPException(status_code=400, detail=f"Kategori tidak dikenal: {category}")
+    return {"candidates": _wallet_call(lambda: wallets.discover_wallets(category=category))[:10]}
 
 
 @app.post("/api/wallets", dependencies=[Depends(require_auth)])

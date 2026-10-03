@@ -1354,6 +1354,6 @@ def settle_resolved_positions(now: Optional[datetime] = None, db: Optional[Sessi
             }
             results.append(result)
             logger.info("Posisi di-settle: %s", result)
-            _notify_async("notify_paper_settled", result)
+            # Tanpa pesan "PAPER TRADE SETTLED" per posisi: hasil dirangkum di laporan per jam grup auto trade
 
     return results
