@@ -2,6 +2,7 @@
 FastAPI Dashboard untuk Polymarket Paper Trading.
 Dijalankan via: uvicorn app.dashboard:app --reload atau python -m app.dashboard
 """
+import re
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -247,6 +248,41 @@ def hk_readings_csv_api(date: Optional[str] = None):
 def autobot_page(request: Request):
     """Page khusus auto paper trader: market BTC & ETH live, status, hasil, riwayat, aturan, riset."""
     return templates.TemplateResponse(request=request, name="autobot.html", context={})
+
+
+def _calendar_call(fn, **kwargs):
+    try:
+        return fn(**kwargs)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err) or "Parameter tidak valid")
+
+
+@app.get("/api/autotrade/calendar", dependencies=[Depends(require_auth)])
+def autotrade_calendar_api(month: Optional[str] = None, year: Optional[int] = None, strategy: Optional[str] = None):
+    """
+    Kalender PnL auto trader (zona WIB, menurut waktu trade selesai): `month=YYYY-MM` → per hari,
+    `year=YYYY` → per bulan. `strategy`: nama strategi, btc_all, eth_all, weather_all, atau kosong = semua.
+    """
+    from app.paper_trading.autotrader import pnl_calendar, pnl_calendar_year
+    if year is not None:
+        return _calendar_call(pnl_calendar_year, year=year, strategy=strategy or None)
+    if month is not None and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Format bulan: YYYY-MM")
+    return _calendar_call(pnl_calendar, month=month, strategy=strategy or None)
+
+
+@app.get("/api/autotrade/calendar/trades", dependencies=[Depends(require_auth)])
+def autotrade_calendar_trades_api(date: Optional[str] = None, month: Optional[str] = None,
+                                  strategy: Optional[str] = None):
+    """Trade auto yang selesai pada `date=YYYY-MM-DD` atau `month=YYYY-MM` (WIB), terbaru dulu, dengan detail."""
+    from app.paper_trading.autotrader import closed_trades
+    if not date and not month:
+        raise HTTPException(status_code=400, detail="Isi date=YYYY-MM-DD atau month=YYYY-MM")
+    if date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(status_code=400, detail="Format tanggal: YYYY-MM-DD")
+    if month and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Format bulan: YYYY-MM")
+    return {"trades": _calendar_call(closed_trades, day=date, month=month, strategy=strategy or None)}
 
 
 @app.get("/api/autotrade/markets", dependencies=[Depends(require_auth)])

@@ -632,3 +632,54 @@ def test_crypto_markets_overview(monkeypatch):
     assert rows["btc"]["in_window"] is True and rows["eth"]["taker_on"] is False
     assert up["skip"] is None  # 61¢ + fee, edge ≈ 8¢, dalam jendela
     assert eth15["sides"]["DOWN"]["skip"] == "edge < 5¢"
+
+
+def test_pnl_calendar_days_months_and_trades(funded, sent):
+    from zoneinfo import ZoneInfo as _Z
+    from app.paper_trading.models import PaperPosition, PaperTrade, PaperTradeStatus, TradeSide
+    wib = _Z("Asia/Jakarta")
+    seed_market("0xcal1")
+    seed_market("0xcal2")
+    d1 = decision(key="btc|0xcal1", market_id="0xcal1")
+    d1["features"] = {"btc": 84000.0, "change_pct": 0.1, "minute": 40, "minutes_left": 20}
+    at.execute(d1, NOW)
+    d2 = decision(key="eth15|0xcal2", market_id="0xcal2")
+    d2["strategy"] = "eth15"
+    at.execute(d2, NOW)
+    db = get_db_session()
+    acc = db.query(PaperPosition).filter_by(market_id="0xcal1").first().account_id
+    closes = [("0xcal1", "auto_btc_v1", 3.5, datetime(2031, 3, 4, 23, 30, tzinfo=wib)),   # 4 Mar WIB (16:30 UTC)
+              ("0xcal2", "auto_eth15_v1", -2.0, datetime(2031, 3, 5, 1, 0, tzinfo=wib)),   # 5 Mar WIB (4 Mar UTC!)
+              ("0xcal1", "auto_btc_v1", 1.0, datetime(2031, 4, 2, 9, 0, tzinfo=wib))]
+    for mid, ver, pnl, at_ in closes:
+        db.add(PaperTrade(account_id=acc, market_id=mid, side=TradeSide.YES, entry_price=Decimal("0.5"),
+                          position_size=Decimal("2"), shares=Decimal("4"), exit_price=Decimal("1" if pnl > 0 else "0"),
+                          gross_pnl=Decimal(str(pnl)), net_pnl=Decimal(str(pnl)),
+                          status=PaperTradeStatus.WON if pnl > 0 else PaperTradeStatus.LOST,
+                          closed_at=at_.astimezone(timezone.utc), strategy_version=ver, market_name=f"M {mid}"))
+    db.commit()
+    db.close()
+
+    cal = at.pnl_calendar("2031-03")
+    assert cal["days"]["2031-03-04"]["pnl"] == 3.5 and cal["days"]["2031-03-05"]["pnl"] == -2.0  # tanggal WIB
+    assert cal["totals"]["pnl"] == 1.5 and cal["totals"]["green"] == 1 and cal["totals"]["red"] == 1
+    assert list(at.pnl_calendar("2031-03", strategy="eth_all")["days"]) == ["2031-03-05"]
+    year = at.pnl_calendar_year(2031)
+    assert year["months"]["2031-03"]["trades"] == 2 and year["months"]["2031-04"]["pnl"] == 1.0
+    assert year["totals"]["pnl"] == 2.5
+
+    trades = at.closed_trades(day="2031-03-04")
+    assert len(trades) == 1 and trades[0]["strategy"] == "btc" and trades[0]["result"] == "MENANG"
+    assert trades[0]["pnl"] == 3.5 and trades[0]["detail"] == "detail" and trades[0]["prob"] == 0.7
+    assert [t["strategy"] for t in at.closed_trades(month="2031-03")] == ["eth15", "btc"]  # terbaru dulu
+
+    from fastapi.testclient import TestClient
+    from app.dashboard import app
+    client = TestClient(app)
+    assert client.get("/api/autotrade/calendar", params={"month": "2031-03"}).json()["totals"]["trades"] == 2
+    assert client.get("/api/autotrade/calendar", params={"year": 2031, "strategy": "btc_all"}).json()["totals"]["pnl"] == 4.5
+    assert client.get("/api/autotrade/calendar", params={"month": "2031-13"}).status_code == 400
+    assert client.get("/api/autotrade/calendar", params={"month": "2031-03", "strategy": "moon"}).status_code == 400
+    assert len(client.get("/api/autotrade/calendar/trades", params={"month": "2031-04"}).json()["trades"]) == 1
+    assert client.get("/api/autotrade/calendar/trades").status_code == 400
+    assert 'id="calGrid"' in client.get("/autobot").text

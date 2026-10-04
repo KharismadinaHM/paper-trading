@@ -22,6 +22,20 @@
         .side { border-radius: 8px; padding: 6px 8px; background: #0f141d; }
         .side.best { outline: 1px solid rgba(250, 204, 21, .6); }
         .asset-price { font-size: 1.4rem; font-weight: 700; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+        .cal-grid.months { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .cal-head { text-align: center; font-size: .75rem; color: var(--poly-text-muted); }
+        .cal-cell { border: 1px solid var(--poly-border); border-radius: 10px; padding: 6px; min-height: 70px; cursor: pointer;
+                    background: #0f141d; display: flex; flex-direction: column; justify-content: space-between; }
+        .cal-cell.empty { cursor: default; background: transparent; border-color: transparent; }
+        .cal-cell.notrade { cursor: default; }
+        .cal-cell.selected { outline: 2px solid #facc15; outline-offset: 1px; }
+        .cal-cell.today .cal-day { color: #facc15; font-weight: 700; }
+        .cal-day { font-size: .75rem; color: var(--poly-text-muted); }
+        .cal-pnl { font-weight: 700; font-size: .95rem; }
+        .cal-sub { font-size: .7rem; color: var(--poly-text-muted); }
+        .months .cal-cell { min-height: 84px; }
+        @media (max-width: 576px) { .cal-cell { min-height: 54px; padding: 4px; } .cal-pnl { font-size: .78rem; } .cal-sub { display: none; } }
     </style>
 </head>
 <body>
@@ -51,6 +65,31 @@
             Hijau = sedang dalam jendela masuk · ★ = sisi dengan edge terbesar · "dilewati" = alasan bot tidak membeli sisi itu sekarang.
         </div>
     </div>
+
+        <!-- KALENDER PnL -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-calendar3 me-2 text-warning"></i>Kalender PnL</h5>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Tampilan kalender">
+                        <button class="btn btn-outline-secondary" id="calViewDay" onclick="setCalView('day')">Harian</button>
+                        <button class="btn btn-outline-secondary" id="calViewMonth" onclick="setCalView('month')">Bulanan</button>
+                    </div>
+                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="calStrategy" onchange="loadCalendar()" aria-label="Strategi">
+                        <option value="">Semua strategi</option><option value="btc_all">BTC (semua seri)</option><option value="eth_all">ETH (semua seri)</option>
+                    </select>
+                    <div class="d-flex align-items-center gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="shiftCal(-1)" aria-label="Sebelumnya"><i class="bi bi-chevron-left"></i></button>
+                        <span class="fw-semibold px-2" id="calLabel" style="min-width: 130px; text-align: center">-</span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="shiftCal(1)" aria-label="Berikutnya"><i class="bi bi-chevron-right"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="small mb-3" id="calSummary"></div>
+            <div id="calGrid"></div>
+            <div id="calTrades" class="mt-4"></div>
+            <div class="small text-muted-poly mt-3">PnL terealisasi menurut waktu trade selesai (zona WIB). Klik tanggal / bulan untuk melihat riwayat trade-nya.</div>
+        </div>
 
         <!-- STATUS, HASIL, RIWAYAT, ATURAN & RISET -->
         <div class="poly-card p-4 mb-4">
@@ -132,6 +171,7 @@
         }
         function renderAutotrade(s) {
             window._autotradeStatus = s;
+            fillStrategyOptions(s.stats);
             autotradeEnabled = !!s.enabled;
             const badge = document.getElementById('autotradeBadge');
             badge.className = `badge bg-dark border ${s.enabled ? 'text-success border-success-subtle' : 'text-danger border-danger-subtle'}`;
@@ -398,7 +438,156 @@
                 box.innerHTML = '<div class="small text-muted-poly">Gagal memuat market BTC & ETH.</div>';
             }
         }
-        function refreshAll() { fetchMarkets(); fetchAutotrade(); }
+        // --- KALENDER PnL ---
+        const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        const CAL_KEY = 'autobotCalendar';
+        const nowJkt = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+        let cal = { view: 'day', year: nowJkt.getFullYear(), month: nowJkt.getMonth() + 1, selected: null };
+        try { Object.assign(cal, JSON.parse(localStorage.getItem(CAL_KEY) || '{}'), { selected: null }); } catch (e) { /* abaikan */ }
+        const pad = n => String(n).padStart(2, '0');
+        const money = v => (v > 0 ? '+' : v < 0 ? '−' : '') + '$' + Math.abs(v).toFixed(2);
+        function saveCal() { try { localStorage.setItem(CAL_KEY, JSON.stringify({ view: cal.view, year: cal.year, month: cal.month })); } catch (e) { /* abaikan */ } }
+        function setCalView(view) { cal.view = view; cal.selected = null; saveCal(); loadCalendar(); }
+        function shiftCal(step) {
+            if (cal.view === 'month') cal.year += step;
+            else { cal.month += step; if (cal.month < 1) { cal.month = 12; cal.year--; } if (cal.month > 12) { cal.month = 1; cal.year++; } }
+            cal.selected = null; saveCal(); loadCalendar();
+        }
+        function fillStrategyOptions(stats) {
+            const sel = document.getElementById('calStrategy');
+            const known = new Set([...sel.options].map(o => o.value));
+            Object.keys(stats || {}).forEach(n => { if (!known.has(n)) sel.add(new Option(n, n)); });
+        }
+        function cellStyle(pnl, maxAbs) {
+            if (!pnl || !maxAbs) return '';
+            const a = (0.15 + 0.55 * Math.min(Math.abs(pnl) / maxAbs, 1)).toFixed(2);
+            return pnl > 0 ? `background: rgba(16,185,129,${a}); border-color: rgba(16,185,129,.6)` : `background: rgba(239,68,68,${a}); border-color: rgba(239,68,68,.6)`;
+        }
+        function summaryLine(t) {
+            if (!t || !t.trades) return '<span class="text-muted-poly">Belum ada trade selesai pada periode ini.</span>';
+            const unit = cal.view === 'month' ? 'bulan' : 'hari';
+            return `PnL <b class="${pnlClass(t.pnl)}">${money(t.pnl)}</b>${t.roi !== null ? ` (ROI ${(t.roi * 100).toFixed(1)}%)` : ''} ·
+                ${t.trades} trade · WR ${Math.round(t.win_rate * 100)}% (${t.wins}/${t.trades}) ·
+                <span class="text-success">${t.green} ${unit} untung</span> / <span class="text-danger">${t.red} ${unit} rugi</span> ·
+                terbaik ${money(t.best)} · terburuk ${money(t.worst)}`;
+        }
+        async function loadCalendar() {
+            document.getElementById('calViewDay').classList.toggle('active', cal.view === 'day');
+            document.getElementById('calViewMonth').classList.toggle('active', cal.view === 'month');
+            const strategy = document.getElementById('calStrategy').value;
+            const grid = document.getElementById('calGrid');
+            const params = new URLSearchParams(cal.view === 'month' ? { year: cal.year } : { month: `${cal.year}-${pad(cal.month)}` });
+            if (strategy) params.set('strategy', strategy);
+            document.getElementById('calLabel').textContent = cal.view === 'month' ? String(cal.year) : `${MONTH_NAMES[cal.month - 1]} ${cal.year}`;
+            try {
+                const res = await fetch('/api/autotrade/calendar?' + params.toString());
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                document.getElementById('calSummary').innerHTML = summaryLine(data.totals);
+                cal.view === 'month' ? renderMonths(data) : renderDays(data);
+                if (cal.selected) loadCalTrades(cal.selected);
+                else document.getElementById('calTrades').innerHTML = '';
+            } catch (err) {
+                console.error(err);
+                grid.innerHTML = '<div class="small text-muted-poly">Gagal memuat kalender.</div>';
+            }
+        }
+        function renderDays(data) {
+            const days = data.days || {};
+            const maxAbs = Math.max(0, ...Object.values(days).map(d => Math.abs(d.pnl)));
+            const first = new Date(cal.year, cal.month - 1, 1);
+            const offset = (first.getDay() + 6) % 7;  // Senin = kolom pertama
+            const total = new Date(cal.year, cal.month, 0).getDate();
+            const todayKey = `${nowJkt.getFullYear()}-${pad(nowJkt.getMonth() + 1)}-${pad(nowJkt.getDate())}`;
+            const cells = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map(d => `<div class="cal-head">${d}</div>`);
+            for (let i = 0; i < offset; i++) cells.push('<div class="cal-cell empty"></div>');
+            for (let d = 1; d <= total; d++) {
+                const key = `${cal.year}-${pad(cal.month)}-${pad(d)}`;
+                const b = days[key];
+                const cls = ['cal-cell', b ? '' : 'notrade', key === todayKey ? 'today' : '', cal.selected === key ? 'selected' : ''].join(' ');
+                cells.push(`<div class="${cls}" style="${b ? cellStyle(b.pnl, maxAbs) : ''}" ${b ? `onclick="selectCal('${key}')"` : ''}>
+                    <div class="cal-day">${d}</div>
+                    ${b ? `<div class="cal-pnl">${money(b.pnl)}</div><div class="cal-sub">${b.trades} trade · ${b.wins}W/${b.losses}L</div>` : ''}
+                </div>`);
+            }
+            const grid = document.getElementById('calGrid');
+            grid.className = 'cal-grid';
+            grid.innerHTML = cells.join('');
+        }
+        function renderMonths(data) {
+            const months = data.months || {};
+            const maxAbs = Math.max(0, ...Object.values(months).map(d => Math.abs(d.pnl)));
+            const grid = document.getElementById('calGrid');
+            grid.className = 'cal-grid months';
+            grid.innerHTML = MONTH_NAMES.map((name, i) => {
+                const key = `${cal.year}-${pad(i + 1)}`;
+                const b = months[key];
+                const cls = ['cal-cell', b ? '' : 'notrade', cal.selected === key ? 'selected' : ''].join(' ');
+                return `<div class="${cls}" style="${b ? cellStyle(b.pnl, maxAbs) : ''}" ${b ? `onclick="selectCal('${key}')"` : ''}>
+                    <div class="cal-day">${name}</div>
+                    ${b ? `<div class="cal-pnl">${money(b.pnl)}</div><div class="cal-sub">${b.trades} trade · WR ${Math.round(b.wins / b.trades * 100)}%${b.roi !== null ? ` · ROI ${(b.roi * 100).toFixed(1)}%` : ''}</div>` : '<div class="cal-sub">-</div>'}
+                </div>`;
+            }).join('');
+        }
+        function openMonthDays(key) {
+            cal.view = 'day'; cal.year = parseInt(key.slice(0, 4), 10); cal.month = parseInt(key.slice(5), 10); cal.selected = null;
+            saveCal(); loadCalendar();
+        }
+        function selectCal(key) {
+            cal.selected = key;
+            cal.view === 'month' ? loadCalendar() : (renderSelected(), loadCalTrades(key));
+        }
+        function renderSelected() {
+            document.querySelectorAll('#calGrid .cal-cell').forEach(c => c.classList.remove('selected'));
+            const target = [...document.querySelectorAll('#calGrid .cal-cell')].find(c => (c.getAttribute('onclick') || '').includes(`'${cal.selected}'`));
+            if (target) target.classList.add('selected');
+        }
+        async function loadCalTrades(key) {
+            const box = document.getElementById('calTrades');
+            const strategy = document.getElementById('calStrategy').value;
+            const isMonth = key.length === 7;
+            const params = new URLSearchParams(isMonth ? { month: key } : { date: key });
+            if (strategy) params.set('strategy', strategy);
+            box.innerHTML = '<div class="small text-muted-poly">Memuat riwayat trade…</div>';
+            try {
+                const res = await fetch('/api/autotrade/calendar/trades?' + params.toString());
+                if (!res.ok) throw new Error('Failed');
+                const trades = (await res.json()).trades || [];
+                const label = isMonth ? `${MONTH_NAMES[parseInt(key.slice(5), 10) - 1]} ${key.slice(0, 4)}`
+                                      : new Date(key + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                const total = trades.reduce((a, t) => a + t.pnl, 0);
+                const badge = { MENANG: '<span class="badge bg-success">✅ menang</span>', KALAH: '<span class="badge bg-danger">❌ kalah</span>',
+                                DIJUAL: '<span class="badge bg-info text-dark">dijual</span>', BATAL: '<span class="badge bg-secondary">batal</span>' };
+                const rows = trades.map(t => `<tr>
+                    <td class="text-nowrap">${escapeHtml(new Date(t.closed_at).toLocaleString('id-ID', isMonth ? { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' }))}</td>
+                    <td>${badge[t.result] || escapeHtml(t.result)}</td>
+                    <td>${escapeHtml(t.strategy)}</td>
+                    <td><div class="text-white">${escapeHtml(t.market)} · <b>${escapeHtml(t.outcome || '')}</b></div>
+                        ${t.detail ? `<div class="text-muted-poly" style="font-size:.75rem">${escapeHtml(t.detail)}</div>` : ''}</td>
+                    <td class="text-end">${(t.entry_price * 100).toFixed(1)}¢</td>
+                    <td class="text-end">${t.exit_price === null ? '-' : Math.round(t.exit_price * 100) + '¢'}</td>
+                    <td class="text-end">${t.prob === null ? '-' : Math.round(t.prob * 100) + '%'}</td>
+                    <td class="text-end">$${t.size.toFixed(2)}</td>
+                    <td class="text-end fw-semibold ${pnlClass(t.pnl)}">${money(t.pnl)}</td></tr>`).join('')
+                    || '<tr><td colspan="9" class="text-muted-poly">Tidak ada trade.</td></tr>';
+                box.innerHTML = `<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                        <div class="fw-semibold text-white">Riwayat trade · ${escapeHtml(label)}</div>
+                        <div class="small">${trades.length} trade · PnL <b class="${pnlClass(total)}">${money(total)}</b>
+                            ${isMonth ? `<button class="btn btn-sm poly-btn-secondary py-0 px-2 ms-2" onclick="openMonthDays('${key}')">Lihat harian</button>` : ''}
+                            <button class="btn btn-sm poly-btn-secondary py-0 px-2 ms-2" onclick="cal.selected = null; loadCalendar()">Tutup</button></div>
+                    </div>
+                    <div class="table-responsive" style="max-height: 460px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0 align-middle">
+                        <thead class="sticky-top"><tr class="text-muted-poly"><th>Selesai</th><th>Hasil</th><th>Strategi</th><th>Market & detail</th>
+                            <th class="text-end">Masuk</th><th class="text-end">Keluar</th><th class="text-end">Model</th><th class="text-end">Ukuran</th><th class="text-end">PnL</th></tr></thead>
+                        <tbody>${rows}</tbody></table></div>`;
+                box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (err) {
+                console.error(err);
+                box.innerHTML = '<div class="small text-muted-poly">Gagal memuat riwayat trade.</div>';
+            }
+        }
+
+        function refreshAll() { fetchMarkets(); fetchAutotrade(); loadCalendar(); }
         refreshAll();
         setInterval(fetchMarkets, 15000);
         // Status & hasil: tiap 60 detik, kecuali sedang mengubah aturan / membaca riset

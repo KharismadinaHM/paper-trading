@@ -962,6 +962,140 @@ def crypto_markets_overview(now: Optional[datetime] = None) -> List[Dict[str, An
     return rows
 
 
+# --- Kalender PnL ----------------------------------------------------------------------------
+
+def _versions_for(strategy: Optional[str]) -> List[str]:
+    """Versi paper trade untuk filter: nama strategi, 'btc' / 'eth' (semua seri aset itu), atau semua."""
+    if not strategy:
+        return list(STRATEGY_VERSIONS.values())
+    if strategy in STRATEGY_VERSIONS:
+        return [STRATEGY_VERSIONS[strategy]]
+    if strategy in ("btc_all", "eth_all"):
+        asset = strategy.split("_")[0]
+        return [STRATEGY_VERSIONS[name] for name in STRATEGY_VERSIONS
+                if (BTC_SERIES.get(name.replace("maker_", "")) or {}).get("asset") == asset]
+    if strategy == "weather_all":
+        return [v for k, v in STRATEGY_VERSIONS.items() if k.startswith("weather")]
+    raise ValueError(f"Strategi tidak dikenal: {strategy}")
+
+
+def _closed(start: datetime, end: datetime, strategy: Optional[str]) -> List[PaperTrade]:
+    db = get_db_session()
+    try:
+        return (db.query(PaperTrade).filter(PaperTrade.strategy_version.in_(_versions_for(strategy)),
+                                            PaperTrade.closed_at >= start.astimezone(timezone.utc),
+                                            PaperTrade.closed_at < end.astimezone(timezone.utc))
+                .order_by(PaperTrade.closed_at).all())
+    finally:
+        db.close()
+
+
+def _bucket(rows: List[PaperTrade], key) -> Dict[str, Dict[str, Any]]:
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    out: Dict[str, Dict[str, Any]] = {}
+    for t in rows:
+        closed = t.closed_at if t.closed_at.tzinfo else t.closed_at.replace(tzinfo=timezone.utc)
+        k = key(closed.astimezone(tz))
+        b = out.setdefault(k, {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0, "cost": 0.0})
+        pnl = float(t.net_pnl or 0)
+        b["pnl"] += pnl
+        b["trades"] += 1
+        b["wins"] += 1 if pnl > 0 else 0
+        b["losses"] += 1 if pnl < 0 else 0
+        b["cost"] += float(t.position_size or 0)
+    for b in out.values():
+        b["pnl"] = round(b["pnl"], 2)
+        b["cost"] = round(b["cost"], 2)
+        b["roi"] = b["pnl"] / b["cost"] if b["cost"] else None
+    return out
+
+
+def _totals(buckets: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    pnl = round(sum(b["pnl"] for b in buckets.values()), 2)
+    cost = sum(b["cost"] for b in buckets.values())
+    trades = sum(b["trades"] for b in buckets.values())
+    wins = sum(b["wins"] for b in buckets.values())
+    days = [b["pnl"] for b in buckets.values()]
+    return {"pnl": pnl, "trades": trades, "wins": wins, "win_rate": wins / trades if trades else None,
+            "roi": pnl / cost if cost else None, "green": sum(1 for p in days if p > 0),
+            "red": sum(1 for p in days if p < 0), "best": max(days, default=None), "worst": min(days, default=None)}
+
+
+def pnl_calendar(month: Optional[str] = None, strategy: Optional[str] = None,
+                 now: Optional[datetime] = None) -> Dict[str, Any]:
+    """PnL terealisasi auto trader per hari untuk satu bulan (YYYY-MM, zona NOTIFY_TIMEZONE), berdasarkan waktu selesai."""
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    now = now or datetime.now(timezone.utc)
+    year, mon = (int(x) for x in month.split("-")) if month else (now.astimezone(tz).year, now.astimezone(tz).month)
+    start = datetime(year, mon, 1, tzinfo=tz)
+    end = datetime(year + (mon == 12), mon % 12 + 1, 1, tzinfo=tz)
+    days = _bucket(_closed(start, end, strategy), lambda d: d.date().isoformat())
+    return {"month": f"{year:04d}-{mon:02d}", "strategy": strategy, "timezone": settings.NOTIFY_TIMEZONE_LABEL,
+            "days": days, "totals": _totals(days)}
+
+
+def pnl_calendar_year(year: Optional[int] = None, strategy: Optional[str] = None,
+                      now: Optional[datetime] = None) -> Dict[str, Any]:
+    """PnL terealisasi auto trader per bulan untuk satu tahun."""
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    now = now or datetime.now(timezone.utc)
+    year = year or now.astimezone(tz).year
+    months = _bucket(_closed(datetime(year, 1, 1, tzinfo=tz), datetime(year + 1, 1, 1, tzinfo=tz), strategy),
+                     lambda d: f"{d.year:04d}-{d.month:02d}")
+    return {"year": year, "strategy": strategy, "timezone": settings.NOTIFY_TIMEZONE_LABEL,
+            "months": months, "totals": _totals(months)}
+
+
+def closed_trades(day: Optional[str] = None, month: Optional[str] = None, strategy: Optional[str] = None,
+                  limit: int = 300) -> List[Dict[str, Any]]:
+    """Trade auto yang selesai pada satu tanggal / bulan (zona NOTIFY_TIMEZONE) beserta detail keputusan."""
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    if day:
+        start = datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=tz)
+        end = start + timedelta(days=1)
+    else:
+        year, mon = (int(x) for x in str(month).split("-"))
+        start = datetime(year, mon, 1, tzinfo=tz)
+        end = datetime(year + (mon == 12), mon % 12 + 1, 1, tzinfo=tz)
+    rows = _closed(start, end, strategy)[-limit:]
+    names = {v: k for k, v in STRATEGY_VERSIONS.items()}
+    db = get_db_session()
+    try:
+        decisions = {}
+        ids = list({t.market_id for t in rows})
+        if ids:
+            for d in (db.query(AutotradeDecision).filter(AutotradeDecision.market_id.in_(ids),
+                                                         AutotradeDecision.status == "filled")):
+                decisions[(d.market_id, d.strategy)] = d
+    finally:
+        db.close()
+    out = []
+    for t in reversed(rows):
+        name = names.get(t.strategy_version, t.strategy_version)
+        d = decisions.get((t.market_id, name))
+        try:
+            features = json.loads(d.features) if d is not None and d.features else {}
+        except ValueError:
+            features = {}
+        closed = t.closed_at if t.closed_at.tzinfo else t.closed_at.replace(tzinfo=timezone.utc)
+        opened = t.opened_at if t.opened_at.tzinfo else t.opened_at.replace(tzinfo=timezone.utc)
+        pnl = float(t.net_pnl or 0)
+        out.append({
+            "strategy": name, "market": t.market_name or (d.label if d is not None else t.market_id),
+            "outcome": (d.label.rsplit("·", 1)[-1].strip() if d is not None and d.label and "·" in d.label
+                        else t.side.value if hasattr(t.side, "value") else str(t.side)),
+            "entry_price": float(t.entry_price), "exit_price": float(t.exit_price) if t.exit_price is not None else None,
+            "size": float(t.position_size or 0), "shares": float(t.shares or 0), "pnl": round(pnl, 2),
+            "result": {"WON": "MENANG", "LOST": "KALAH", "CLOSED": "DIJUAL", "CANCELLED": "BATAL"}.get(
+                t.status.value if hasattr(t.status, "value") else str(t.status), "-"),
+            "opened_at": opened.isoformat(), "closed_at": closed.isoformat(),
+            "prob": float(d.model_prob) if d is not None and d.model_prob is not None else None,
+            "edge": float(d.edge) if d is not None and d.edge is not None else None,
+            "detail": _history_detail(name, features) if features else None,
+        })
+    return out
+
+
 def run_autotrade_tick(include_weather: bool = False) -> None:
     """Dipanggil dari collector: BTC tiap AUTOTRADE_POLL_SECONDS, cuaca tiap siklus. Tidak pernah melempar exception."""
     try:
