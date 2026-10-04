@@ -26,14 +26,27 @@ MIN_SAMPLE = 30                      # sampel minimum sebelum saran ambang dikel
 EDGE_THRESHOLDS = [0.0, 0.02, 0.03, 0.05, 0.08, 0.10, 0.15]
 EDGE_BUCKETS = [(-1.0, 0.0, "< 0¢"), (0.0, 0.03, "0–3¢"), (0.03, 0.05, "3–5¢"), (0.05, 0.08, "5–8¢"),
                 (0.08, 1.0, "≥ 8¢")]
-WAIT_BEFORE_CHECK = {"btc": timedelta(minutes=70), "btc15": timedelta(minutes=25), "btc5": timedelta(minutes=12)}
+WAIT_BY_LENGTH = {60: timedelta(minutes=70), 15: timedelta(minutes=25), 5: timedelta(minutes=12)}
 WEATHER_WAIT = timedelta(hours=8)
 CHECK_INTERVAL = timedelta(minutes=30)
 RETENTION = timedelta(days=120)
-THRESHOLD_SETTING = {"btc": "BTC_MIN_EDGE", "btc15": "BTC_MIN_EDGE", "btc5": "BTC_MIN_EDGE", "weather": "WEATHER_MIN_EDGE",
-                     "weather_post": "WEATHER_MIN_EDGE"}
+THRESHOLD_SETTING = {"weather": "WEATHER_MIN_EDGE", "weather_post": "WEATHER_MIN_EDGE"}  # seri crypto: BTC_MIN_EDGE
 # Sinyal yang HANYA terhalang oleh ambang edge (layak dipakai untuk menguji ambang lain)
 EDGE_ONLY_REASONS = {None, "edge di bawah minimum"}
+
+
+def _crypto_series() -> Dict[str, Dict[str, Any]]:
+    from app.paper_trading.autotrader import BTC_SERIES
+    return BTC_SERIES
+
+
+def _wait_before_check(strategy: str) -> timedelta:
+    info = _crypto_series().get(strategy)
+    return WAIT_BY_LENGTH[info["minutes"]] if info else WEATHER_WAIT
+
+
+def threshold_setting(strategy: str) -> Optional[str]:
+    return "BTC_MIN_EDGE" if strategy in _crypto_series() else THRESHOLD_SETTING.get(strategy)
 
 
 def _aware(dt: Optional[datetime]) -> Optional[datetime]:
@@ -53,7 +66,7 @@ def track_signal_outcomes(now: Optional[datetime] = None, limit: int = 400) -> D
         pending = []
         for sig in (db.query(AutotradeSignal).filter(AutotradeSignal.outcome.is_(None))
                     .order_by(AutotradeSignal.created_at).limit(limit * 3)):
-            wait = WAIT_BEFORE_CHECK.get(sig.strategy, WEATHER_WAIT)
+            wait = _wait_before_check(sig.strategy)
             checked = _aware(sig.checked_at)
             if now - _aware(sig.created_at) < wait or (checked and now - checked < CHECK_INTERVAL):
                 continue
@@ -182,7 +195,8 @@ def calibration(rows) -> List[Dict[str, Any]]:
 
 def _minute_bucket(r):
     minute = r["features"].get("minute")
-    step = {"btc": 5, "btc5": 1}.get(r["strategy"], 2)
+    info = _crypto_series().get(r["strategy"])
+    step = {60: 5, 15: 2, 5: 1}.get(info["minutes"] if info else 15, 2)
     return f"menit {int(minute // step * step)}+" if minute is not None else None
 
 
@@ -200,7 +214,7 @@ def maker_stats(days: Optional[int] = None, now: Optional[datetime] = None) -> D
     db = get_db_session()
     try:
         out = {}
-        for strategy in ("maker_btc", "maker_btc15", "maker_btc5"):
+        for strategy in [f"maker_{name}" for name in _crypto_series()]:
             query = db.query(AutotradeLimitOrder).filter(AutotradeLimitOrder.strategy == strategy)
             if days:
                 query = query.filter(AutotradeLimitOrder.created_at >= now - timedelta(days=days))
@@ -225,7 +239,7 @@ def suggestions(by_strategy: Dict[str, List[Dict[str, Any]]]) -> List[str]:
 
     tips = []
     for strategy, rows in by_strategy.items():
-        setting = THRESHOLD_SETTING.get(strategy)
+        setting = threshold_setting(strategy)
         if not setting:
             continue
         eligible = [r for r in rows if r["skip_reason"] in EDGE_ONLY_REASONS and r["outcome"] in ("WIN", "LOSS")]
@@ -284,7 +298,7 @@ def research_report(days: Optional[int] = None, now: Optional[datetime] = None) 
                              for lo, hi, label in EDGE_BUCKETS],
             "by_reason": sorted(_group(resolved, lambda r: r["skip_reason"] or "ditrade"), key=lambda g: -g["n"]),
             "by_minute": sorted(_group(resolved, _minute_bucket), key=lambda g: g["key"])
-            if strategy in ("btc", "btc15", "btc5") else [],
+            if strategy in _crypto_series() else [],
             "by_city": sorted(_group(resolved, lambda r: r["features"].get("city")), key=lambda g: -g["n"])[:10]
             if strategy.startswith("weather") else [],
             "by_agree": _group(resolved, lambda r: {True: "sepakat", False: "beda"}.get(r["features"].get("agree")))

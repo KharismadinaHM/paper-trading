@@ -39,6 +39,7 @@ logger = get_logger("autotrader")
 STRATEGY_VERSIONS = {
     "btc": "auto_btc_v1", "btc15": "auto_btc15_v1", "btc5": "auto_btc5_v1", "maker_btc": "auto_maker_btc_v1",
     "maker_btc15": "auto_maker_btc15_v1", "maker_btc5": "auto_maker_btc5_v1",
+    "eth": "auto_eth_v1", "eth15": "auto_eth15_v1", "maker_eth": "auto_maker_eth_v1", "maker_eth15": "auto_maker_eth15_v1",
     "weather": "auto_weather_v1", "weather_post": "auto_weather_post_v1",
 }
 BINANCE = "https://data-api.binance.vision"
@@ -106,8 +107,8 @@ EDITABLE_CONFIG: Dict[str, Tuple[str, float, float, str]] = {
     "MAX_OPEN_USD": ("float", 1, 100000, "Maks total posisi terbuka ($)"),
     "MAX_PRICE": ("float", 0.05, 0.99, "Harga beli maksimum (0–1)"),
     "MAX_SPREAD": ("float", 0.01, 0.5, "Spread order book maksimum (0–1)"),
-    "BTC_MIN_EDGE": ("float", 0, 0.5, "Edge minimum BTC taker (0–1)"),
-    "BTC_MIN_PRICE": ("float", 0, 0.9, "Harga beli minimum BTC, taker & maker (0–1)"),
+    "BTC_MIN_EDGE": ("float", 0, 0.5, "Edge minimum crypto (BTC/ETH) taker (0–1)"),
+    "BTC_MIN_PRICE": ("float", 0, 0.9, "Harga beli minimum crypto (BTC/ETH), taker & maker (0–1)"),
     "SLIPPAGE": ("float", 0, 0.1, "Simulasi slippage per share (0.01 = 1¢)"),
     "WEATHER_MIN_EDGE": ("float", 0, 0.5, "Edge minimum cuaca (0–1)"),
     "MAKER_MARGIN": ("float", 0.01, 0.3, "Maker: harga limit = P − margin"),
@@ -399,32 +400,46 @@ def _book_side(token: str, usd: float) -> Optional[Dict[str, float]]:
             "book_price": fill["price"], "slippage": round(price - fill["price"], 4)}
 
 
-# --- Strategi BTC Up/Down (1 jam & 15 menit) ------------------------------------------------
+# --- Strategi crypto Up/Down (BTC & ETH: 1 jam, 15 menit, 5 menit) -------------------------
 #
-# Seri 1 jam  : candle 1H BTC/USDT Binance (Up jika close ≥ open), slug bitcoin-up-or-down-…-<jam>-et.
-# Seri 15 menit: TWAP Chainlink BTC/USD di akhir rentang vs harga awal, slug btc-updown-15m-<unix>.
-#   Diuji pada 160 market: "close Binance ≥ open Binance" cocok 93.8% dengan hasil resolusi (rata-rata
+# Seri 1 jam  : candle 1H <ASET>/USDT Binance (Up jika close ≥ open), slug <bitcoin|ethereum>-up-or-down-…-<jam>-et.
+# Seri 15/5 menit: TWAP Chainlink <ASET>/USD di akhir rentang vs harga awal, slug <btc|eth>-updown-15m-<unix>.
+#   Diuji pada 160 market BTC: "close Binance ≥ open Binance" cocok 93.8% dengan hasil resolusi (rata-rata
 #   sepanjang rentang hanya 85.6%), jadi keduanya dimodelkan dengan harga akhir vs harga awal.
+# Nama strategi tetap "btc_*" di beberapa fungsi (riwayat); seri ETH memakai mesin & aturan yang sama.
 
-BTC_SERIES = {
-    "btc": {"minutes": 60, "window": lambda: settings.AUTOTRADE_BTC_WINDOW, "label": "1 jam"},
-    "btc15": {"minutes": 15, "window": lambda: settings.AUTOTRADE_BTC15_WINDOW, "label": "15 menit"},
-    "btc5": {"minutes": 5, "window": lambda: settings.AUTOTRADE_BTC5_WINDOW, "label": "5 menit"},
+ASSETS = {
+    "btc": {"symbol": "BTCUSDT", "hourly": "bitcoin", "label": "BTC"},
+    "eth": {"symbol": "ETHUSDT", "hourly": "ethereum", "label": "ETH"},
+}
+ENTRY_WINDOWS = {60: lambda: settings.AUTOTRADE_BTC_WINDOW, 15: lambda: settings.AUTOTRADE_BTC15_WINDOW,
+                 5: lambda: settings.AUTOTRADE_BTC5_WINDOW}
+LENGTH_LABEL = {60: "1 jam", 15: "15 menit", 5: "5 menit"}
+
+
+def _series(asset: str, minutes: int) -> Dict[str, Any]:
+    return {"asset": asset, "minutes": minutes, "window": ENTRY_WINDOWS[minutes],
+            "label": f"{ASSETS[asset]['label']} {LENGTH_LABEL[minutes]}"}
+
+
+BTC_SERIES = {  # semua seri crypto (nama historis)
+    "btc": _series("btc", 60), "btc15": _series("btc", 15), "btc5": _series("btc", 5),
+    "eth": _series("eth", 60), "eth15": _series("eth", 15),
 }
 
 
-def hourly_slug(start_utc: datetime) -> str:
+def hourly_slug(start_utc: datetime, asset: str = "btc") -> str:
     et = start_utc.astimezone(ET)
     hour = et.hour % 12 or 12
-    return f"bitcoin-up-or-down-{et:%B}-{et.day}-{et.year}-{hour}{'am' if et.hour < 12 else 'pm'}-et".lower()
+    prefix = ASSETS[asset]["hourly"]
+    return f"{prefix}-up-or-down-{et:%B}-{et.day}-{et.year}-{hour}{'am' if et.hour < 12 else 'pm'}-et".lower()
 
 
 def series_slug(series: str, start_utc: datetime) -> str:
-    if series == "btc15":
-        return f"btc-updown-15m-{int(start_utc.timestamp())}"
-    if series == "btc5":
-        return f"btc-updown-5m-{int(start_utc.timestamp())}"
-    return hourly_slug(start_utc)
+    info = BTC_SERIES[series]
+    if info["minutes"] < 60:
+        return f"{info['asset']}-updown-{info['minutes']}m-{int(start_utc.timestamp())}"
+    return hourly_slug(start_utc, info["asset"])
 
 
 def series_start(series: str, now: datetime) -> datetime:
@@ -453,14 +468,18 @@ def _btc_market(start: datetime, series: str = "btc") -> Optional[Dict[str, Any]
     return _cached(f"btc_market:{slug}", 60, load)
 
 
-def _btc_klines() -> List[List[float]]:
+def _btc_klines(symbol: str = "BTCUSDT") -> List[List[float]]:
     from app.paper_trading.live_market_data import _cached, _http
 
     def load():
-        rows = json.loads(_http(f"{BINANCE}/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=130"))
+        rows = json.loads(_http(f"{BINANCE}/api/v3/klines?symbol={symbol}&interval=1m&limit=130"))
         return [[int(r[0]), float(r[1]), float(r[4])] for r in rows]
 
-    return _cached("btc_klines", 5, load)
+    return _cached(f"klines:{symbol}", 5, load)
+
+
+def _series_klines(series: str) -> List[List[float]]:
+    return _btc_klines(ASSETS[BTC_SERIES[series]["asset"]]["symbol"])
 
 
 def _window(spec: str) -> Tuple[float, float]:
@@ -499,18 +518,19 @@ def _btc_context(series: str, now: datetime, window: Tuple[float, float]) -> Opt
     market = _btc_market(start, series)
     if not market or not market["accepting"]:
         return None
-    model = btc_model(_btc_klines(), start, now, BTC_SERIES[series]["minutes"])
+    model = btc_model(_series_klines(series), start, now, BTC_SERIES[series]["minutes"])
     if model is None:
         return None
     return {"series": series, "start": start, "market": market, "model": model}
 
 
-def _btc_detail(model: Dict[str, float]) -> str:
-    return (f"BTC {model['price']:,.1f} ({model['change_pct']:+.2f}% dari open {model['open']:,.1f}) · "
+def _btc_detail(model: Dict[str, float], asset: str = "btc") -> str:
+    return (f"{ASSETS[asset]['label']} {model['price']:,.1f} ({model['change_pct']:+.2f}% dari open {model['open']:,.1f}) · "
             f"sisa {model['minutes_left']:.0f} menit")
 
 
-SIGNAL_BUCKET_MINUTES = {"btc": 5, "btc15": 2, "btc5": 1}
+BUCKET_BY_LENGTH = {60: 5, 15: 2, 5: 1}  # ember sampel sinyal (menit) per panjang rentang
+SIGNAL_BUCKET_MINUTES = {name: BUCKET_BY_LENGTH[info["minutes"]] for name, info in BTC_SERIES.items()}
 
 
 def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool = False) -> Optional[Dict[str, Any]]:
@@ -553,7 +573,8 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
         reason = None
     features = {"minute": round(minute, 2), "minutes_left": round(model["minutes_left"], 2),
                 "change_pct": round(model["change_pct"], 4), "sigma_1m": model.get("sigma"),
-                "btc": model["price"], "open": model["open"], "spread": best["spread"], "depth_shares": best["shares"],
+                "btc": model["price"], "asset": BTC_SERIES[series]["asset"],
+                "open": model["open"], "spread": best["spread"], "depth_shares": best["shares"],
                 "slippage": best.get("slippage"),
                 "other_side_edge": round(min(sides, key=lambda x: x["edge"])["edge"], 4) if len(sides) > 1 else None}
     bucket = int(minute // SIGNAL_BUCKET_MINUTES[series])
@@ -561,7 +582,8 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
         "key": key, "strategy": series, "market_id": market["condition_id"], "title": market["title"],
         "label": f"{market['title']} · {best['outcome']}", "side": best["side"], "outcome": best["outcome"],
         "prob": best["prob"], "price": best["price"], "fee": best["fee"], "edge": best["edge"], "size": usd,
-        "detail": _btc_detail(model), "url": f"https://polymarket.com/event/{market['slug']}", "features": features,
+        "detail": _btc_detail(model, BTC_SERIES[series]["asset"]), "url": f"https://polymarket.com/event/{market['slug']}",
+        "features": features,
     }
     log_signal(decision, f"{key}|{bucket}", reason, now)
     if reason is not None:
@@ -577,8 +599,9 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
 # yang melewati harga kita — antrian di harga yang sama dianggap tidak terisi). Order dibatalkan bila
 # edge model hilang, dan kedaluwarsa di akhir jendela. Rebate maker tidak dihitung (konservatif).
 
-MAKER_WINDOWS = {"btc": lambda: settings.AUTOTRADE_MAKER_WINDOW, "btc15": lambda: settings.AUTOTRADE_MAKER15_WINDOW,
-                 "btc5": lambda: settings.AUTOTRADE_MAKER5_WINDOW}
+MAKER_WINDOW_BY_LENGTH = {60: lambda: settings.AUTOTRADE_MAKER_WINDOW, 15: lambda: settings.AUTOTRADE_MAKER15_WINDOW,
+                          5: lambda: settings.AUTOTRADE_MAKER5_WINDOW}
+MAKER_WINDOWS = {name: MAKER_WINDOW_BY_LENGTH[info["minutes"]] for name, info in BTC_SERIES.items()}
 
 
 def _open_limit_orders(db=None) -> List[AutotradeLimitOrder]:
@@ -640,7 +663,8 @@ def maker_place(now: Optional[datetime] = None, series: str = "btc") -> Optional
             side=best["side"], outcome=best["outcome"], label=f"{market['title']} · {best['outcome']}"[:255],
             limit_price=Decimal(str(best["limit"])), size_usd=Decimal(str(usd)),
             model_prob=Decimal(str(round(best["prob"], 4))), status="open", created_at=now, updated_at=now,
-            expires_at=end, detail=_btc_detail(model), url=f"https://polymarket.com/event/{market['slug']}"))
+            expires_at=end, detail=_btc_detail(model, BTC_SERIES[series]["asset"]),
+            url=f"https://polymarket.com/event/{market['slug']}"))
         db.commit()
     finally:
         db.close()
@@ -658,7 +682,6 @@ def maker_manage(now: Optional[datetime] = None) -> List[str]:
         return []
     books = fetch_order_books([o.token_id for o in orders])
     events: List[str] = []
-    klines = None
     for o in orders:
         expires = o.expires_at if o.expires_at.tzinfo else o.expires_at.replace(tzinfo=timezone.utc)
         book = books.get(str(o.token_id)) or {}
@@ -671,7 +694,7 @@ def maker_manage(now: Optional[datetime] = None) -> List[str]:
         else:
             series = o.strategy.replace("maker_", "")
             if series in BTC_SERIES:
-                klines = klines if klines is not None else _btc_klines()
+                klines = _series_klines(series)
                 start = series_start(series, now)
                 model = btc_model(klines, start, now, BTC_SERIES[series]["minutes"])
                 if model is not None:
@@ -869,6 +892,76 @@ def weather_tick(now: Optional[datetime] = None, phase: str = "pre") -> List[Dic
 
 # --- Loop, laporan, statistik -------------------------------------------------------------
 
+def _overview_skip(ask: Optional[float], bid: Optional[float], edge: Optional[float], in_window: bool) -> Optional[str]:
+    """Alasan bot taker TIDAK akan membeli sisi ini sekarang (None = memenuhi aturan)."""
+    if ask is None or edge is None:
+        return "data belum lengkap"
+    price = min(0.99, ask + float(cfg("SLIPPAGE") or 0))
+    if price < cfg("BTC_MIN_PRICE"):
+        return f"di bawah harga min {cfg('BTC_MIN_PRICE') * 100:.0f}¢"
+    if price > cfg("MAX_PRICE"):
+        return f"di atas harga maks {cfg('MAX_PRICE') * 100:.0f}¢"
+    if bid is not None and ask - bid > cfg("MAX_SPREAD"):
+        return "spread terlalu lebar"
+    if edge < cfg("BTC_MIN_EDGE"):
+        return f"edge < {cfg('BTC_MIN_EDGE') * 100:.0f}¢"
+    if not in_window:
+        return "di luar jendela masuk"
+    return None
+
+
+def crypto_markets_overview(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """
+    Market crypto Up/Down yang sedang berjalan per seri (BTC & ETH): harga aset vs open, sisa waktu,
+    peluang model, ask/bid Up & Down, biaya (ask + slippage + fee), edge, jendela masuk & status strategi.
+    """
+    from app.paper_trading.live_market_data import fetch_fee_rate, fetch_order_books
+
+    now = now or datetime.now(timezone.utc)
+    strategies = enabled_strategies()
+    slippage = float(cfg("SLIPPAGE") or 0)
+    rows: List[Dict[str, Any]] = []
+    for series, info in BTC_SERIES.items():
+        row: Dict[str, Any] = {"series": series, "asset": info["asset"], "label": info["label"],
+                               "minutes": info["minutes"], "taker_on": series in strategies,
+                               "maker_on": f"maker_{series}" in strategies}
+        try:
+            start = series_start(series, now)
+            minute = (now - start).total_seconds() / 60
+            lo, hi = _window(info["window"]())
+            row.update(start=start.isoformat(), minute=round(minute, 1), window=f"{lo:g}-{hi:g}",
+                       in_window=lo <= minute <= hi)
+            market = _btc_market(start, series)
+            if not market:
+                row["error"] = "market belum tersedia"
+                rows.append(row)
+                continue
+            row.update(title=market["title"], slug=market["slug"], accepting=market["accepting"])
+            model = btc_model(_series_klines(series), start, now, info["minutes"])
+            books = fetch_order_books([market["up"], market["down"]])
+            sides = {}
+            for outcome, token, prob in (("UP", market["up"], model["p_up"] if model else None),
+                                         ("DOWN", market["down"], (1 - model["p_up"]) if model else None)):
+                book = books.get(str(token)) or {}
+                ask = book.get("ask")
+                cost = None
+                if ask is not None:
+                    price = min(0.99, ask + slippage)
+                    cost = price + taker_fee(price, fetch_fee_rate(token))
+                edge = (prob - cost) if prob is not None and cost is not None else None
+                sides[outcome] = {"ask": ask, "bid": book.get("bid"), "prob": prob, "cost": cost, "edge": edge,
+                                  "skip": _overview_skip(ask, book.get("bid"), edge, row["in_window"])}
+            row["sides"] = sides
+            if model:
+                row.update(price=model["price"], open=model["open"], change_pct=model["change_pct"],
+                           minutes_left=model["minutes_left"], p_up=model["p_up"])
+        except Exception as err:
+            logger.warning("Gagal menyusun ringkasan %s: %s", series, err)
+            row["error"] = "gagal mengambil data"
+        rows.append(row)
+    return rows
+
+
 def run_autotrade_tick(include_weather: bool = False) -> None:
     """Dipanggil dari collector: BTC tiap AUTOTRADE_POLL_SECONDS, cuaca tiap siklus. Tidak pernah melempar exception."""
     try:
@@ -961,7 +1054,8 @@ def _history_detail(strategy: str, features: Dict[str, Any]) -> Optional[str]:
     if features.get("detail"):
         return features["detail"]
     if "change_pct" in features:
-        return (f"BTC {features.get('btc', 0):,.1f} ({features['change_pct']:+.2f}% dari open) · "
+        label = ASSETS.get(features.get("asset") or strategy.replace("maker_", "").rstrip("0123456789"), ASSETS["btc"])["label"]
+        return (f"{label} {features.get('btc', 0):,.1f} ({features['change_pct']:+.2f}% dari open) · "
                 f"menit {features.get('minute', 0):.0f} · sisa {features.get('minutes_left', 0):.0f} menit")
     if "estimate" in features:
         kind = "max" if features.get("kind") == "highest" else "min"
@@ -1094,7 +1188,7 @@ def format_status(days: Optional[int] = None, all_time: bool = False) -> str:
         f"🤖 *Auto paper trader* — {'🟢 AKTIF' if s['enabled'] else '🔴 BERHENTI'} · strategi: {md(', '.join(s['strategies'])) or '-'}",
         f"Hari ini ({t['day']}): {t['trades']} trade · beli ${t['spent']:.2f}/{lim['max_daily_usd']:.0f} · "
         f"PnL terealisasi {t['realized_pnl']:+.2f} (stop di -{lim['max_daily_loss']:.0f}) · terbuka ${t['open_usd']:.2f}",
-        f"Aturan: ${lim['order_usd']:.0f}/order · harga ≤{lim['max_price'] * 100:.0f}¢ · edge BTC ≥{lim['btc_min_edge'] * 100:.0f}¢ "
+        f"Aturan: ${lim['order_usd']:.0f}/order · harga ≤{lim['max_price'] * 100:.0f}¢ · edge crypto ≥{lim['btc_min_edge'] * 100:.0f}¢ "
         f"(1 jam menit {lim['btc_window']}, 15 menit menit {lim['btc15_window']}, 5 menit menit {lim['btc5_window']}) "
         f"· slippage {lim['slippage'] * 100:.1f}¢ · maker limit P−{lim['maker_margin'] * 100:.0f}¢ "
         f"· edge cuaca ≥{lim['weather_min_edge'] * 100:.0f}¢",

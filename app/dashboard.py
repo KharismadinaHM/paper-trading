@@ -243,6 +243,19 @@ def hk_readings_csv_api(date: Optional[str] = None):
                     headers={"Content-Disposition": f"attachment; filename={name}"})
 
 
+@app.get("/autobot", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+def autobot_page(request: Request):
+    """Page khusus auto paper trader: market BTC & ETH live, status, hasil, riwayat, aturan, riset."""
+    return templates.TemplateResponse(request=request, name="autobot.html", context={})
+
+
+@app.get("/api/autotrade/markets", dependencies=[Depends(require_auth)])
+def autotrade_markets_api():
+    """Market crypto Up/Down yang sedang berjalan (BTC & ETH: 1 jam, 15 menit, 5 menit) + peluang model & edge."""
+    from app.paper_trading.autotrader import crypto_markets_overview
+    return {"markets": crypto_markets_overview()}
+
+
 @app.get("/hk", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def hk_market_page(request: Request):
     """Page khusus market Hong Kong: kondisi HKO hari ini, klimatologi bulan ini, insight siap posting."""

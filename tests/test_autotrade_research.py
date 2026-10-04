@@ -52,7 +52,7 @@ class TestLogging:
         now = start + timedelta(minutes=41)
         monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": {"condition_id": "0xb", "title": "BTC",
                                                                          "up": "tu", "down": "td", "accepting": True, "slug": "s"})
-        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
         monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: {"p_up": 0.52, "price": 100.0, "open": 99.9,
                                                                     "change_pct": 0.1, "minutes_left": 19, "sigma": 0.0004})
         monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.51, "fee": 0.0175, "spread": 0.01, "shares": 9})

@@ -27,7 +27,12 @@ Kode: `app/paper_trading/autotrader.py`.
 
 ---
 
-## 2. BTC Up/Down (`btc` = 1 jam, `btc15` = 15 menit, `btc5` = 5 menit)
+## 2. Crypto Up/Down: BTC (`btc` 1 jam, `btc15` 15 menit, `btc5` 5 menit) & ETH (`eth` 1 jam, `eth15` 15 menit)
+
+ETH memakai mesin, model, jendela masuk, dan aturan yang sama dengan BTC (candle ETHUSDT Binance; slug
+`ethereum-up-or-down-…` / `eth-updown-15m-<unix>`; 15 menit di-resolve Chainlink ETH/USD). Maker: `maker_eth`, `maker_eth15`.
+Page khusus: `/autobot` (market berjalan BTC & ETH dengan peluang model, biaya, edge, dan alasan dilewati;
+status, hasil, riwayat, aturan, riset).
 
 | Aturan | Nilai / isi | Setting |
 |---|---|---|

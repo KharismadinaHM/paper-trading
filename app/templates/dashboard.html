@@ -536,6 +536,7 @@
                         <option value="weather_v2" {% if current_strategy == 'weather_v2' %}selected{% endif %}>weather_v2</option>
                     </select>
                 </form>
+                <a class="btn btn-sm btn-outline-info d-flex align-items-center gap-1" href="/autobot" title="Auto paper trader BTC & ETH">🤖 Auto Bot</a>
                 <a class="btn btn-sm btn-outline-warning d-flex align-items-center gap-1" href="/hk" title="Page khusus market Hong Kong">🇭🇰 HK Market</a>
                 <div class="d-flex align-items-center gap-1">
                     <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="refreshInterval"
@@ -1060,18 +1061,14 @@
             </div>
         </div>
 
-        <!-- 2c-2. AUTO PAPER TRADER -->
-        <div class="poly-card p-4 mb-4">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <div class="d-flex align-items-center gap-2">
-                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-robot me-2 text-info"></i>Auto Paper Trader</h5>
-                    <span class="badge bg-dark border border-secondary-subtle" id="autotradeBadge">-</span>
-                    <span class="badge bg-dark text-muted-poly border border-secondary-subtle">paper saja</span>
-                </div>
-                <button class="btn btn-sm poly-btn-secondary py-1 px-3" id="autotradeToggle" onclick="toggleAutotrade()">-</button>
+        <!-- 2c-2. AUTO PAPER TRADER: dipindah ke page /autobot -->
+        <a href="/autobot" class="text-decoration-none">
+            <div class="poly-card p-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="text-white fw-semibold"><i class="bi bi-robot me-2 text-info"></i>Auto Paper Trader (BTC & ETH)
+                    <span class="small text-muted-poly fw-normal ms-2">status, market live, hasil, riwayat & aturan ada di page terpisah</span></div>
+                <span class="btn btn-sm poly-btn-secondary py-1 px-3">Buka Auto Bot <i class="bi bi-arrow-right"></i></span>
             </div>
-            <div id="autotradeContainer" class="small text-muted-poly">Memuat…</div>
-        </div>
+        </a>
 
         <!-- 2d-0. PORTFOLIO POLYMARKET SAYA (read-only, wallet asli) -->
         <div class="poly-card p-4 mb-4">
@@ -2492,269 +2489,6 @@
             }
         }
 
-        // --- AUTO PAPER TRADER ---
-        let autotradeEnabled = false;
-        async function toggleAutotrade() {
-            const action = autotradeEnabled ? 'stop' : 'start';
-            if (action === 'start' && !confirm('Jalankan auto paper trader? Bot akan membeli otomatis di akun PAPER sesuai aturan risiko.')) return;
-            try {
-                const res = await fetch(`/api/autotrade/${action}`, { method: 'POST' });
-                if (!res.ok) throw new Error('Gagal');
-                renderAutotrade(await res.json());
-            } catch (err) { console.error(err); }
-        }
-        async function setStatsSince(since) {
-            if (since === 'now' && !confirm('Mulai periode statistik baru dari sekarang? Data lama tetap tersimpan dan bisa dilihat lagi dengan "Semua waktu".')) return;
-            try {
-                const res = await fetch('/api/autotrade/stats-since', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                                                        body: JSON.stringify({ since: since || null }) });
-                if (!res.ok) throw new Error('Gagal');
-                renderAutotrade(await res.json());
-            } catch (err) { alert('Gagal mengubah periode statistik.'); }
-        }
-        function renderAutotradeHistory() {
-            const box = document.getElementById('autotradeHistory');
-            const s = window._autotradeStatus || {};
-            if (!box) return;
-            const filter = window._autotradeHistoryFilter || '';
-            const rows = (s.history || []).filter(r => !filter || r.strategy === filter);
-            const badge = {
-                'MENANG': '<span class="badge bg-success">✅ MENANG</span>', 'KALAH': '<span class="badge bg-danger">❌ KALAH</span>',
-                'DIJUAL': '<span class="badge bg-info text-dark">💱 DIJUAL</span>', 'TERBUKA': '<span class="badge bg-secondary">⏳ TERBUKA</span>',
-                'BATAL': '<span class="badge bg-secondary">BATAL</span>',
-            };
-            const settled = rows.filter(r => ['MENANG', 'KALAH', 'DIJUAL'].includes(r.result));
-            const wins = settled.filter(r => (r.pnl || 0) > 0).length;
-            const total = settled.reduce((a, r) => a + (r.pnl || 0), 0);
-            const body = rows.map(r => `<tr>
-                <td class="text-nowrap">${escapeHtml(new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
-                <td>${badge[r.result] || escapeHtml(r.result)}</td>
-                <td>${escapeHtml(r.strategy)}</td>
-                <td><div class="text-white">${escapeHtml(r.label || '')}</div>${r.detail ? `<div class="text-muted-poly" style="font-size: .75rem">${escapeHtml(r.detail)}</div>` : ''}</td>
-                <td class="text-end text-nowrap">${(r.price * 100).toFixed(1)}¢${r.fee ? ` <span class="text-muted-poly">+${(r.fee * 100).toFixed(1)}</span>` : ''}</td>
-                <td class="text-end">${r.exit_price === null ? '-' : Math.round(r.exit_price * 100) + '¢'}</td>
-                <td class="text-end">${Math.round(r.prob * 100)}%</td>
-                <td class="text-end">${(r.edge * 100).toFixed(1)}¢</td>
-                <td class="text-end">$${Number(r.size).toFixed(2)}</td>
-                <td class="text-end fw-semibold ${pnlClass(r.pnl || 0)}">${r.pnl === null ? '-' : (r.pnl > 0 ? '+' : '') + r.pnl.toFixed(2)}</td></tr>`).join('')
-                || '<tr><td colspan="10" class="text-muted-poly">Belum ada trade.</td></tr>';
-            box.innerHTML = `${settled.length ? `<div class="small mb-1">Di daftar ini: <b class="text-white">${wins}/${settled.length}</b> untung · PnL
-                    <b class="${pnlClass(total)}">${(total > 0 ? '+' : '') + total.toFixed(2)}</b> <span class="text-muted-poly">(30 trade terakhir; ringkasan penuh di tabel strategi)</span></div>` : ''}
-                <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0 align-middle">
-                    <thead class="sticky-top"><tr class="text-muted-poly"><th>Waktu</th><th>Hasil</th><th>Strategi</th><th>Market & detail</th><th class="text-end">Masuk</th>
-                    <th class="text-end">Keluar</th><th class="text-end">Model</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th class="text-end">PnL</th></tr></thead>
-                    <tbody>${body}</tbody></table></div>`;
-        }
-        function renderAutotrade(s) {
-            window._autotradeStatus = s;
-            autotradeEnabled = !!s.enabled;
-            const badge = document.getElementById('autotradeBadge');
-            badge.className = `badge bg-dark border ${s.enabled ? 'text-success border-success-subtle' : 'text-danger border-danger-subtle'}`;
-            badge.textContent = s.enabled ? '🟢 aktif' : '🔴 berhenti';
-            const btn = document.getElementById('autotradeToggle');
-            btn.innerHTML = s.enabled ? '<i class="bi bi-stop-circle me-1"></i>Stop' : '<i class="bi bi-play-circle me-1"></i>Start';
-            const t = s.today, l = s.limits;
-            const signed = v => (v > 0 ? '+' : '') + Number(v).toFixed(2);
-            const tile = (label, value, cls = 'text-white') => `<div class="col-6 col-md-3"><div class="border border-secondary-subtle rounded p-2 h-100">
-                <div class="text-muted-poly small">${label}</div><div class="fs-6 fw-bold ${cls}">${value}</div></div></div>`;
-            const stats = Object.entries(s.stats || {}).map(([name, st]) => `<tr><td class="text-white">${escapeHtml(name)}</td>
-                <td class="text-end">${safeNumber(st.trades)}</td><td class="text-end">${safeNumber(st.settled)}</td>
-                <td class="text-end">${st.win_rate === null ? '-' : Math.round(st.win_rate * 100) + '%'}</td>
-                <td class="text-end ${pnlClass(st.pnl)}">${signed(st.pnl)}</td>
-                <td class="text-end ${pnlClass(st.roi)}">${st.roi === null ? '-' : (st.roi * 100).toFixed(1) + '%'}</td>
-                <td class="text-end">${safeNumber(st.open)}</td></tr>`).join('');
-            const recent = (s.recent || []).map(d => `<tr>
-                <td class="text-nowrap">${escapeHtml(new Date(d.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
-                <td>${escapeHtml(d.strategy)}</td><td>${escapeHtml(d.label || '')}</td><td>${escapeHtml(d.side)}</td>
-                <td class="text-end">${Math.round(d.prob * 100)}%</td><td class="text-end">${((d.price + d.fee) * 100).toFixed(1)}¢</td>
-                <td class="text-end">${(d.edge * 100).toFixed(1)}¢</td><td class="text-end">$${Number(d.size).toFixed(2)}</td>
-                <td>${d.status === 'filled' ? '<span class="text-success">filled</span>' : `<span class="text-warning" title="${escapeHtml(d.reason || '')}">ditolak</span>`}</td></tr>`).join('')
-                || '<tr><td colspan="9" class="text-muted-poly">Belum ada keputusan.</td></tr>';
-            document.getElementById('autotradeContainer').innerHTML = `
-                <div class="row g-2 mb-2">
-                    ${tile('Trade hari ini', safeNumber(t.trades))}
-                    ${tile('Beli hari ini', `$${Number(t.spent).toFixed(2)} <span class="text-muted-poly small">/ ${l.max_daily_usd}</span>`)}
-                    ${tile('PnL terealisasi hari ini', signed(t.realized_pnl), pnlClass(t.realized_pnl))}
-                    ${tile('Posisi terbuka', `$${Number(t.open_usd).toFixed(2)} <span class="text-muted-poly small">/ ${l.max_open_usd}</span>`)}
-                </div>
-                <div class="mb-3">Aturan: $${l.order_usd}/order · harga ≤${Math.round(l.max_price * 100)}¢ · edge BTC ≥${Math.round(l.btc_min_edge * 100)}¢
-                    (1 jam menit ${escapeHtml(l.btc_window)}, 15 menit menit ${escapeHtml(l.btc15_window)}, 5 menit menit ${escapeHtml(l.btc5_window)})
-                    · slippage ${(Number(l.slippage || 0) * 100).toFixed(1)}¢ · maker limit P−${Math.round(l.maker_margin * 100)}¢
-                    · edge cuaca ≥${Math.round(l.weather_min_edge * 100)}¢ · stop bila rugi hari ini ≥ $${l.max_daily_loss} · strategi: ${escapeHtml((s.strategies || []).join(', '))}</div>
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
-                    <div class="fw-semibold text-white">Hasil per strategi <span class="text-muted-poly fw-normal">(${escapeHtml(s.stats_label || 'semua waktu')})</span></div>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="setStatsSince('now')" title="Statistik dihitung ulang mulai sekarang; data lama tetap tersimpan">
-                            <i class="bi bi-arrow-counterclockwise"></i> Mulai periode baru</button>
-                        ${s.stats_since ? `<button class="btn btn-sm poly-btn-secondary py-0 px-2" onclick="setStatsSince('')">Semua waktu</button>` : ''}
-                    </div>
-                </div>
-                <div class="table-responsive mb-3"><table class="table table-dark table-sm small mb-0">
-                    <thead><tr class="text-muted-poly"><th>Strategi</th><th class="text-end">Trade</th><th class="text-end">Selesai</th><th class="text-end">WR</th><th class="text-end">PnL</th><th class="text-end">ROI</th><th class="text-end">Terbuka</th></tr></thead>
-                    <tbody>${stats}</tbody></table></div>
-                ${(s.open_orders || []).length ? `<div class="fw-semibold text-white mb-1">Limit order maker terbuka</div>
-                    <ul class="list-unstyled mb-3">${s.open_orders.map(o => `<li>• ${escapeHtml(o.label || '')} @ ${Math.round(o.limit * 100)}¢
-                        <span class="text-muted-poly">(model ${Math.round(o.prob * 100)}%, $${Number(o.size).toFixed(2)})</span></li>`).join('')}</ul>` : ''}
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
-                    <div class="fw-semibold text-white">Riwayat trade & hasil</div>
-                    <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="autotradeHistoryFilter"
-                            onchange="window._autotradeHistoryFilter = this.value; renderAutotradeHistory()">
-                        <option value="">Semua strategi</option>
-                        ${Object.keys(s.stats || {}).map(n => `<option value="${escapeHtml(n)}" ${window._autotradeHistoryFilter === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}
-                    </select>
-                </div>
-                <div id="autotradeHistory" class="mb-3"></div>
-                <div class="fw-semibold text-white mb-1">Keputusan terbaru</div>
-                <div class="table-responsive" style="max-height: 320px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0">
-                    <thead><tr class="text-muted-poly"><th>Waktu</th><th>Strategi</th><th>Market</th><th>Sisi</th><th class="text-end">Model</th><th class="text-end">Biaya</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th>Status</th></tr></thead>
-                    <tbody>${recent}</tbody></table></div>
-                <div class="mt-2">Order dieksekusi di akun paper memakai harga ask order book live (VWAP sesuai ukuran) + fee taker. Posisi di-settle otomatis saat market resolve.</div>
-                ${buildAutotradeConfigForm(s.config || {})}
-                <details class="mt-3" ${window._autotradeResearchOpen ? 'open' : ''}
-                         ontoggle="window._autotradeResearchOpen = this.open; window.pauseAutoReload = this.open; if (this.open) fetchAutotradeResearch();">
-                    <summary class="fw-semibold text-white" style="cursor:pointer"><i class="bi bi-clipboard-data me-1"></i>Riset & saran penyesuaian</summary>
-                    <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
-                        <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="researchDays" onchange="fetchAutotradeResearch()">
-                            <option value="7">7 hari</option><option value="30">30 hari</option><option value="0" selected>Semua waktu</option>
-                        </select>
-                        <a class="btn btn-sm poly-btn-secondary py-1 px-3" id="researchCsv" href="/api/autotrade/signals.csv"><i class="bi bi-download me-1"></i>Export CSV</a>
-                    </div>
-                    <div id="autotradeResearch" class="mt-2">Memuat…</div>
-                </details>`;
-            renderAutotradeHistory();
-            if (window._autotradeResearchOpen) fetchAutotradeResearch();
-        }
-        async function fetchAutotradeResearch() {
-            const box = document.getElementById('autotradeResearch');
-            if (!box) return;
-            const days = (document.getElementById('researchDays') || {}).value || '0';
-            const csv = document.getElementById('researchCsv');
-            if (csv) csv.href = '/api/autotrade/signals.csv' + (days !== '0' ? `?days=${encodeURIComponent(days)}` : '');
-            try {
-                const res = await fetch('/api/autotrade/research' + (days !== '0' ? `?days=${encodeURIComponent(days)}` : ''));
-                if (!res.ok) throw new Error('Gagal');
-                box.innerHTML = renderResearch(await res.json());
-            } catch (err) { box.textContent = 'Gagal memuat riset.'; }
-        }
-        function renderResearch(rep) {
-            const pct = x => x === null || x === undefined ? '-' : Math.round(x * 100) + '%';
-            const roi = x => x === null || x === undefined ? '-' : `<span class="${pnlClass(x)}">${(x > 0 ? '+' : '') + (x * 100).toFixed(1)}%</span>`;
-            const cell = g => g && g.n ? `${roi(g.roi)} <span class="text-muted-poly">(n${safeNumber(g.n)})</span>` : '<span class="text-muted-poly">-</span>';
-            const entries = Object.entries(rep.strategies || {});
-            if (!entries.length) return '<div class="text-muted-poly">Belum ada sampel sinyal. Sampel mulai terkumpul saat auto trader berjalan.</div>';
-            const bucketNames = ((entries[0][1].edge_buckets) || []).map(b => b.range);
-            const rows = entries.map(([name, st]) => `<tr>
-                <td class="text-white">${escapeHtml(name)}</td><td class="text-end">${safeNumber(st.samples)}</td>
-                <td class="text-end">${safeNumber(st.markets)}</td><td class="text-end">${safeNumber(st.resolved)}</td>
-                <td class="text-end">${safeNumber(st.traded)}</td>
-                <td class="text-end">${pct(st.all.win_rate)} <span class="text-muted-poly">vs ${pct(st.all.avg_prob)}</span></td>
-                <td class="text-end">${cell(st.all)}</td>
-                ${st.edge_buckets.map(b => `<td class="text-end">${cell(b)}</td>`).join('')}</tr>`).join('');
-            const detail = entries.map(([name, st]) => {
-                const groups = [['Menit masuk', st.by_minute], ['Kota', st.by_city], ['Sepakat vs beda', st.by_agree],
-                                ['Jam menuju puncak', st.by_hours], ['Alasan', st.by_reason], ['Kalibrasi (peluang model)', (st.calibration || []).map(c => ({ ...c, key: c.range }))]]
-                    .filter(([, g]) => g && g.length)
-                    .map(([title, g]) => `<div class="col-md-6 col-xl-4"><div class="small fw-semibold text-white">${title}</div>
-                        <ul class="list-unstyled small mb-2">${g.map(x => `<li>${escapeHtml(String(x.key))}: WR ${pct(x.win_rate)} · ROI ${cell(x)}</li>`).join('')}</ul></div>`).join('');
-                return groups ? `<div class="mt-2"><div class="fw-semibold text-info small">${escapeHtml(name)}</div><div class="row">${groups}</div></div>` : '';
-            }).join('');
-            const maker = Object.entries(rep.maker || {}).filter(([, m]) => m.placed).map(([name, m]) =>
-                `<li>${escapeHtml(name)}: ${safeNumber(m.placed)} order · fill rate ${pct(m.fill_rate)} · selesai ${safeNumber(m.settled)} · PnL ${Number(m.pnl).toFixed(2)} · ROI ${roi(m.roi)}</li>`).join('');
-            const tips = (rep.suggestions || []).map(t => `<li class="mb-1">${escapeHtml(t)}</li>`).join('');
-            return `
-                ${tips ? `<div class="mb-2"><div class="fw-semibold text-white"><i class="bi bi-lightbulb me-1 text-warning"></i>Saran</div><ul class="small mb-0">${tips}</ul></div>` : ''}
-                <div class="table-responsive"><table class="table table-dark table-sm small mb-2">
-                    <thead><tr class="text-muted-poly"><th>Strategi</th><th class="text-end">Sampel</th><th class="text-end">Market</th><th class="text-end">Selesai</th>
-                        <th class="text-end">Ditrade</th><th class="text-end">WR vs model</th><th class="text-end">ROI semua</th>
-                        ${bucketNames.map(b => `<th class="text-end">edge ${escapeHtml(b)}</th>`).join('')}</tr></thead>
-                    <tbody>${rows}</tbody></table></div>
-                ${maker ? `<div class="small fw-semibold text-white">Maker</div><ul class="small">${maker}</ul>` : ''}
-                ${detail}
-                <div class="small text-muted-poly">ROI = seandainya membeli 1 share di harga ask + fee saat sinyal (termasuk sinyal yang dilewati).
-                    Saran ambang memakai satu entri per market dan butuh ≥${safeNumber(rep.min_sample)} market selesai.</div>`;
-        }
-        function buildAutotradeConfigForm(config) {
-            const open = window._autotradeConfigOpen ? 'open' : '';
-            const numeric = Object.entries(config).filter(([, c]) => c.type === 'float').map(([name, c]) => `
-                <div class="col-6 col-md-4 col-xl-3">
-                    <label class="form-label small text-muted-poly mb-1" for="cfg_${name}">${escapeHtml(c.label)}${c.overridden ? ' <span class="text-warning">•</span>' : ''}</label>
-                    <input type="number" step="any" min="${safeNumber(c.min)}" max="${safeNumber(c.max)}" id="cfg_${name}" data-cfg="${name}" data-original="${safeNumber(c.value)}"
-                           class="form-control form-control-sm bg-dark text-white border-secondary-subtle" value="${safeNumber(c.value)}"
-                           title="Default .env: ${escapeHtml(String(c.default))} · rentang ${safeNumber(c.min)}–${safeNumber(c.max)}">
-                </div>`).join('');
-            const agree = config.WEATHER_REQUIRE_AGREEMENT || {};
-            const strat = config.STRATEGIES || {};
-            const active = String(strat.value || '').split(',');
-            const checks = (strat.options || []).map(opt => `
-                <div class="form-check form-check-inline small">
-                    <input class="form-check-input" type="checkbox" id="cfg_strat_${opt}" data-strategy="${escapeHtml(opt)}" ${active.includes(opt) ? 'checked' : ''}>
-                    <label class="form-check-label" for="cfg_strat_${opt}">${escapeHtml(opt)}</label>
-                </div>`).join('');
-            return `<details class="mt-3" ${open} ontoggle="window._autotradeConfigOpen = this.open; window.pauseAutoReload = this.open">
-                <summary class="fw-semibold text-white" style="cursor:pointer"><i class="bi bi-sliders me-1"></i>Ubah aturan & batas</summary>
-                <div class="row g-2 mt-1">${numeric}</div>
-                <div class="mt-2">
-                    <div class="small text-muted-poly mb-1">${escapeHtml(strat.label || 'Strategi aktif')}${strat.overridden ? ' <span class="text-warning">•</span>' : ''}</div>
-                    ${checks}
-                </div>
-                <div class="form-check small mt-2">
-                    <input class="form-check-input" type="checkbox" id="cfg_WEATHER_REQUIRE_AGREEMENT" ${agree.value ? 'checked' : ''}>
-                    <label class="form-check-label" for="cfg_WEATHER_REQUIRE_AGREEMENT">${escapeHtml(agree.label || '')}</label>
-                </div>
-                <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
-                    <button class="btn btn-sm btn-success py-1 px-3" onclick="saveAutotradeConfig()"><i class="bi bi-save me-1"></i>Simpan</button>
-                    <button class="btn btn-sm poly-btn-secondary py-1 px-3" onclick="resetAutotradeConfig()">Kembalikan ke default .env</button>
-                    <span class="small" id="autotradeConfigMsg"></span>
-                </div>
-                <div class="small text-muted-poly mt-1"><span class="text-warning">•</span> = diubah dari dashboard (default dari .env). Berlaku langsung tanpa restart.</div>
-            </details>`;
-        }
-        async function saveAutotradeConfig() {
-            // Kirim hanya yang benar-benar diubah, agar sisanya tetap mengikuti default .env
-            const values = {};
-            const config = (window._autotradeStatus || {}).config || {};
-            document.querySelectorAll('[data-cfg]').forEach(el => {
-                if (el.value === '') values[el.dataset.cfg] = null;
-                else if (Number(el.value) !== Number(el.dataset.original)) values[el.dataset.cfg] = Number(el.value);
-            });
-            const strategies = [...document.querySelectorAll('[data-strategy]')].filter(el => el.checked).map(el => el.dataset.strategy);
-            const currentStrategies = String((config.STRATEGIES || {}).value || '').split(',').filter(Boolean).sort().join(',');
-            if ([...strategies].sort().join(',') !== currentStrategies) values.STRATEGIES = strategies;
-            const agree = document.getElementById('cfg_WEATHER_REQUIRE_AGREEMENT').checked;
-            if (agree !== !!(config.WEATHER_REQUIRE_AGREEMENT || {}).value) values.WEATHER_REQUIRE_AGREEMENT = agree;
-            if (!Object.keys(values).length) {
-                document.getElementById('autotradeConfigMsg').innerHTML = '<span class="text-muted-poly">Tidak ada perubahan.</span>';
-                return;
-            }
-            const msg = document.getElementById('autotradeConfigMsg');
-            try {
-                const res = await fetch('/api/autotrade/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                                                                   body: JSON.stringify({ values }) });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Gagal menyimpan');
-                renderAutotrade(data);
-                const m = document.getElementById('autotradeConfigMsg');
-                if (m) m.innerHTML = '<span class="text-success">Tersimpan.</span>';
-            } catch (err) {
-                if (msg) msg.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`;
-            }
-        }
-        async function resetAutotradeConfig() {
-            if (!confirm('Kembalikan semua aturan auto trader ke default dari .env?')) return;
-            const res = await fetch('/api/autotrade/config', { method: 'DELETE' });
-            if (res.ok) renderAutotrade(await res.json());
-        }
-        async function fetchAutotrade() {
-            try {
-                const res = await fetch('/api/autotrade');
-                if (!res.ok) throw new Error('Failed');
-                renderAutotrade(await res.json());
-            } catch (err) {
-                console.error(err);
-                document.getElementById('autotradeContainer').textContent = 'Gagal memuat status auto trader.';
-            }
-        }
-
         // --- PORTFOLIO POLYMARKET SAYA (read-only) ---
         let myWalletTab = 'positions';
         function setMyWalletTab(tab) { myWalletTab = tab; if (window._myWallet) renderMyWallet(window._myWallet); }
@@ -3175,7 +2909,6 @@
             fetchInsider();
             fetchWallets();
             fetchMyWallet();
-            fetchAutotrade();
         });
     </script>
 

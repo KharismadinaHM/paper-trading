@@ -148,7 +148,7 @@ class TestStrategies:
                                                           "up": "tu", "down": "td", "accepting": True, "slug": "s"})
         monkeypatch.setattr(at, "btc_model", lambda k, h, n, d=60: {"p_up": 0.80, "price": 1, "open": 1, "change_pct": 0.2,
                                                               "minutes_left": 15})
-        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
         books = {"tu": {"price": 0.62, "fee": 0.016, "spread": 0.01, "shares": 8},
                  "td": {"price": 0.39, "fee": 0.017, "spread": 0.01, "shares": 12}}
         monkeypatch.setattr(at, "_book_side", lambda token, usd: books[token])
@@ -162,7 +162,7 @@ class TestStrategies:
         assert at.btc_tick(hour + timedelta(minutes=10)) is None
         monkeypatch.setattr(at, "_btc_market", lambda h, series="btc": {"condition_id": "0xq", "title": "t", "up": "tu", "down": "td",
                                                           "accepting": True, "slug": "s"})
-        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
         monkeypatch.setattr(at, "btc_model", lambda k, h, n, d=60: {"p_up": 0.52, "price": 1, "open": 1, "change_pct": 0,
                                                               "minutes_left": 20})
         monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.50, "fee": 0.0175, "spread": 0.01, "shares": 10})
@@ -174,7 +174,7 @@ class TestStrategies:
         seed_market(cid, at=now)
         monkeypatch.setattr(at, "_btc_market", lambda h, series="btc": {"condition_id": cid, "title": "t", "up": "tu",
                                                                          "down": "td", "accepting": True, "slug": "s"})
-        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
         monkeypatch.setattr(at, "btc_model", lambda k, h, n, d=60: {"p_up": 0.35, "price": 1, "open": 1, "change_pct": -0.1,
                                                               "minutes_left": 20})
         books = {"tu": {"price": 0.22, "fee": 0.012, "spread": 0.01, "shares": 20},  # edge UP = 0.35 − 0.232
@@ -208,7 +208,7 @@ class TestStrategies:
         monkeypatch.setattr(at, "maker_manage", lambda: None)
         monkeypatch.setattr(at, "maybe_send_daily_report", lambda: None)
         at.run_autotrade_tick()
-        assert calls == [("btc", False), ("btc15", True), ("btc5", True)]
+        assert calls == [("btc", False), ("btc15", True), ("btc5", True), ("eth", True), ("eth15", True)]
 
     def _event(self, favorite_first=True):
         markets = [
@@ -262,7 +262,8 @@ class TestControls:
         at.set_enabled(True)
         at.run_autotrade_tick(include_weather=True)
         # default: btc15 & maker_btc15 nonaktif → btc15 hanya mencatat sinyal (shadow)
-        assert calls == ["btc", "maker_btc", "btc15 (shadow)", "btc5 (shadow)", "manage", "weather_pre", "weather_post"]
+        assert calls == ["btc", "maker_btc", "btc15 (shadow)", "btc5 (shadow)", "eth (shadow)", "eth15 (shadow)", "manage",
+                         "weather_pre", "weather_post"]
 
     def test_telegram_start_stop_status(self):
         assert "🟢 Auto paper trader dijalankan" in handle_incoming_message("/startbot", sender_chat_id="1", allowed_chat_id="1")
@@ -288,7 +289,9 @@ class TestControls:
         assert data["enabled"] is True and "btc" in data["stats"] and data["limits"]["order_usd"] == 5.0
         assert client.post("/api/autotrade/stop").json()["enabled"] is False
         assert client.post("/api/autotrade/boom").status_code == 404
-        assert 'id="autotradeContainer"' in client.get("/").text
+        assert 'id="autotradeContainer"' not in client.get("/").text and 'href="/autobot"' in client.get("/").text
+        page = client.get("/autobot").text
+        assert 'id="autotradeContainer"' in page and 'id="marketsContainer"' in page and "/api/autotrade/markets" in page
 
 
 class TestBtc15AndMaker:
@@ -308,7 +311,7 @@ class TestBtc15AndMaker:
         seen = {}
         monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": {"condition_id": "0x15", "title": "BTC 15m",
                                                                          "up": "tu", "down": "td", "accepting": True, "slug": "s"})
-        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
         monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: seen.setdefault("d", d) and
                             {"p_up": 0.2, "price": 1, "open": 1, "change_pct": -0.1, "minutes_left": 5})
         monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.70 if token == "tu" else 0.30,
@@ -325,7 +328,7 @@ class TestBtc15AndMaker:
                  "p_up": p_up}
         monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": {"condition_id": "0xmk", "title": "BTC maker",
                                                                          "up": "tu", "down": "td", "accepting": True, "slug": "s"})
-        monkeypatch.setattr(at, "_btc_klines", lambda: [])
+        monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
         monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: {"p_up": state["p_up"], "price": 1, "open": 1,
                                                                     "change_pct": 0.1, "minutes_left": 40})
         monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
@@ -572,7 +575,7 @@ def test_btc5_uses_5_minute_horizon(funded, sent, monkeypatch):
     seen = {}
     monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": seen.setdefault("series", series) and
                         {"condition_id": "0x5m", "title": "BTC 5m", "up": "tu", "down": "td", "accepting": True, "slug": "s"})
-    monkeypatch.setattr(at, "_btc_klines", lambda: [])
+    monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
     monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: seen.setdefault("d", d) and
                         {"p_up": 0.85, "price": 1, "open": 1, "change_pct": 0.1, "minutes_left": 2})
     monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.70 if token == "tu" else 0.31,
@@ -580,3 +583,52 @@ def test_btc5_uses_5_minute_horizon(funded, sent, monkeypatch):
     d = at.btc_tick(now, series="btc5")
     assert seen == {"series": "btc5", "d": 5} and d["outcome"] == "UP" and d["strategy"] == "btc5"
     assert get_open_positions()[0]["strategy_version"] == "auto_btc5_v1"
+
+
+def test_eth_series_slugs_klines_and_trade(funded, sent, monkeypatch):
+    start = datetime(2026, 10, 4, 10, 30, tzinfo=timezone.utc)
+    assert at.series_slug("eth15", start) == f"eth-updown-15m-{int(start.timestamp())}"
+    assert at.series_slug("eth", datetime(2026, 10, 4, 10, 0, tzinfo=timezone.utc)) == "ethereum-up-or-down-october-4-2026-6am-et"
+    assert at.series_slug("btc", datetime(2026, 10, 4, 10, 0, tzinfo=timezone.utc)) == "bitcoin-up-or-down-october-4-2026-6am-et"
+    assert at.STRATEGY_VERSIONS["eth15"] == "auto_eth15_v1" and "maker_eth" in at.STRATEGY_VERSIONS
+    seen = {}
+    now = NOW.replace(minute=(NOW.minute // 15) * 15, second=0) + timedelta(minutes=10)
+    seed_market("0xeth", at=now)
+    monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": {"condition_id": "0xeth", "title": "ETH 15m",
+                                                                     "up": "tu", "down": "td", "accepting": True, "slug": "s"})
+    monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": seen.setdefault("symbol", symbol) and [])
+    monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: {"p_up": 0.85, "price": 2400.5, "open": 2390.0,
+                                                                "change_pct": 0.44, "minutes_left": 5})
+    monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.70 if token == "tu" else 0.31,
+                                                               "fee": 0.015, "spread": 0.01, "shares": 10})
+    d = at.btc_tick(now, series="eth15")
+    assert seen["symbol"] == "ETHUSDT" and d["strategy"] == "eth15" and d["detail"].startswith("ETH 2,400.5")
+    assert get_open_positions()[0]["strategy_version"] == "auto_eth15_v1"
+    row = next(r for r in at.trade_history(limit=50) if r["strategy"] == "eth15")
+    assert row["detail"].startswith("ETH 2,400.5")
+
+
+def test_crypto_markets_overview(monkeypatch):
+    now = datetime(2026, 10, 4, 10, 40, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr(at, "enabled_strategies", lambda: ["btc", "eth15", "maker_eth15"])
+    monkeypatch.setattr(at, "_btc_market", lambda start, series="btc": None if series == "btc5" else
+                        {"condition_id": f"0x{series}", "title": f"T {series}", "up": f"u{series}", "down": f"d{series}",
+                         "accepting": True, "slug": f"s-{series}"})
+    monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
+    monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: {"p_up": 0.7, "price": 100.0, "open": 99.0,
+                                                                "change_pct": 1.0, "minutes_left": 3.0})
+    monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
+                        lambda tokens: {t: {"ask": 0.60 if t.startswith("u") else 0.42, "bid": 0.58} for t in tokens})
+    monkeypatch.setattr("app.paper_trading.live_market_data.fetch_fee_rate", lambda token: 0.07)
+    monkeypatch.setattr(settings, "AUTOTRADE_SLIPPAGE", 0.01)
+    rows = {r["series"]: r for r in at.crypto_markets_overview(now)}
+    assert set(rows) == {"btc", "btc15", "btc5", "eth", "eth15"}
+    assert rows["btc5"]["error"] == "market belum tersedia"
+    eth15 = rows["eth15"]
+    assert eth15["asset"] == "eth" and eth15["label"] == "ETH 15 menit" and eth15["taker_on"] and eth15["maker_on"]
+    assert eth15["minute"] == 10.5 and eth15["in_window"] is True  # jendela 15 menit = menit 7–14
+    up = eth15["sides"]["UP"]
+    assert up["cost"] == pytest.approx(0.61 + 0.07 * 0.61 * 0.39) and up["edge"] == pytest.approx(0.7 - up["cost"])
+    assert rows["btc"]["in_window"] is True and rows["eth"]["taker_on"] is False
+    assert up["skip"] is None  # 61¢ + fee, edge ≈ 8¢, dalam jendela
+    assert eth15["sides"]["DOWN"]["skip"] == "edge < 5¢"
