@@ -580,8 +580,15 @@ def _mine_line(trade: Dict[str, Any], mine: List[Dict[str, Any]]) -> str:
     return f"  📌 Porto Anda juga di market ini: {holding} — {note}"
 
 
+def _market_key(trade: Dict[str, Any], day: str) -> str:
+    """Kunci dedupe alert per market + sisi + outcome per hari (≤ 80 karakter)."""
+    import hashlib
+    raw = f"{trade.get('condition_id')}|{trade.get('side')}|{trade.get('outcome')}"
+    return f"mkt:{day}:{hashlib.sha1(raw.encode()).hexdigest()[:24]}"
+
+
 def format_trade_alert(wallet: TrackedWallet, trades: List[Dict[str, Any]],
-                       my_positions: Optional[Dict[str, List[Dict[str, Any]]]] = None) -> str:
+                       my_positions: Optional[Dict[str, List[Dict[str, Any]]]] = None, skipped: int = 0) -> str:
     tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
     label = settings.NOTIFY_TIMEZONE_LABEL
     my_positions = my_positions or {}
@@ -598,6 +605,9 @@ def format_trade_alert(wallet: TrackedWallet, trades: List[Dict[str, Any]],
             lines.append(f"  https://polymarket.com/event/{t['event_slug']}")
     if len(trades) > 6:
         lines.append(f"… dan {len(trades) - 6} transaksi lain")
+    if skipped:
+        lines.append(f"(+{skipped} market lain sejak alert terakhir tidak dikirim — jeda anti-spam "
+                     f"{settings.WALLET_ALERT_COOLDOWN_MINUTES} menit)")
     lines.append(profile_url(wallet.address))
     return "\n".join(lines)
 
@@ -647,12 +657,31 @@ def poll_followed_wallets(now: Optional[datetime] = None) -> int:
             if not fresh:
                 continue
             trades = [t for t in _group_trades(fresh) if t["usdc"] >= settings.WALLET_ALERT_MIN_USDC]
+            # Anti-spam: market + sisi yang sudah dialertkan hari ini tidak dikirim lagi
+            day = now.astimezone(ZoneInfo(settings.NOTIFY_TIMEZONE)).date().isoformat()
+            trades = [t for t in trades if db.get(WalletAlertLog, (_market_key(t, day), wallet.address)) is None]
+            mine = my_open_positions() if trades else {}
+            last = wallet.last_alert_at
+            last = (last if last.tzinfo else last.replace(tzinfo=timezone.utc)) if last else None
+            cooling = last is not None and now - last < timedelta(minutes=settings.WALLET_ALERT_COOLDOWN_MINUTES)
+            if cooling:
+                skipped = [t for t in trades if t.get("condition_id") not in mine]
+                trades = [t for t in trades if t.get("condition_id") in mine]  # porto sendiri: tetap kirim
+                wallet.alerts_skipped = (wallet.alerts_skipped or 0) + len(skipped)
+                for t in skipped:  # cukup sekali: tidak dikirim belakangan
+                    db.add(WalletAlertLog(transaction_hash=_market_key(t, day), asset=wallet.address,
+                                          address=wallet.address, timestamp=int(now.timestamp())))
             if trades:
-                result = send_telegram_message(format_trade_alert(wallet, trades, my_open_positions()))
+                result = send_telegram_message(format_trade_alert(wallet, trades, mine, skipped=wallet.alerts_skipped or 0))
                 if not result.get("success"):
                     logger.warning("Alert wallet tidak terkirim: %s", result.get("error"))
+                    db.rollback()
                     continue  # coba lagi siklus berikutnya
                 sent += 1
+                wallet.last_alert_at, wallet.alerts_skipped = now, 0
+                for t in trades:
+                    db.add(WalletAlertLog(transaction_hash=_market_key(t, day), asset=wallet.address,
+                                          address=wallet.address, timestamp=int(now.timestamp())))
             for r in fresh:
                 db.add(WalletAlertLog(transaction_hash=r["transactionHash"], asset=str(r.get("asset") or ""),
                                       address=wallet.address, timestamp=int(r.get("timestamp") or 0)))

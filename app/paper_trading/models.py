@@ -465,6 +465,8 @@ class TrackedWallet(Base):
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")  # manual / discover
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_activity_ts: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # kursor alert (unix)
+    last_alert_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # jeda alert
+    alerts_skipped: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # market baru tak dikirim selama jeda
     stats_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     stats_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

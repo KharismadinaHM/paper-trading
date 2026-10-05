@@ -106,7 +106,7 @@ class TestRiskAndExecution:
         assert at.execute(decision(), NOW) is None  # satu entri per market
         positions = get_open_positions()
         assert len(positions) == 1 and positions[0]["strategy_version"] == "auto_btc_v1"
-        assert "🤖 AUTO BUY (paper) · BTC test" in sent[0] and "edge" in sent[0]
+        assert sent[0].startswith("🤖 AUTO BUY (paper) · 🟠 BTC · 1 JAM\nBTC test") and "edge" in sent[0]
 
     def test_daily_cap_rejects_and_records(self, funded, sent, monkeypatch):
         monkeypatch.setattr(settings, "AUTOTRADE_MAX_DAILY_USD", Decimal("7"))
@@ -271,7 +271,7 @@ class TestControls:
         stop = handle_incoming_message("/stopbot", sender_chat_id="1", allowed_chat_id="1")
         assert "🔴" in stop and at.is_enabled() is False
         status = handle_incoming_message("/autostats 7", sender_chat_id="1", allowed_chat_id="1")
-        assert "Hasil (7 hari)" in status and "btc:" in status and "weather:" in status
+        assert "Hasil (7 hari)" in status and "🟠 BTC · 1 JAM (btc):" in status and "🌡 CUACA (weather):" in status
         assert "/startbot" in handle_incoming_message("/help", sender_chat_id="1", allowed_chat_id="1")
 
     def test_daily_report_once(self, sent, monkeypatch):
@@ -501,7 +501,7 @@ def test_hourly_report_only_to_group_and_once_per_hour(funded, monkeypatch):
         assert at.maybe_send_hourly_report(end + timedelta(minutes=20)) is False  # sekali per jam
     text, kwargs = send.call_args[0][0], send.call_args[1]
     assert kwargs["chat_id"] == "-100"
-    assert "⏱ Auto trade ·" in text and "Selesai 1 · WR 100% (1/1) · PnL +3.80" in text and "• btc: 1/1 menang" in text
+    assert "⏱ Auto trade ·" in text and "Selesai 1 · WR 100% (1/1) · PnL +3.80" in text and "• 🟠 BTC · 1 JAM: 1/1 menang" in text
     assert "Dibuka 1 trade ($5.00)" in text
 
 
@@ -683,3 +683,13 @@ def test_pnl_calendar_days_months_and_trades(funded, sent):
     assert len(client.get("/api/autotrade/calendar/trades", params={"month": "2031-04"}).json()["trades"]) == 1
     assert client.get("/api/autotrade/calendar/trades").status_code == 400
     assert 'id="calGrid"' in client.get("/autobot").text
+
+
+def test_strategy_headers_distinguish_asset_and_length():
+    assert at.strategy_header("btc") == "🟠 BTC · 1 JAM"
+    assert at.strategy_header("eth") == "🔷 ETH · 1 JAM"
+    assert at.strategy_header("eth15") == "🔷 ETH · 15 MENIT"
+    assert at.strategy_header("btc15") == "🟠 BTC · 15 MENIT"
+    assert at.strategy_header("maker_eth15") == "🔷 ETH · 15 MENIT · MAKER"
+    assert at.strategy_header("btc5") == "🟠 BTC · 5 MENIT"
+    assert at.strategy_header("weather_post") == "🌡 CUACA · PASCA PUNCAK"

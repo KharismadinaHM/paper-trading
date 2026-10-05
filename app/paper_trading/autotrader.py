@@ -306,7 +306,7 @@ def notify_rejection(decision: Dict[str, Any], reason: str, now: datetime) -> bo
     hint = ""
     if "balance" in reason.lower() or "saldo" in reason.lower():
         hint = "\nTambah saldo paper lewat tombol Deposit di dashboard."
-    notify(f"⚠️ AUTO TRADE DITOLAK (paper) · {decision['title']}\n"
+    notify(f"⚠️ AUTO TRADE DITOLAK (paper) · {strategy_header(decision['strategy'])}\n{decision['title']}\n"
            f"Alasan: {reason}\n"
            f"Sinyal: {decision.get('outcome') or decision['side']} · model {decision['prob'] * 100:.0f}% vs biaya "
            f"{(decision['price'] + decision['fee']) * 100:.1f}¢{hint}\n"
@@ -365,10 +365,29 @@ def execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Optiona
     return order
 
 
+ASSET_ICONS = {"btc": "🟠", "eth": "🔷"}
+
+
+def strategy_header(strategy: str) -> str:
+    """Label pembeda di notifikasi: '🟠 BTC · 1 JAM', '🔷 ETH · 15 MENIT · MAKER', '🌡 CUACA'."""
+    maker = strategy.startswith("maker_")
+    info = BTC_SERIES.get(strategy.replace("maker_", ""))
+    if info:
+        label = (f"{ASSET_ICONS.get(info['asset'], '🪙')} {ASSETS[info['asset']]['label']} · "
+                 f"{LENGTH_LABEL[info['minutes']].upper()}")
+        return label + (" · MAKER" if maker else "")
+    if strategy == "weather_post":
+        return "🌡 CUACA · PASCA PUNCAK"
+    if strategy.startswith("weather"):
+        return "🌡 CUACA"
+    return strategy.upper()
+
+
 def format_decision(d: Dict[str, Any], order: Dict[str, Any]) -> str:
     side = d.get("outcome") or d["side"]
     lines = [
-        f"🤖 AUTO BUY (paper) · {d['title']}",
+        f"🤖 AUTO BUY (paper) · {strategy_header(d['strategy'])}",
+        f"{d['title']}",
         f"Beli {side} {float(order['shares']):,.2f} sh @ {d['price'] * 100:.1f}¢"
         + (f" (termasuk slippage {d['features']['slippage'] * 100:.1f}¢)" if (d.get("features") or {}).get("slippage") else "")
         + f" + fee {d['fee'] * 100:.2f}¢ = ${d['size']:.2f}",
@@ -1349,7 +1368,7 @@ def format_status(days: Optional[int] = None, all_time: bool = False) -> str:
     for name, st in stats.items():
         wr = f"{st['win_rate'] * 100:.0f}%" if st["win_rate"] is not None else "-"
         roi = f"{st['roi'] * 100:+.1f}%" if st["roi"] is not None else "-"
-        lines.append(f"• {md(name)}: {st['trades']} trade · selesai {st['settled']} · WR {wr} · "
+        lines.append(f"• {strategy_header(name)} ({md(name)}): {st['trades']} trade · selesai {st['settled']} · WR {wr} · "
                      f"PnL {st['pnl']:+.2f} · ROI {roi} · terbuka {st['open']}")
     lines += ["", "`/stopbot` hentikan · `/startbot` jalankan · `/autostats 7` hasil 7 hari · `/autostats semua` · "
                   "`/autostats reset` mulai periode baru"]
@@ -1391,7 +1410,7 @@ def format_hourly_report(start: datetime, end: datetime, summary: Dict[str, Any]
         lines.append(f"Selesai {s['settled']} · WR {s['wins'] / s['settled'] * 100:.0f}% ({s['wins']}/{s['settled']}) · "
                      f"PnL {s['pnl']:+.2f}{roi}")
         for name, r in sorted(s["per_strategy"].items()):
-            lines.append(f"• {name}: {r['wins']}/{r['settled']} menang · PnL {r['pnl']:+.2f}")
+            lines.append(f"• {strategy_header(name)}: {r['wins']}/{r['settled']} menang · PnL {r['pnl']:+.2f}")
     else:
         lines.append("Belum ada trade yang selesai jam ini")
     lines.append(f"Dibuka {s['opened']} trade (${s['opened_usd']:.2f})")

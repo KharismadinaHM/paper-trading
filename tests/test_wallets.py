@@ -349,3 +349,38 @@ class TestPortfolioOverlap:
     def test_no_overlap_check_without_own_wallet(self, api, sent, monkeypatch):
         monkeypatch.setattr(settings, "POLYMARKET_WALLET_ADDRESS", None)
         assert wl.check_portfolio_overlap(NOW) == 0
+
+
+class TestAntiSpam:
+
+    def test_same_market_alerted_once_per_day_and_cooldown(self, api, sent, monkeypatch):
+        monkeypatch.setattr(settings, "POLYMARKET_WALLET_ADDRESS", None)
+        wl.set_follow(A, True, now=NOW - timedelta(hours=3))
+        api.activity[A] = [trade(TS - 7000, tx="0x1", cond="0xm1")]
+        assert wl.poll_followed_wallets(now=NOW - timedelta(minutes=110)) == 1
+        # wallet yang sama menambah di market yang sama: tidak dikirim lagi
+        api.activity[A] = [trade(TS - 7000, tx="0x1", cond="0xm1"), trade(TS - 4000, tx="0x2", cond="0xm1")]
+        assert wl.poll_followed_wallets(now=NOW - timedelta(minutes=60)) == 0
+        # market baru tapi masih dalam jeda 60 menit sejak alert terakhir: dilewati & dihitung
+        api.activity[A].append(trade(TS - 3500, tx="0x3", cond="0xm2", title="Market dua"))
+        assert wl.poll_followed_wallets(now=NOW - timedelta(minutes=55)) == 0
+        # setelah jeda: market baru dikirim, dengan catatan market yang dilewati
+        api.activity[A].append(trade(TS - 60, tx="0x4", cond="0xm3", title="Market tiga"))
+        assert wl.poll_followed_wallets(now=NOW) == 1
+        assert len(sent) == 2
+        assert "Market tiga" in sent[1] and "Market dua" not in sent[1]
+        assert "+1 market lain sejak alert terakhir tidak dikirim" in sent[1]
+
+    def test_portfolio_market_bypasses_cooldown_but_still_once(self, api, sent, monkeypatch):
+        me = "0x" + "e" * 40
+        monkeypatch.setattr(settings, "POLYMARKET_WALLET_ADDRESS", me)
+        api.positions[me] = [{"conditionId": "0xmine", "outcome": "Yes", "size": 5, "avgPrice": 0.5, "curPrice": 0.5,
+                              "title": "Mine"}]
+        wl.set_follow(A, True, now=NOW - timedelta(hours=3))
+        api.activity[A] = [trade(TS - 600, tx="0x1", cond="0xm1")]
+        assert wl.poll_followed_wallets(now=NOW - timedelta(minutes=5)) == 1
+        api.activity[A].append(trade(TS - 60, tx="0x2", cond="0xmine", side="SELL", title="Mine"))
+        assert wl.poll_followed_wallets(now=NOW) == 1  # jeda diabaikan: market di porto sendiri
+        assert "MENJUAL sisi yang Anda pegang" in sent[-1]
+        api.activity[A].append(trade(TS - 30, tx="0x3", cond="0xmine", side="SELL", title="Mine"))
+        assert wl.poll_followed_wallets(now=NOW + timedelta(minutes=1)) == 0  # tetap sekali per market

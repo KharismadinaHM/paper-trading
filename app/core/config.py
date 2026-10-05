@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     WALLET_POLL_SECONDS: int = 60
     WALLET_ALERT_MIN_USDC: float = 5.0         # abaikan transaksi lebih kecil dari ini
     WALLET_ALERT_WEATHER_ONLY: bool = False    # hanya alert transaksi market cuaca
+    # Anti-spam: satu alert per wallet + market + sisi per hari, dan maksimal satu pesan per wallet tiap N menit
+    # (transaksi di market yang juga ada di porto sendiri tetap dikirim tanpa menunggu jeda)
+    WALLET_ALERT_COOLDOWN_MINUTES: int = 60
     # Alert saat porto sendiri (POLYMARKET_WALLET_ADDRESS) dan wallet yang diikuti memegang market yang sama
     WALLET_OVERLAP_ALERTS: bool = True
     WALLET_OVERLAP_CHECK_MINUTES: int = 10
