@@ -18,6 +18,8 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
+from sqlalchemy.exc import IntegrityError
+
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
@@ -682,11 +684,29 @@ def poll_followed_wallets(now: Optional[datetime] = None) -> int:
                 for t in trades:
                     db.add(WalletAlertLog(transaction_hash=_market_key(t, day), asset=wallet.address,
                                           address=wallet.address, timestamp=int(now.timestamp())))
+            # Satu transaksi bisa muncul di beberapa baris /activity (beberapa fill): catat tiap (tx, asset) sekali,
+            # kalau tidak commit gagal (duplikat) dan alert yang sama terkirim ulang tiap siklus.
+            logged = set()
             for r in fresh:
-                db.add(WalletAlertLog(transaction_hash=r["transactionHash"], asset=str(r.get("asset") or ""),
-                                      address=wallet.address, timestamp=int(r.get("timestamp") or 0)))
+                key = (r["transactionHash"], str(r.get("asset") or ""))
+                if key in logged:
+                    continue
+                logged.add(key)
+                db.add(WalletAlertLog(transaction_hash=key[0], asset=key[1], address=wallet.address,
+                                      timestamp=int(r.get("timestamp") or 0)))
             wallet.last_activity_ts = max(int(r.get("timestamp") or 0) for r in fresh)
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError as err:
+                # Jangan sampai satu baris bermasalah membuat alert terkirim berulang: majukan kursor saja
+                db.rollback()
+                logger.warning("Log alert wallet %s gagal disimpan (%s); kursor dimajukan", wallet.address, err.orig)
+                fresh_ts = max(int(r.get("timestamp") or 0) for r in fresh)
+                w = db.get(TrackedWallet, wallet.address)
+                w.last_activity_ts = fresh_ts + 1  # baris di detik yang sama tidak diproses ulang
+                if trades:
+                    w.last_alert_at = now
+                db.commit()
         return sent
     except Exception:
         db.rollback()

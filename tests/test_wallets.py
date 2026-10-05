@@ -384,3 +384,15 @@ class TestAntiSpam:
         assert "MENJUAL sisi yang Anda pegang" in sent[-1]
         api.activity[A].append(trade(TS - 30, tx="0x3", cond="0xmine", side="SELL", title="Mine"))
         assert wl.poll_followed_wallets(now=NOW + timedelta(minutes=1)) == 0  # tetap sekali per market
+
+
+def test_duplicate_activity_rows_do_not_cause_repeated_alerts(api, sent, monkeypatch):
+    """Satu transaksi muncul di beberapa baris /activity: alert sekali, log tersimpan, tidak terkirim ulang."""
+    monkeypatch.setattr(settings, "POLYMARKET_WALLET_ADDRESS", None)
+    wl.set_follow(A, True, now=NOW - timedelta(hours=1))
+    dup = trade(TS - 60, tx="0xdup", asset="as9", cond="0xmd")
+    api.activity[A] = [dup, dict(dup), dict(dup, size=10.0, usdcSize=5.0)]
+    assert wl.poll_followed_wallets(now=NOW) == 1
+    assert wl.poll_followed_wallets(now=NOW + timedelta(minutes=1)) == 0
+    assert wl.poll_followed_wallets(now=NOW + timedelta(minutes=2)) == 0
+    assert len(sent) == 1
