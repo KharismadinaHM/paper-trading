@@ -285,6 +285,23 @@ def autotrade_calendar_trades_api(date: Optional[str] = None, month: Optional[st
     return {"trades": _calendar_call(closed_trades, day=date, month=month, strategy=strategy or None)}
 
 
+@app.get("/api/live", dependencies=[Depends(require_auth)])
+def live_status_api():
+    """Status trading uang asli: aktif/jeda, aturan, pemakaian hari ini, total hasil, order terbaru (tanpa secret)."""
+    from app.paper_trading.live_trader import live_summary
+    return live_summary()
+
+
+@app.post("/api/live/{action}", dependencies=[Depends(require_auth)])
+def live_switch_api(action: str):
+    """Jeda (stop) / lanjutkan (start) trading uang asli. Tidak mengubah LIVE_TRADING di .env."""
+    from app.paper_trading.live_trader import live_summary, set_switch
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=404, detail="Aksi tidak dikenal")
+    set_switch(action == "start")
+    return live_summary()
+
+
 @app.get("/api/autotrade/markets", dependencies=[Depends(require_auth)])
 def autotrade_markets_api():
     """Market crypto Up/Down yang sedang berjalan (BTC & ETH: 1 jam, 15 menit, 5 menit) + peluang model & edge."""

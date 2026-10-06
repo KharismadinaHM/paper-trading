@@ -451,6 +451,36 @@ class InsiderFlag(Base):
                       Index("idx_insider_flags_flagged_at", "flagged_at"))
 
 
+class LiveOrder(Base):
+    """Order uang asli (Polymarket CLOB) dari auto trader: batas harga, hasil eksekusi, dan hasil akhir."""
+    __tablename__ = "live_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    decision_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(10), nullable=False)          # UP / DOWN
+    title: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    max_price: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    model_prob: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)           # filled / rejected / error / dry_run
+    order_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    shares: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 6), nullable=True)
+    avg_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    spent: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    local_day: Mapped[str] = mapped_column(String(10), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    result: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # WIN / LOSS / VOID
+    pnl: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("idx_live_orders_day", "local_day"),)
+
+
 class TrackedWallet(Base):
     """
     Wallet Polymarket yang dilacak. status: 'tracking' (dipantau) / 'skipped' (disembunyikan dari

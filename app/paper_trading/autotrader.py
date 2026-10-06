@@ -570,7 +570,7 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
                                        ("DOWN", market["down"], 1 - model["p_up"], "NO")):
         book = _book_side(token, usd)
         if book:
-            sides.append({"outcome": outcome, "side": side, "prob": prob,
+            sides.append({"outcome": outcome, "side": side, "prob": prob, "token": token,
                           "edge": prob - (book["price"] + book["fee"]), **book})
     if not sides:
         return None
@@ -607,6 +607,12 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
     log_signal(decision, f"{key}|{bucket}", reason, now)
     if reason is not None:
         return None
+    try:  # uang asli (bila LIVE_TRADING aktif & seri ini di LIVE_STRATEGIES) — terpisah dari paper
+        from app.paper_trading.live_trader import live_execute
+        live_execute({**decision, "token": best["token"], "book_price": best.get("book_price", best["price"])}, now)
+    except Exception as err:
+        from app.paper_trading.live_trader import redact
+        logger.error("Eksekusi live gagal: %s", redact(err))
     execute(decision, now)
     return decision
 

@@ -24,3 +24,6 @@ tzdata==2026.4
 
 # Notifications & HTTP
 requests==2.34.2
+
+# Trading uang asli (dipakai hanya bila LIVE_TRADING=true): SDK resmi Polymarket CLOB
+py-clob-client==0.34.6

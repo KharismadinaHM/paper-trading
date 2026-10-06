@@ -182,6 +182,20 @@ class Settings(BaseSettings):
     AUTOTRADE_WEATHER_POST_HOURS: float = 3.0  # weather_post: dari awal jam puncak s/d akhir puncak + N jam
     AUTOTRADE_REPORT_HOUR: int = 21            # jam WIB laporan harian
     TELEGRAM_AUTOTRADE_CHAT_ID: Optional[str] = None  # chat/grup terpisah untuk notif auto trade
+    # --- Trading UANG ASLI (Polymarket CLOB). Mati secara default; lihat docs/LIVE_TRADING.md ---
+    LIVE_TRADING: bool = False
+    LIVE_STRATEGIES: str = "btc,eth"            # seri yang dieksekusi live (default: BTC & ETH 1 jam)
+    LIVE_ORDER_USD: float = 1.0                 # nominal per order (minimal $1)
+    LIVE_MAX_ORDER_USD: float = 25.0            # batas keras per order (LIVE_ORDER_USD tidak boleh melebihi)
+    LIVE_MAX_DAILY_USD: float = 10.0            # total pembelian live per hari (WIB)
+    LIVE_MAX_DAILY_LOSS: float = 5.0            # berhenti hari itu bila rugi live terealisasi ≥ ini
+    LIVE_MAX_OPEN_USD: float = 5.0              # total posisi live yang belum resolve
+    LIVE_MAX_SLIPPAGE: float = 0.02             # batas harga = ask saat sinyal + ini (dan edge tetap ≥ minimum)
+    LIVE_DRY_RUN: bool = False                  # susun & catat order tanpa mengirim
+    POLY_PRIVATE_KEY: Optional[str] = None      # private key wallet KHUSUS bot (bukan wallet utama)
+    POLY_FUNDER_ADDRESS: Optional[str] = None   # alamat proxy/funder Polymarket (akun email/Magic & browser wallet)
+    POLY_SIGNATURE_TYPE: int = 1                # 0 = EOA/MetaMask langsung, 1 = email/Magic, 2 = browser wallet proxy
+    POLY_CLOB_HOST: str = "https://clob.polymarket.com"
     # Zona waktu jam di notifikasi (default WIB)
     NOTIFY_TIMEZONE: str = "Asia/Jakarta"
     NOTIFY_TIMEZONE_LABEL: str = "WIB"

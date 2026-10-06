@@ -66,6 +66,18 @@
         </div>
     </div>
 
+        <!-- LIVE TRADING (UANG ASLI) -->
+        <div class="poly-card p-4 mb-4" style="border-color: rgba(250, 204, 21, .45);">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="fw-bold text-white mb-0"><i class="bi bi-cash-coin me-2 text-warning"></i>Live trading · uang asli</h5>
+                    <span class="badge bg-dark border border-secondary-subtle" id="liveBadge">-</span>
+                </div>
+                <button class="btn btn-sm poly-btn-secondary py-1 px-3" id="liveToggle" onclick="toggleLive()">-</button>
+            </div>
+            <div id="liveContainer" class="small text-muted-poly">Memuat…</div>
+        </div>
+
         <!-- KALENDER PnL -->
         <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -587,8 +599,69 @@
             }
         }
 
-        function refreshAll() { fetchMarkets(); fetchAutotrade(); loadCalendar(); }
+        // --- LIVE TRADING (UANG ASLI) ---
+        let liveSwitchOn = false;
+        async function toggleLive() {
+            const action = liveSwitchOn ? 'stop' : 'start';
+            if (action === 'start' && !confirm('Lanjutkan trading UANG ASLI? Order akan dikirim ke Polymarket sesuai batas di .env.')) return;
+            try {
+                const res = await fetch(`/api/live/${action}`, { method: 'POST' });
+                if (!res.ok) throw new Error('Gagal');
+                renderLive(await res.json());
+            } catch (err) { alert('Gagal mengubah status live.'); }
+        }
+        function renderLive(s) {
+            liveSwitchOn = !!s.switch_on;
+            const badge = document.getElementById('liveBadge');
+            const state = s.active ? (s.dry_run ? ['🧪 dry run', 'text-info'] : ['🟢 aktif', 'text-success'])
+                        : (s.enabled && !s.switch_on ? ['⏸ dijeda', 'text-warning'] : ['🔴 mati', 'text-danger']);
+            badge.className = `badge bg-dark border border-secondary-subtle ${state[1]}`;
+            badge.textContent = state[0];
+            const btn = document.getElementById('liveToggle');
+            btn.style.display = s.enabled ? '' : 'none';
+            btn.innerHTML = s.switch_on ? '<i class="bi bi-pause-circle me-1"></i>Jeda' : '<i class="bi bi-play-circle me-1"></i>Lanjutkan';
+            const l = s.limits, t = s.today, tot = s.totals;
+            const problems = s.enabled && s.problems.length
+                ? `<div class="text-warning mb-2">⚠️ ${s.problems.map(escapeHtml).join(' · ')}</div>` : '';
+            const off = !s.enabled
+                ? `<div class="mb-2">Mati (<code>LIVE_TRADING=false</code>). Cara menyalakan: lihat <code>docs/LIVE_TRADING.md</code>.</div>` : '';
+            const icon = o => o.status === 'filled' ? ({ WIN: '✅', LOSS: '❌', VOID: '↩️' }[o.result] || '⏳')
+                                                   : ({ rejected: '⛔', error: '❗', dry_run: '🧪' }[o.status] || '•');
+            const rows = (s.orders || []).map(o => `<tr>
+                <td class="text-nowrap">${escapeHtml(new Date(o.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
+                <td>${icon(o)} ${escapeHtml(o.status)}</td><td>${escapeHtml(o.strategy)}</td>
+                <td>${escapeHtml(o.title || '')} · <b>${escapeHtml(o.outcome)}</b>${o.error ? `<div class="text-muted-poly" style="font-size:.75rem">${escapeHtml(o.error)}</div>` : ''}</td>
+                <td class="text-end">${o.avg_price !== null ? (o.avg_price * 100).toFixed(1) + '¢' : '-'}</td>
+                <td class="text-end">${(o.max_price * 100).toFixed(0)}¢</td>
+                <td class="text-end">$${Number(o.usd).toFixed(2)}</td>
+                <td class="text-end fw-semibold ${pnlClass(o.pnl || 0)}">${o.pnl === null ? '-' : (o.pnl > 0 ? '+' : '') + o.pnl.toFixed(2)}</td></tr>`).join('')
+                || '<tr><td colspan="8" class="text-muted-poly">Belum ada order live.</td></tr>';
+            document.getElementById('liveContainer').innerHTML = `${off}${problems}
+                <div class="mb-2">Strategi: <b class="text-white">${escapeHtml((s.strategies || []).join(', '))}</b> ·
+                    $${l.order_usd}/order · maks $${l.max_daily_usd}/hari · stop rugi $${l.max_daily_loss} · maks terbuka $${l.max_open_usd} ·
+                    slippage maks ${(l.max_slippage * 100).toFixed(0)}¢</div>
+                <div class="mb-2">Hari ini: <b class="text-white">${t.orders}</b> order · $${t.spent.toFixed(2)} ·
+                    PnL terealisasi <b class="${pnlClass(t.realized_pnl)}">${t.realized_pnl >= 0 ? '+' : ''}${t.realized_pnl.toFixed(2)}</b> · terbuka $${t.open_usd.toFixed(2)}
+                    ${tot.decided ? ` · Total ${tot.wins}/${tot.decided} menang · PnL <b class="${pnlClass(tot.pnl)}">${tot.pnl >= 0 ? '+' : ''}${tot.pnl.toFixed(2)}</b>` : ''}</div>
+                <div class="table-responsive" style="max-height: 320px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0 align-middle">
+                    <thead class="sticky-top"><tr class="text-muted-poly"><th>Waktu</th><th>Status</th><th>Strategi</th><th>Market</th>
+                        <th class="text-end">Harga isi</th><th class="text-end">Batas</th><th class="text-end">Nominal</th><th class="text-end">PnL</th></tr></thead>
+                    <tbody>${rows}</tbody></table></div>
+                <div class="mt-2 text-muted-poly">Kemenangan harus di-<b>claim</b> di Polymarket agar saldo USDC kembali untuk order berikutnya.</div>`;
+        }
+        async function fetchLive() {
+            try {
+                const res = await fetch('/api/live');
+                if (!res.ok) throw new Error('Failed');
+                renderLive(await res.json());
+            } catch (err) {
+                document.getElementById('liveContainer').textContent = 'Gagal memuat status live.';
+            }
+        }
+
+        function refreshAll() { fetchMarkets(); fetchAutotrade(); loadCalendar(); fetchLive(); }
         refreshAll();
+        setInterval(fetchLive, 30000);
         setInterval(fetchMarkets, 15000);
         // Status & hasil: tiap 60 detik, kecuali sedang mengubah aturan / membaca riset
         setInterval(() => { if (!window._autotradeConfigOpen && !window._autotradeResearchOpen) fetchAutotrade(); }, 60000);

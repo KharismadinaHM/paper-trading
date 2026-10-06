@@ -187,6 +187,7 @@ lengkap — lalu hasilnya diisi otomatis setelah market resolve (`app/paper_trad
 |---|---|
 | `/autobot` | Status, pemakaian hari ini, aturan, limit order maker terbuka |
 | `/startbot` · `/stopbot` | Jalankan / hentikan auto trader |
+| `/live` · `/livestop` · `/livestart` | Trading **uang asli** untuk BTC & ETH 1 jam (mati secara default) — lihat `docs/LIVE_TRADING.md` |
 | `/autostats [hari]` | Win rate, PnL, ROI total & per strategi. `/autostats reset` mulai periode statistik baru, `/autostats sejak YYYY-MM-DD`, `/autostats semua` (data lama tidak dihapus; juga tombol di dashboard) |
 | (otomatis, grup auto trade) | Laporan per jam: trade selesai jam itu (WR, PnL per strategi) + trade dibuka; hanya ke `TELEGRAM_AUTOTRADE_CHAT_ID`, dilewati bila jam itu kosong. Pesan "PAPER TRADE SETTLED" per posisi tidak lagi dikirim |
 | `/autoriwayat [n] [strategi]` | Riwayat trade: menang/kalah/terbuka, harga masuk & keluar, PnL, detail keputusan (juga di dashboard) |

@@ -64,6 +64,7 @@ def build_help_message() -> str:
         "🤖 `/autobot` - Status auto paper trader · `/startbot` · `/stopbot` · `/tesnotif`\n"
         "🔬 `/autoresearch` - Riset auto trade: kalibrasi, ROI per edge, saran ambang (`/autoresearch 14`)\n"
         "🏅 `/autostats` - Win rate, PnL & ROI auto trade per strategi (`/autostats 7` · `semua` · `reset` · `sejak 2026-10-02`)\n"
+        "💵 `/live` - Status trading uang asli (BTC & ETH 1 jam) · `/livestop` jeda · `/livestart` lanjut\n"
         "📜 `/autoriwayat` - Riwayat trade auto: menang/kalah, PnL & detail (`/autoriwayat 20 btc`)\n"
         "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover [kategori]` - Rekomendasi wallet per kategori market: cuaca, kripto, olahraga, politik, … (tombol Ikuti / Skip)\n"
@@ -482,6 +483,15 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
             elif a.lower() in STRATEGY_VERSIONS:
                 strategy = a.lower()
         return format_trade_history(limit=limit, strategy=strategy)
+    elif cmd in ("/live", "/livestop", "/livestart"):
+        from app.paper_trading.live_trader import format_live_status, set_switch
+        if cmd == "/livestop":
+            set_switch(False)
+            return "⏸ Live trading (uang asli) DIJEDA. Tidak ada order baru sampai `/livestart`.\n\n" + format_live_status()
+        if cmd == "/livestart":
+            set_switch(True)
+            return "▶️ Saklar live dinyalakan.\n\n" + format_live_status()
+        return format_live_status()
     elif cmd in ("/insider", "/orangdalam"):
         from app.paper_trading.insider import format_insider_report
         hours = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
