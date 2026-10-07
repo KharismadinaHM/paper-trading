@@ -375,3 +375,30 @@ def test_live_min_price_skips_cheap_underdogs(monkeypatch):
     assert lt.max_price_for(0.40, 0.17, 0.07) is None          # 17¢ < 30¢: dilewati di live
     monkeypatch.setattr(settings, "LIVE_MIN_PRICE", 0.10)
     assert lt.max_price_for(0.40, 0.17, 0.07) == 0.19          # bila diturunkan dari dashboard
+
+
+def test_live_hourly_report_only_to_group(live, monkeypatch):
+    end = NOW.replace(minute=0, second=0)
+    lt.live_execute(decision(key="btc|0xh1"), end - timedelta(minutes=40))
+    lt.live_execute(decision(key="eth|0xh2", strategy="eth", outcome="DOWN"), end - timedelta(minutes=35))
+    monkeypatch.setattr("app.paper_trading.insider.market_info", lambda ids: {i: {"winner": "YES"} for i in ids})
+    lt.track_results(end - timedelta(minutes=5))
+    monkeypatch.setattr(settings, "TELEGRAM_AUTOTRADE_CHAT_ID", None)
+    assert lt.maybe_send_live_hourly_report(end + timedelta(minutes=1)) is False  # tanpa grup: tidak ke pribadi
+    monkeypatch.setattr(settings, "TELEGRAM_AUTOTRADE_CHAT_ID", "-100")
+    with patch("app.paper_trading.telegram.send_telegram_message", return_value={"success": True}) as send:
+        assert lt.maybe_send_live_hourly_report(end + timedelta(minutes=1)) is True
+        assert lt.maybe_send_live_hourly_report(end + timedelta(minutes=30)) is False  # sekali per jam
+    text, kwargs = send.call_args[0][0], send.call_args[1]
+    assert kwargs["chat_id"] == "-100"
+    assert text.startswith("💵 Live (uang asli) ·")
+    assert "Selesai 2 · WR 50% (1/2)" in text and "• 🟠 BTC · 1 JAM: 1/1 menang" in text
+    assert "• 🔷 ETH · 1 JAM: 0/1 menang · PnL -2.00" in text
+    assert "Dibeli 2 order ($4.00)" in text and "saldo $50.00" in text
+
+
+def test_live_hourly_report_skipped_when_empty(live, monkeypatch):
+    monkeypatch.setattr(settings, "TELEGRAM_AUTOTRADE_CHAT_ID", "-100")
+    with patch("app.paper_trading.telegram.send_telegram_message") as send:
+        assert lt.maybe_send_live_hourly_report(NOW + timedelta(days=40)) is False
+    assert not send.called

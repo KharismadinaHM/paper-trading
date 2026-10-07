@@ -570,7 +570,7 @@ _last_track: Dict[str, float] = {"at": 0.0}
 
 
 def run_live_tracking() -> None:
-    """Dipanggil dari loop collector (tiap 5 menit); tidak pernah melempar exception."""
+    """Dipanggil dari loop collector (paling cepat tiap 60 detik); tidak pernah melempar exception."""
     import time as _time
 
     if not settings.LIVE_TRADING or _time.monotonic() - _last_track["at"] < 60:
@@ -584,6 +584,99 @@ def run_live_tracking() -> None:
         auto_claim()
     except Exception as err:
         logger.error("Auto-claim gagal: %s", redact(err))
+    try:
+        maybe_send_live_hourly_report()
+    except Exception as err:
+        logger.error("Laporan per jam live gagal: %s", redact(err))
+
+
+# --- Laporan per jam (grup auto trade) ------------------------------------------------------
+
+def live_hourly_summary(start: datetime, end: datetime) -> Dict[str, Any]:
+    """Order live dalam [start, end): dibeli (terisi / tak terisi / error), selesai (WR & PnL), per seri."""
+    db = get_db_session()
+    try:
+        s_utc, e_utc = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+        created = db.query(LiveOrder).filter(LiveOrder.created_at >= s_utc, LiveOrder.created_at < e_utc).all()
+        resolved = db.query(LiveOrder).filter(LiveOrder.status == "filled", LiveOrder.result.isnot(None),
+                                              LiveOrder.resolved_at >= s_utc, LiveOrder.resolved_at < e_utc).all()
+    finally:
+        db.close()
+    filled = [o for o in created if o.status == "filled"]
+    per: Dict[str, Dict[str, Any]] = {}
+    for o in resolved:
+        row = per.setdefault(o.strategy, {"settled": 0, "wins": 0, "pnl": 0.0})
+        row["settled"] += 1
+        row["wins"] += 1 if o.result == "WIN" else 0
+        row["pnl"] += float(o.pnl or 0)
+    cost = sum(float(o.spent or 0) for o in resolved)
+    pnl = sum(float(o.pnl or 0) for o in resolved)
+    return {"bought": len(filled), "bought_usd": round(sum(float(o.spent or 0) for o in filled), 2),
+            "unfilled": sum(1 for o in created if o.status == "rejected"),
+            "errors": sum(1 for o in created if o.status == "error"),
+            "settled": len(resolved), "wins": sum(1 for o in resolved if o.result == "WIN"),
+            "pnl": round(pnl, 2), "cost": round(cost, 2), "per_strategy": per,
+            "claimed": sum(1 for o in resolved if o.claimed_at is not None)}
+
+
+def format_live_hourly_report(start: datetime, end: datetime, s: Dict[str, Any], balance: Optional[float]) -> str:
+    from app.paper_trading.autotrader import strategy_header
+
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    lines = [f"💵 Live (uang asli) · {start.astimezone(tz):%H:%M}–{end.astimezone(tz):%H:%M} {settings.NOTIFY_TIMEZONE_LABEL}"]
+    if s["settled"]:
+        roi = f" · ROI {s['pnl'] / s['cost'] * 100:+.1f}%" if s["cost"] else ""
+        lines.append(f"Selesai {s['settled']} · WR {s['wins'] / s['settled'] * 100:.0f}% ({s['wins']}/{s['settled']}) · "
+                     f"PnL {s['pnl']:+.2f}{roi}")
+        for name, r in sorted(s["per_strategy"].items()):
+            lines.append(f"• {strategy_header(name)}: {r['wins']}/{r['settled']} menang · PnL {r['pnl']:+.2f}")
+    else:
+        lines.append("Belum ada order live yang selesai jam ini")
+    extra = []
+    if s["unfilled"]:
+        extra.append(f"{s['unfilled']} tidak terisi")
+    if s["errors"]:
+        extra.append(f"{s['errors']} error")
+    lines.append(f"Dibeli {s['bought']} order (${s['bought_usd']:.2f})" + (f" · {' · '.join(extra)}" if extra else ""))
+    t = live_today(end)
+    day = f"Hari ini: {t['orders']} order · ${t['spent']:.2f} · PnL terealisasi {t['realized_pnl']:+.2f}"
+    if balance is not None:
+        day += f" · saldo ${balance:.2f}"
+    lines.append(day)
+    return "\n".join(lines)
+
+
+def maybe_send_live_hourly_report(now: Optional[datetime] = None) -> bool:
+    """
+    Tiap pergantian jam: rekap live 1 jam terakhir, hanya ke grup auto trade (TELEGRAM_AUTOTRADE_CHAT_ID).
+    Dilewati bila jam itu tidak ada order dibeli / selesai / gagal.
+    """
+    from app.paper_trading.autotrader import _get_state, _set_state
+    from app.paper_trading.telegram import send_telegram_message
+
+    if not settings.TELEGRAM_AUTOTRADE_CHAT_ID or not settings.LIVE_TRADING:
+        return False
+    now = now or datetime.now(timezone.utc)
+    end = now.replace(minute=0, second=0, microsecond=0)
+    key = end.strftime("%Y-%m-%dT%H")
+    if _get_state("last_live_hourly") == key:
+        return False
+    _set_state("last_live_hourly", key, now)
+    start = end - timedelta(hours=1)
+    summary = live_hourly_summary(start, end)
+    if not (summary["bought"] or summary["settled"] or summary["unfilled"] or summary["errors"]):
+        return False
+    balance = None
+    if not config_problems():
+        try:
+            balance = usdc_balance()
+        except Exception as err:
+            logger.warning("Saldo untuk laporan per jam live gagal: %s", redact(err))
+    result = send_telegram_message(format_live_hourly_report(start, end, summary, balance),
+                                   chat_id=settings.TELEGRAM_AUTOTRADE_CHAT_ID)
+    if not result.get("success"):
+        logger.warning("Laporan per jam live tidak terkirim: %s", result.get("error"))
+    return bool(result.get("success"))
 
 
 # --- Kalender PnL live ----------------------------------------------------------------------

@@ -62,6 +62,7 @@ sudo chmod 600 .env && sudo docker compose -f docker-compose.prod.yml up -d --bu
 |---|---|
 | `/autobot` → kartu **Live trading** → **Pengaturan live** | pilih seri (BTC/ETH 1 jam, 15 menit, 5 menit), nominal, batas harian, stop rugi, maks terbuka, slippage maks, auto-claim — berlaku langsung |
 | `/live` | status, saldo USDC, pemakaian hari ini, PnL, auto-claim, order terbaru |
+| (otomatis, grup auto trade) | rekap per jam `💵 Live (uang asli)`: selesai (WR, PnL per seri), dibeli, tidak terisi / error, saldo; dilewati bila jam itu kosong |
 | `/livestop` · tombol **Jeda** | hentikan order live baru (paper tetap jalan) |
 | `/livestart` · tombol **Lanjutkan** | nyalakan lagi |
 | `/stopbot` | hentikan seluruh auto trader (paper & live) |
