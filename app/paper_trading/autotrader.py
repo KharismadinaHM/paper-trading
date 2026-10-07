@@ -299,7 +299,9 @@ def _reason_group(reason: str) -> str:
 
 def notify_rejection(decision: Dict[str, Any], reason: str, now: datetime) -> bool:
     """Kabari penolakan sekali per jenis alasan per hari (mis. saldo paper tidak cukup, batas harian)."""
-    key = f"rej:{_local_day(now)}:{_reason_group(reason)}"
+    import hashlib
+    raw = f"{_local_day(now)}:{_reason_group(reason)}"
+    key = f"rej:{hashlib.sha1(raw.encode()).hexdigest()[:24]}"  # kolom key autotrade_state maks 50 karakter
     if _get_state(key):
         return False
     _set_state(key, "1", now)
@@ -576,20 +578,23 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
         return None
     best = max(sides, key=lambda x: x["edge"])
     minute = (now - ctx["start"]).total_seconds() / 60
+    # Aturan sinyal (sama untuk paper & live); paper juga butuh strategi aktif & belum trade di market ini
+    if best["price"] < cfg("BTC_MIN_PRICE"):
+        rule_reason = "harga di bawah minimum (underdog)"
+    elif best["price"] > cfg("MAX_PRICE"):
+        rule_reason = "harga di atas maksimum"
+    elif best["spread"] is not None and best["spread"] > cfg("MAX_SPREAD"):
+        rule_reason = "spread terlalu lebar"
+    elif best["edge"] < cfg("BTC_MIN_EDGE"):
+        rule_reason = "edge di bawah minimum"
+    else:
+        rule_reason = None
     if shadow:
         reason = "strategi nonaktif (shadow)"
     elif already_decided(key):
         reason = "sudah trade di market ini"
-    elif best["price"] < cfg("BTC_MIN_PRICE"):
-        reason = "harga di bawah minimum (underdog)"
-    elif best["price"] > cfg("MAX_PRICE"):
-        reason = "harga di atas maksimum"
-    elif best["spread"] is not None and best["spread"] > cfg("MAX_SPREAD"):
-        reason = "spread terlalu lebar"
-    elif best["edge"] < cfg("BTC_MIN_EDGE"):
-        reason = "edge di bawah minimum"
     else:
-        reason = None
+        reason = rule_reason
     features = {"minute": round(minute, 2), "minutes_left": round(model["minutes_left"], 2),
                 "change_pct": round(model["change_pct"], 4), "sigma_1m": model.get("sigma"),
                 "btc": model["price"], "asset": BTC_SERIES[series]["asset"],
@@ -605,14 +610,16 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
         "features": features,
     }
     log_signal(decision, f"{key}|{bucket}", reason, now)
+    if rule_reason is None:
+        # Uang asli: mengikuti pilihan seri live sendiri (bukan status strategi paper), sekali per market
+        try:
+            from app.paper_trading.live_trader import live_execute
+            live_execute({**decision, "token": best["token"], "book_price": best.get("book_price", best["price"])}, now)
+        except Exception as err:
+            from app.paper_trading.live_trader import redact
+            logger.error("Eksekusi live gagal: %s", redact(err))
     if reason is not None:
         return None
-    try:  # uang asli (bila LIVE_TRADING aktif & seri ini di LIVE_STRATEGIES) — terpisah dari paper
-        from app.paper_trading.live_trader import live_execute
-        live_execute({**decision, "token": best["token"], "book_price": best.get("book_price", best["price"])}, now)
-    except Exception as err:
-        from app.paper_trading.live_trader import redact
-        logger.error("Eksekusi live gagal: %s", redact(err))
     execute(decision, now)
     return decision
 

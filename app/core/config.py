@@ -192,6 +192,13 @@ class Settings(BaseSettings):
     LIVE_MAX_OPEN_USD: float = 5.0              # total posisi live yang belum resolve
     LIVE_MAX_SLIPPAGE: float = 0.02             # batas harga = ask saat sinyal + ini (dan edge tetap ≥ minimum)
     LIVE_DRY_RUN: bool = False                  # susun & catat order tanpa mengirim
+    # Auto-claim kemenangan (redeem posisi yang sudah resolve) lewat Relayer Polymarket, tanpa gas.
+    # Butuh kredensial Builder API (Polymarket → Settings → Builder). Akun EOA (tipe 0) tidak didukung.
+    LIVE_AUTO_CLAIM: bool = True
+    POLY_BUILDER_API_KEY: Optional[str] = None
+    POLY_BUILDER_SECRET: Optional[str] = None
+    POLY_BUILDER_PASSPHRASE: Optional[str] = None
+    POLY_RELAYER_URL: str = "https://relayer-v2.polymarket.com"
     POLY_PRIVATE_KEY: Optional[str] = None      # private key wallet KHUSUS bot (bukan wallet utama)
     POLY_FUNDER_ADDRESS: Optional[str] = None   # alamat proxy/funder Polymarket (akun email/Magic & browser wallet)
     POLY_SIGNATURE_TYPE: int = 1                # 0 = EOA/MetaMask langsung, 1 = email/Magic, 2 = browser wallet proxy

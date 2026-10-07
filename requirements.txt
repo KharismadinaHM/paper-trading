@@ -27,3 +27,5 @@ requests==2.34.2
 
 # Trading uang asli (dipakai hanya bila LIVE_TRADING=true): SDK resmi Polymarket CLOB
 py-clob-client==0.34.6
+# Auto-claim (redeem) kemenangan lewat Relayer Polymarket, tanpa gas
+py-builder-relayer-client==0.0.2

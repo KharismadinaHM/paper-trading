@@ -36,10 +36,100 @@ CHECK_INTERVAL = timedelta(minutes=10)
 _client_cache: Dict[str, Any] = {}
 
 
+# --- Pengaturan yang bisa diubah dari dashboard ---------------------------------------------
+#
+# Default dari .env (LIVE_*); override disimpan di autotrade_state["live_config"] dan langsung berlaku.
+# LIVE_TRADING, kunci & batas keras per order (LIVE_MAX_ORDER_USD, $100 di kode) hanya dari .env.
+LIVE_SERIES = ("btc", "btc15", "btc5", "eth", "eth15")
+LIVE_EDITABLE: Dict[str, Tuple[str, float, float, str]] = {
+    "STRATEGIES": ("strategies", 0, 0, "Seri yang dieksekusi live"),
+    "ORDER_USD": ("float", 1, ABSOLUTE_MAX_ORDER_USD, "Nominal per order ($, min 1)"),
+    "MAX_DAILY_USD": ("float", 1, 100000, "Maks belanja live per hari ($)"),
+    "MAX_DAILY_LOSS": ("float", 1, 100000, "Stop hari itu bila rugi live ≥ ($)"),
+    "MAX_OPEN_USD": ("float", 1, 100000, "Maks posisi live belum resolve ($)"),
+    "MAX_SLIPPAGE": ("float", 0, 0.10, "Slippage maks di atas ask (0.02 = 2¢)"),
+    "AUTO_CLAIM": ("bool", 0, 1, "Auto-claim kemenangan"),
+}
+
+
+def _overrides() -> Dict[str, Any]:
+    import json
+    from app.paper_trading.autotrader import _get_state
+    try:
+        return json.loads(_get_state("live_config") or "{}") or {}
+    except ValueError:
+        return {}
+
+
+def lcfg(name: str) -> Any:
+    """Nilai pengaturan live: override dashboard bila ada, selain itu LIVE_<name> dari .env."""
+    overrides = _overrides()
+    return overrides[name] if name in overrides else getattr(settings, f"LIVE_{name}")
+
+
+def order_cap() -> float:
+    return min(float(settings.LIVE_MAX_ORDER_USD), ABSOLUTE_MAX_ORDER_USD)
+
+
+def _validate(name: str, value: Any) -> Any:
+    kind, lo, hi, label = LIVE_EDITABLE[name]
+    if kind == "bool":
+        return value if isinstance(value, bool) else str(value).strip().lower() in ("1", "true", "ya", "yes", "on")
+    if kind == "strategies":
+        items = value if isinstance(value, list) else str(value).split(",")
+        items = [x.strip().lower() for x in items if str(x).strip()]
+        unknown = [x for x in items if x not in LIVE_SERIES]
+        if unknown:
+            raise ValueError(f"Seri tidak dikenal: {', '.join(unknown)}")
+        return ",".join(items)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label}: harus berupa angka")
+    if math.isnan(number) or not lo <= number <= hi:
+        raise ValueError(f"{label}: harus antara {lo:g} dan {hi:g}")
+    if name == "ORDER_USD" and number > order_cap():
+        raise ValueError(f"{label}: maksimal ${order_cap():g} (LIVE_MAX_ORDER_USD di .env)")
+    return number
+
+
+def set_live_config(updates: Dict[str, Any]) -> Dict[str, Any]:
+    """Validasi lalu simpan override. Nilai None / kosong menghapus override (kembali ke .env)."""
+    import json
+    from app.paper_trading.autotrader import _set_state
+    unknown = [k for k in updates if k not in LIVE_EDITABLE]
+    if unknown:
+        raise ValueError(f"Pengaturan tidak dikenal: {', '.join(unknown)}")
+    values = dict(_overrides())
+    for name, value in updates.items():
+        if value is None or value == "":
+            values.pop(name, None)
+        else:
+            values[name] = _validate(name, value)
+    _set_state("live_config", json.dumps(values))
+    return get_live_config()
+
+
+def reset_live_config() -> Dict[str, Any]:
+    from app.paper_trading.autotrader import _set_state
+    _set_state("live_config", "{}")
+    return get_live_config()
+
+
+def get_live_config() -> Dict[str, Dict[str, Any]]:
+    overrides = _overrides()
+    out = {}
+    for name, (kind, lo, hi, label) in LIVE_EDITABLE.items():
+        out[name] = {"value": lcfg(name), "default": getattr(settings, f"LIVE_{name}"), "overridden": name in overrides,
+                     "type": kind, "min": lo, "max": order_cap() if name == "ORDER_USD" else hi, "label": label}
+    out["STRATEGIES"]["options"] = list(LIVE_SERIES)
+    return out
+
+
 # --- Status & saklar ------------------------------------------------------------------------
 
 def live_strategies() -> List[str]:
-    return [s.strip().lower() for s in str(settings.LIVE_STRATEGIES or "").split(",") if s.strip()]
+    return [s.strip().lower() for s in str(lcfg("STRATEGIES") or "").split(",") if s.strip()]
 
 
 def switch_on() -> bool:
@@ -61,11 +151,11 @@ def config_problems() -> List[str]:
         problems.append("POLY_PRIVATE_KEY belum diisi")
     if settings.POLY_SIGNATURE_TYPE in (1, 2) and not settings.POLY_FUNDER_ADDRESS:
         problems.append("POLY_FUNDER_ADDRESS wajib untuk akun email/Magic & browser wallet")
-    limit = min(settings.LIVE_MAX_ORDER_USD, ABSOLUTE_MAX_ORDER_USD)
-    if settings.LIVE_ORDER_USD > limit:
-        problems.append(f"LIVE_ORDER_USD melebihi batas per order (${limit:g})")
-    if settings.LIVE_ORDER_USD < 1:
-        problems.append("LIVE_ORDER_USD minimal $1 (batas order Polymarket)")
+    order_usd = float(lcfg("ORDER_USD"))
+    if order_usd > order_cap():
+        problems.append(f"nominal per order melebihi batas (${order_cap():g})")
+    if order_usd < 1:
+        problems.append("nominal per order minimal $1 (batas order Polymarket)")
     return problems
 
 
@@ -130,7 +220,7 @@ def max_price_for(prob: float, book_price: float, fee_rate: float) -> Optional[f
     """
     from app.paper_trading.autotrader import cfg, taker_fee
 
-    price = min(math.floor(round((book_price + settings.LIVE_MAX_SLIPPAGE) * 100, 6)) / 100, 0.99)
+    price = min(math.floor(round((book_price + float(lcfg("MAX_SLIPPAGE"))) * 100, 6)) / 100, 0.99)
     while price >= TICK and prob - (price + taker_fee(price, fee_rate)) < cfg("BTC_MIN_EDGE") - 1e-9:
         price = round(price - TICK, 2)
     if price < max(TICK, cfg("BTC_MIN_PRICE")) or price > cfg("MAX_PRICE"):
@@ -157,12 +247,12 @@ def live_today(now: datetime) -> Dict[str, float]:
 
 def risk_check(usd: float, now: datetime) -> Tuple[bool, Optional[str]]:
     t = live_today(now)
-    if t["realized_pnl"] <= -settings.LIVE_MAX_DAILY_LOSS:
+    if t["realized_pnl"] <= -float(lcfg("MAX_DAILY_LOSS")):
         return False, f"stop harian live: rugi ${-t['realized_pnl']:.2f}"
-    if t["spent"] + usd > settings.LIVE_MAX_DAILY_USD + 1e-9:
-        return False, f"batas belanja live harian ${settings.LIVE_MAX_DAILY_USD:g} tercapai"
-    if t["open_usd"] + usd > settings.LIVE_MAX_OPEN_USD + 1e-9:
-        return False, f"batas posisi live terbuka ${settings.LIVE_MAX_OPEN_USD:g} tercapai"
+    if t["spent"] + usd > float(lcfg("MAX_DAILY_USD")) + 1e-9:
+        return False, f"batas belanja live harian ${float(lcfg("MAX_DAILY_USD")):g} tercapai"
+    if t["open_usd"] + usd > float(lcfg("MAX_OPEN_USD")) + 1e-9:
+        return False, f"batas posisi live terbuka ${float(lcfg("MAX_OPEN_USD")):g} tercapai"
     return True, None
 
 
@@ -175,7 +265,7 @@ def _record(decision: Dict[str, Any], status: str, now: datetime, max_price: flo
                         market_id=decision["market_id"], token_id=str(decision["token"]),
                         outcome=str(decision.get("outcome") or decision["side"])[:10],
                         title=str(decision.get("title") or "")[:512],
-                        usd=Decimal(str(round(settings.LIVE_ORDER_USD, 2))), max_price=Decimal(str(max_price)),
+                        usd=Decimal(str(round(float(lcfg("ORDER_USD")), 2))), max_price=Decimal(str(max_price)),
                         model_prob=Decimal(str(round(decision["prob"], 4))), status=status,
                         local_day=_local_day(now), created_at=now, **fields)
         db.add(row)
@@ -194,6 +284,12 @@ def _already(decision: Dict[str, Any]) -> bool:
         db.close()
 
 
+def _state_key(prefix: str, raw: str) -> str:
+    """Kunci autotrade_state ≤ 50 karakter (kolom key VARCHAR(50)): prefix + hash pendek."""
+    import hashlib
+    return f"{prefix}:{hashlib.sha1(raw.encode()).hexdigest()[:24]}"
+
+
 def notify(text: str) -> None:
     from app.paper_trading.autotrader import notify as autotrade_notify
     autotrade_notify(text)
@@ -202,7 +298,7 @@ def notify(text: str) -> None:
 def _notify_once(kind: str, text: str, now: datetime) -> None:
     """Pesan masalah (saldo kurang, batas tercapai, error) sekali per jenis per hari."""
     from app.paper_trading.autotrader import _get_state, _set_state
-    key = f"live_note:{_local_day(now)}:{kind}"[:100]
+    key = _state_key("live_note", f"{_local_day(now)}:{kind}")
     if _get_state(key):
         return
     _set_state(key, "1", now)
@@ -228,7 +324,7 @@ def live_execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Op
     now = now or datetime.now(timezone.utc)
     if decision.get("strategy") not in live_strategies() or not is_active() or _already(decision):
         return None
-    usd = float(settings.LIVE_ORDER_USD)
+    usd = float(lcfg("ORDER_USD"))
     header = strategy_header(decision["strategy"])
     ok, reason = risk_check(usd, now)
     if not ok:
@@ -276,7 +372,7 @@ def live_execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Op
            f"Beli {decision.get('outcome')} {taking:,.2f} sh @ {(avg or 0) * 100:.1f}¢ = ${making:.2f} "
            f"(batas {max_price * 100:.0f}¢)\n"
            f"Model {decision['prob'] * 100:.0f}% · {decision.get('detail') or ''}\n"
-           f"Live hari ini: {t['orders']} order · ${t['spent']:.2f}/{settings.LIVE_MAX_DAILY_USD:g} · "
+           f"Live hari ini: {t['orders']} order · ${t['spent']:.2f}/{float(lcfg("MAX_DAILY_USD")):g} · "
            f"PnL terealisasi {t['realized_pnl']:+.2f}")
     return row
 
@@ -335,10 +431,11 @@ def live_summary(now: Optional[datetime] = None, limit: int = 20) -> Dict[str, A
     return {
         "enabled": settings.LIVE_TRADING, "switch_on": switch_on(), "active": is_active(),
         "problems": config_problems(), "dry_run": settings.LIVE_DRY_RUN, "strategies": live_strategies(),
-        "limits": {"order_usd": settings.LIVE_ORDER_USD, "max_daily_usd": settings.LIVE_MAX_DAILY_USD,
-                   "max_daily_loss": settings.LIVE_MAX_DAILY_LOSS, "max_open_usd": settings.LIVE_MAX_OPEN_USD,
-                   "max_slippage": settings.LIVE_MAX_SLIPPAGE},
-        "today": live_today(now), "filled": filled,
+        "limits": {"order_usd": float(lcfg("ORDER_USD")), "max_daily_usd": float(lcfg("MAX_DAILY_USD")),
+                   "max_daily_loss": float(lcfg("MAX_DAILY_LOSS")), "max_open_usd": float(lcfg("MAX_OPEN_USD")),
+                   "max_slippage": float(lcfg("MAX_SLIPPAGE"))},
+        "today": live_today(now), "filled": filled, "config": get_live_config(),
+        "claim": {"active": not claim_problems(), "problems": claim_problems()},
         "totals": {"decided": len(decided), "wins": wins, "win_rate": wins / len(decided) if decided else None,
                    "pnl": round(pnl, 2), "roi": pnl / cost if cost else None},
         "orders": [{"created_at": _aware(o.created_at).isoformat(), "strategy": o.strategy, "title": o.title,
@@ -346,7 +443,7 @@ def live_summary(now: Optional[datetime] = None, limit: int = 20) -> Dict[str, A
                     "avg_price": float(o.avg_price) if o.avg_price is not None else None,
                     "shares": float(o.shares) if o.shares is not None else None,
                     "result": o.result, "pnl": float(o.pnl) if o.pnl is not None else None,
-                    "error": o.error} for o in rows],
+                    "claimed": o.claimed_at is not None, "error": o.error} for o in rows],
     }
 
 
@@ -387,7 +484,9 @@ def format_live_status() -> str:
         price = f"@ {o['avg_price'] * 100:.1f}¢" if o["avg_price"] else f"batas {o['max_price'] * 100:.0f}¢ · {o['status']}"
         pnl = f" · {o['pnl']:+.2f}" if o["pnl"] is not None else ""
         lines.append(f"{res} {strategy_header(o['strategy'])} {md(o['outcome'])} {price}{pnl}")
-    lines.append("`/livestop` jeda · `/livestart` lanjut")
+    claim = s["claim"]
+    lines.append("🪙 Auto-claim: aktif" if claim["active"] else f"🪙 Auto-claim: tidak aktif ({md('; '.join(claim['problems']))})")
+    lines.append("`/livestop` jeda · `/livestart` lanjut · pengaturan: dashboard → Auto Bot")
     return "\n".join(lines)
 
 
@@ -405,3 +504,233 @@ def run_live_tracking() -> None:
         track_results()
     except Exception as err:
         logger.error("Pelacakan hasil live gagal: %s", redact(err))
+    try:
+        auto_claim()
+    except Exception as err:
+        logger.error("Auto-claim gagal: %s", redact(err))
+
+
+# --- Kalender PnL live ----------------------------------------------------------------------
+
+def _resolved_between(start: datetime, end: datetime, strategy: Optional[str]) -> List[LiveOrder]:
+    db = get_db_session()
+    try:
+        q = db.query(LiveOrder).filter(LiveOrder.status == "filled", LiveOrder.result.isnot(None),
+                                       LiveOrder.resolved_at >= start.astimezone(timezone.utc),
+                                       LiveOrder.resolved_at < end.astimezone(timezone.utc))
+        if strategy in ("btc_all", "eth_all"):
+            from app.paper_trading.autotrader import BTC_SERIES
+            asset = strategy.split("_")[0]
+            q = q.filter(LiveOrder.strategy.in_([n for n, i in BTC_SERIES.items() if i["asset"] == asset]))
+        elif strategy:
+            q = q.filter(LiveOrder.strategy == strategy)
+        return q.order_by(LiveOrder.resolved_at).all()
+    finally:
+        db.close()
+
+
+def _live_buckets(rows: List[LiveOrder], key) -> Dict[str, Dict[str, Any]]:
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    out: Dict[str, Dict[str, Any]] = {}
+    for o in rows:
+        k = key(_aware(o.resolved_at).astimezone(tz))
+        b = out.setdefault(k, {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0, "cost": 0.0})
+        pnl = float(o.pnl or 0)
+        b["pnl"] += pnl
+        b["trades"] += 1
+        b["wins"] += 1 if pnl > 0 else 0
+        b["losses"] += 1 if pnl < 0 else 0
+        b["cost"] += float(o.spent or 0)
+    for b in out.values():
+        b["pnl"], b["cost"] = round(b["pnl"], 2), round(b["cost"], 2)
+        b["roi"] = b["pnl"] / b["cost"] if b["cost"] else None
+    return out
+
+
+def _month_range(month: str) -> Tuple[datetime, datetime]:
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    year, mon = (int(x) for x in month.split("-"))
+    return datetime(year, mon, 1, tzinfo=tz), datetime(year + (mon == 12), mon % 12 + 1, 1, tzinfo=tz)
+
+
+def live_calendar(month: Optional[str] = None, strategy: Optional[str] = None,
+                  now: Optional[datetime] = None) -> Dict[str, Any]:
+    """PnL live terealisasi per hari (tanggal resolve, WIB) untuk satu bulan."""
+    from app.paper_trading.autotrader import _totals
+
+    now = now or datetime.now(timezone.utc)
+    local = now.astimezone(ZoneInfo(settings.NOTIFY_TIMEZONE))
+    month = month or f"{local.year:04d}-{local.month:02d}"
+    start, end = _month_range(month)
+    days = _live_buckets(_resolved_between(start, end, strategy), lambda d: d.date().isoformat())
+    return {"month": month, "strategy": strategy, "source": "live", "timezone": settings.NOTIFY_TIMEZONE_LABEL,
+            "days": days, "totals": _totals(days)}
+
+
+def live_calendar_year(year: Optional[int] = None, strategy: Optional[str] = None,
+                       now: Optional[datetime] = None) -> Dict[str, Any]:
+    from app.paper_trading.autotrader import _totals
+
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    year = year or (now or datetime.now(timezone.utc)).astimezone(tz).year
+    months = _live_buckets(_resolved_between(datetime(year, 1, 1, tzinfo=tz), datetime(year + 1, 1, 1, tzinfo=tz),
+                                             strategy), lambda d: f"{d.year:04d}-{d.month:02d}")
+    return {"year": year, "strategy": strategy, "source": "live", "timezone": settings.NOTIFY_TIMEZONE_LABEL,
+            "months": months, "totals": _totals(months)}
+
+
+def live_closed(day: Optional[str] = None, month: Optional[str] = None,
+                strategy: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Order live yang resolve pada satu tanggal / bulan (WIB), terbaru dulu — format sama dengan paper."""
+    tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
+    if day:
+        start = datetime.combine(datetime.fromisoformat(day).date(), datetime.min.time(), tzinfo=tz)
+        end = start + timedelta(days=1)
+    else:
+        start, end = _month_range(str(month))
+    out = []
+    for o in reversed(_resolved_between(start, end, strategy)):
+        out.append({"strategy": o.strategy, "market": o.title, "outcome": o.outcome,
+                    "entry_price": float(o.avg_price or o.max_price), "exit_price": 1.0 if o.result == "WIN" else 0.0,
+                    "size": float(o.spent or o.usd), "shares": float(o.shares or 0), "pnl": round(float(o.pnl or 0), 2),
+                    "result": {"WIN": "MENANG", "LOSS": "KALAH", "VOID": "BATAL"}.get(o.result, "-"),
+                    "opened_at": _aware(o.created_at).isoformat(), "closed_at": _aware(o.resolved_at).isoformat(),
+                    "prob": float(o.model_prob) if o.model_prob is not None else None, "edge": None,
+                    "detail": (f"💵 live · batas {float(o.max_price) * 100:.0f}¢"
+                               + (" · sudah di-claim" if o.claimed_at else ""))})
+    return out
+
+
+# --- Auto-claim (redeem) --------------------------------------------------------------------
+#
+# Posisi yang menang & sudah resolve ("redeemable") di wallet bot ditukar ke USDC dengan memanggil
+# ConditionalTokens.redeemPositions(collateral, 0x0, conditionId, [1, 2]) lewat Relayer Polymarket
+# (gasless; PROXY untuk akun email/Magic, SAFE untuk browser wallet). Market neg-risk dilewati (jarang
+# untuk BTC/ETH Up/Down) — klaim manual di Polymarket.
+
+REDEEM_SIGNATURE = "redeemPositions(address,bytes32,bytes32,uint256[])"
+CLAIM_RETRY = timedelta(minutes=30)
+CLAIM_BATCH = 10
+
+
+def claim_problems() -> List[str]:
+    problems = []
+    if not lcfg("AUTO_CLAIM"):
+        problems.append("auto-claim dimatikan")
+    if settings.POLY_SIGNATURE_TYPE not in (1, 2):
+        problems.append("auto-claim hanya untuk akun email/Magic (tipe 1) & browser wallet (tipe 2)")
+    if not (settings.POLY_BUILDER_API_KEY and settings.POLY_BUILDER_SECRET and settings.POLY_BUILDER_PASSPHRASE):
+        problems.append("kredensial Builder API (POLY_BUILDER_*) belum diisi")
+    if not settings.POLY_FUNDER_ADDRESS:
+        problems.append("POLY_FUNDER_ADDRESS belum diisi")
+    return problems
+
+
+def redeem_call_data(condition_id: str) -> Tuple[str, str]:
+    """(alamat ConditionalTokens, calldata redeemPositions) untuk satu market biner."""
+    from eth_abi import encode
+    from eth_utils import keccak, to_checksum_address
+    from py_clob_client.config import get_contract_config
+
+    contracts = get_contract_config(CHAIN_ID)
+    selector = keccak(text=REDEEM_SIGNATURE)[:4]
+    args = encode(["address", "bytes32", "bytes32", "uint256[]"],
+                  [to_checksum_address(contracts.collateral), b"\x00" * 32,
+                   bytes.fromhex(condition_id.removeprefix("0x")), [1, 2]])
+    return to_checksum_address(contracts.conditional_tokens), "0x" + (selector + args).hex()
+
+
+def redeemable_positions() -> Dict[str, Dict[str, Any]]:
+    """{conditionId: {title, value, shares}} posisi menang yang sudah bisa di-claim di wallet bot."""
+    from app.paper_trading.wallets import _get
+
+    rows = _get("/positions", user=settings.POLY_FUNDER_ADDRESS, redeemable="true", limit=500, sizeThreshold=0.01) or []
+    out: Dict[str, Dict[str, Any]] = {}
+    for p in rows:
+        cid = p.get("conditionId")
+        if not cid or not p.get("redeemable") or p.get("negativeRisk"):
+            continue
+        value = float(p.get("currentValue") or 0)
+        if value <= 0:
+            continue  # sisi kalah: tidak ada yang bisa ditukar
+        item = out.setdefault(cid, {"title": p.get("title"), "value": 0.0, "shares": 0.0})
+        item["value"] += value
+        item["shares"] += float(p.get("size") or 0)
+    return out
+
+
+def relay_client():
+    if "relay" in _client_cache:
+        return _client_cache["relay"]
+    from py_builder_relayer_client.client import RelayClient
+    from py_builder_relayer_client.models import RelayerTxType
+    from py_builder_signing_sdk.config import BuilderConfig
+    from py_builder_signing_sdk.sdk_types import BuilderApiKeyCreds
+
+    creds = BuilderApiKeyCreds(key=settings.POLY_BUILDER_API_KEY, secret=settings.POLY_BUILDER_SECRET,
+                               passphrase=settings.POLY_BUILDER_PASSPHRASE)
+    client = RelayClient(settings.POLY_RELAYER_URL, CHAIN_ID, private_key=settings.POLY_PRIVATE_KEY,
+                         builder_config=BuilderConfig(local_builder_creds=creds),
+                         relay_tx_type=RelayerTxType.PROXY if settings.POLY_SIGNATURE_TYPE == 1 else RelayerTxType.SAFE)
+    _client_cache["relay"] = client
+    return client
+
+
+def submit_redeem(condition_ids: List[str]) -> Dict[str, Optional[str]]:
+    """Kirim satu transaksi relayer berisi redeem untuk beberapa market. {transaction_id, transaction_hash}."""
+    from py_builder_relayer_client.models import Transaction
+
+    txs = []
+    for cid in condition_ids:
+        to, data = redeem_call_data(cid)
+        txs.append(Transaction(to=to, data=data, value="0"))
+    resp = relay_client().execute(txs, "redeem positions")
+    return {"transaction_id": getattr(resp, "transaction_id", None), "transaction_hash": getattr(resp, "transaction_hash", None)}
+
+
+def auto_claim(now: Optional[datetime] = None) -> List[str]:
+    """Claim semua posisi menang yang redeemable. Kembalikan conditionId yang dikirim."""
+    import json
+    from app.paper_trading.autotrader import _get_state, _set_state
+
+    now = now or datetime.now(timezone.utc)
+    if config_problems() or claim_problems():
+        return []
+    positions = redeemable_positions()
+    due = []
+    for cid in positions:
+        try:
+            last = json.loads(_get_state(_state_key("live_claim", cid)) or "{}")
+        except ValueError:
+            last = {}
+        at = datetime.fromisoformat(last["at"]) if last.get("at") else None
+        if at is None or now - at >= CLAIM_RETRY:  # belum pernah / transaksi sebelumnya belum tercermin
+            due.append(cid)
+    sent: List[str] = []
+    for i in range(0, len(due), CLAIM_BATCH):
+        batch = due[i:i + CLAIM_BATCH]
+        try:
+            result = submit_redeem(batch)
+        except Exception as err:
+            message = redact(err)[:300]
+            logger.error("Redeem gagal: %s", message)
+            _notify_once("claim_error", f"⚠️ AUTO CLAIM gagal — {message}\nKlaim manual di Polymarket → Portfolio → Claim.", now)
+            continue
+        tx = result.get("transaction_hash") or result.get("transaction_id")
+        for cid in batch:
+            _set_state(_state_key("live_claim", cid), json.dumps({"at": now.isoformat(), "tx": tx}), now)
+        db = get_db_session()
+        try:
+            for o in db.query(LiveOrder).filter(LiveOrder.market_id.in_(batch), LiveOrder.status == "filled"):
+                o.claim_tx, o.claimed_at = (str(tx)[:120] if tx else None), now
+            db.commit()
+        finally:
+            db.close()
+        total = sum(positions[c]["value"] for c in batch)
+        lines = [f"🪙 AUTO CLAIM · {len(batch)} market · ±${total:.2f} kembali ke saldo USDC"]
+        lines += [f"• {positions[c]['title']} (${positions[c]['value']:.2f})" for c in batch[:6]]
+        if result.get("transaction_hash"):
+            lines.append(f"https://polygonscan.com/tx/{result['transaction_hash']}")
+        notify("\n".join(lines))
+        sent += batch
+    return sent

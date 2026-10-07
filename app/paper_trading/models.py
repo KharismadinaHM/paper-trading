@@ -477,6 +477,8 @@ class LiveOrder(Base):
     pnl: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
     checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    claim_tx: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)      # hash/ID transaksi redeem
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("idx_live_orders_day", "local_day"),)
 

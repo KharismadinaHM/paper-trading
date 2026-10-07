@@ -83,6 +83,10 @@
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                 <h5 class="fw-bold text-white mb-0"><i class="bi bi-calendar3 me-2 text-warning"></i>Kalender PnL</h5>
                 <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Sumber data">
+                        <button class="btn btn-outline-info" id="calSrcPaper" onclick="setCalSource('paper')">Paper</button>
+                        <button class="btn btn-outline-warning" id="calSrcLive" onclick="setCalSource('live')">💵 Live</button>
+                    </div>
                     <div class="btn-group btn-group-sm" role="group" aria-label="Tampilan kalender">
                         <button class="btn btn-outline-secondary" id="calViewDay" onclick="setCalView('day')">Harian</button>
                         <button class="btn btn-outline-secondary" id="calViewMonth" onclick="setCalView('month')">Bulanan</button>
@@ -100,7 +104,8 @@
             <div class="small mb-3" id="calSummary"></div>
             <div id="calGrid"></div>
             <div id="calTrades" class="mt-4"></div>
-            <div class="small text-muted-poly mt-3">PnL terealisasi menurut waktu trade selesai (zona WIB). Klik tanggal / bulan untuk melihat riwayat trade-nya.</div>
+            <div class="small text-muted-poly mt-3">PnL terealisasi (zona WIB): <b>Paper</b> menurut waktu trade selesai, <b>💵 Live</b> = order uang asli menurut
+                waktu market resolve. Klik tanggal / bulan untuk melihat riwayat trade-nya.</div>
         </div>
 
         <!-- STATUS, HASIL, RIWAYAT, ATURAN & RISET -->
@@ -454,12 +459,13 @@
         const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
         const CAL_KEY = 'autobotCalendar';
         const nowJkt = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
-        let cal = { view: 'day', year: nowJkt.getFullYear(), month: nowJkt.getMonth() + 1, selected: null };
+        let cal = { view: 'day', source: 'paper', year: nowJkt.getFullYear(), month: nowJkt.getMonth() + 1, selected: null };
         try { Object.assign(cal, JSON.parse(localStorage.getItem(CAL_KEY) || '{}'), { selected: null }); } catch (e) { /* abaikan */ }
         const pad = n => String(n).padStart(2, '0');
         const money = v => (v > 0 ? '+' : v < 0 ? '−' : '') + '$' + Math.abs(v).toFixed(2);
-        function saveCal() { try { localStorage.setItem(CAL_KEY, JSON.stringify({ view: cal.view, year: cal.year, month: cal.month })); } catch (e) { /* abaikan */ } }
+        function saveCal() { try { localStorage.setItem(CAL_KEY, JSON.stringify({ view: cal.view, source: cal.source, year: cal.year, month: cal.month })); } catch (e) { /* abaikan */ } }
         function setCalView(view) { cal.view = view; cal.selected = null; saveCal(); loadCalendar(); }
+        function setCalSource(source) { cal.source = source; cal.selected = null; saveCal(); loadCalendar(); }
         function shiftCal(step) {
             if (cal.view === 'month') cal.year += step;
             else { cal.month += step; if (cal.month < 1) { cal.month = 12; cal.year--; } if (cal.month > 12) { cal.month = 1; cal.year++; } }
@@ -486,10 +492,13 @@
         async function loadCalendar() {
             document.getElementById('calViewDay').classList.toggle('active', cal.view === 'day');
             document.getElementById('calViewMonth').classList.toggle('active', cal.view === 'month');
+            document.getElementById('calSrcPaper').classList.toggle('active', cal.source !== 'live');
+            document.getElementById('calSrcLive').classList.toggle('active', cal.source === 'live');
             const strategy = document.getElementById('calStrategy').value;
             const grid = document.getElementById('calGrid');
             const params = new URLSearchParams(cal.view === 'month' ? { year: cal.year } : { month: `${cal.year}-${pad(cal.month)}` });
             if (strategy) params.set('strategy', strategy);
+            params.set('source', cal.source === 'live' ? 'live' : 'paper');
             document.getElementById('calLabel').textContent = cal.view === 'month' ? String(cal.year) : `${MONTH_NAMES[cal.month - 1]} ${cal.year}`;
             try {
                 const res = await fetch('/api/autotrade/calendar?' + params.toString());
@@ -560,6 +569,7 @@
             const isMonth = key.length === 7;
             const params = new URLSearchParams(isMonth ? { month: key } : { date: key });
             if (strategy) params.set('strategy', strategy);
+            params.set('source', cal.source === 'live' ? 'live' : 'paper');
             box.innerHTML = '<div class="small text-muted-poly">Memuat riwayat trade…</div>';
             try {
                 const res = await fetch('/api/autotrade/calendar/trades?' + params.toString());
@@ -647,7 +657,72 @@
                     <thead class="sticky-top"><tr class="text-muted-poly"><th>Waktu</th><th>Status</th><th>Strategi</th><th>Market</th>
                         <th class="text-end">Harga isi</th><th class="text-end">Batas</th><th class="text-end">Nominal</th><th class="text-end">PnL</th></tr></thead>
                     <tbody>${rows}</tbody></table></div>
-                <div class="mt-2 text-muted-poly">Kemenangan harus di-<b>claim</b> di Polymarket agar saldo USDC kembali untuk order berikutnya.</div>`;
+                <div class="mt-2">${s.claim && s.claim.active
+                    ? '🪙 <b class="text-success">Auto-claim aktif</b> — posisi menang di-claim otomatis tiap ±5 menit setelah market resolve.'
+                    : `🪙 Auto-claim tidak aktif <span class="text-muted-poly">(${escapeHtml(((s.claim || {}).problems || []).join('; '))})</span> — claim manual di Polymarket → Portfolio → Claim.`}</div>
+                ${buildLiveConfigForm(s.config || {})}`;
+        }
+        const LIVE_SERIES_LABEL = { btc: '🟠 BTC 1 jam', btc15: '🟠 BTC 15 menit', btc5: '🟠 BTC 5 menit', eth: '🔷 ETH 1 jam', eth15: '🔷 ETH 15 menit' };
+        function buildLiveConfigForm(config) {
+            const strat = config.STRATEGIES || {};
+            const active = String(strat.value || '').split(',');
+            const checks = (strat.options || []).map(opt => `
+                <div class="form-check form-check-inline small">
+                    <input class="form-check-input" type="checkbox" id="live_strat_${opt}" data-live-strategy="${escapeHtml(opt)}" ${active.includes(opt) ? 'checked' : ''}>
+                    <label class="form-check-label" for="live_strat_${opt}">${escapeHtml(LIVE_SERIES_LABEL[opt] || opt)}</label>
+                </div>`).join('');
+            const numeric = Object.entries(config).filter(([, c]) => c.type === 'float').map(([name, c]) => `
+                <div class="col-6 col-md-4">
+                    <label class="form-label small text-muted-poly mb-1" for="live_cfg_${name}">${escapeHtml(c.label)}${c.overridden ? ' <span class="text-warning">•</span>' : ''}</label>
+                    <input type="number" step="any" min="${safeNumber(c.min)}" max="${safeNumber(c.max)}" id="live_cfg_${name}" data-live-cfg="${name}"
+                           data-original="${safeNumber(c.value)}" value="${safeNumber(c.value)}"
+                           class="form-control form-control-sm bg-dark text-white border-secondary-subtle"
+                           title="Default .env: ${escapeHtml(String(c.default))} · rentang ${safeNumber(c.min)}–${safeNumber(c.max)}">
+                </div>`).join('');
+            const claim = config.AUTO_CLAIM || {};
+            return `<details class="mt-3" ${window._liveConfigOpen ? 'open' : ''} ontoggle="window._liveConfigOpen = this.open">
+                <summary class="fw-semibold text-white" style="cursor:pointer"><i class="bi bi-sliders me-1"></i>Pengaturan live</summary>
+                <div class="mt-2">
+                    <div class="small text-muted-poly mb-1">Seri yang dieksekusi dengan uang asli${strat.overridden ? ' <span class="text-warning">•</span>' : ''}</div>
+                    ${checks}
+                </div>
+                <div class="row g-2 mt-1">${numeric}</div>
+                <div class="form-check small mt-2">
+                    <input class="form-check-input" type="checkbox" id="live_cfg_AUTO_CLAIM" ${claim.value ? 'checked' : ''}>
+                    <label class="form-check-label" for="live_cfg_AUTO_CLAIM">${escapeHtml(claim.label || 'Auto-claim kemenangan')}</label>
+                </div>
+                <div class="d-flex gap-2 align-items-center mt-2 flex-wrap">
+                    <button class="btn btn-sm btn-warning py-1 px-3" onclick="saveLiveConfig()"><i class="bi bi-save me-1"></i>Simpan</button>
+                    <button class="btn btn-sm poly-btn-secondary py-1 px-3" onclick="resetLiveConfig()">Kembalikan ke default .env</button>
+                    <span class="small" id="liveConfigMsg"></span>
+                </div>
+                <div class="small text-muted-poly mt-1">Jendela masuk sama dengan paper (1 jam menit 30–57, 15 menit 7–14, 5 menit 2–4) dan aturan edge/harga yang sama.
+                    Nominal per order tidak bisa melebihi <code>LIVE_MAX_ORDER_USD</code> di .env. <span class="text-warning">•</span> = diubah dari dashboard. Berlaku langsung.</div>
+            </details>`;
+        }
+        async function saveLiveConfig() {
+            const updates = {};
+            document.querySelectorAll('[data-live-cfg]').forEach(el => {
+                if (el.value !== '' && Number(el.value) !== Number(el.dataset.original)) updates[el.dataset.liveCfg] = Number(el.value);
+            });
+            updates.STRATEGIES = [...document.querySelectorAll('[data-live-strategy]')].filter(el => el.checked).map(el => el.dataset.liveStrategy);
+            updates.AUTO_CLAIM = document.getElementById('live_cfg_AUTO_CLAIM').checked;
+            const msg = document.getElementById('liveConfigMsg');
+            if (!confirm('Simpan pengaturan trading UANG ASLI ini?')) return;
+            try {
+                const res = await fetch('/api/live/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                                                             body: JSON.stringify({ updates }) });
+                const data = await res.json();
+                if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Gagal menyimpan');
+                renderLive(data);
+                const m = document.getElementById('liveConfigMsg');
+                if (m) m.innerHTML = '<span class="text-success">Tersimpan.</span>';
+            } catch (err) { if (msg) msg.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`; }
+        }
+        async function resetLiveConfig() {
+            if (!confirm('Kembalikan semua pengaturan live ke nilai .env?')) return;
+            const res = await fetch('/api/live/config', { method: 'DELETE' });
+            if (res.ok) renderLive(await res.json());
         }
         async function fetchLive() {
             try {
@@ -661,7 +736,7 @@
 
         function refreshAll() { fetchMarkets(); fetchAutotrade(); loadCalendar(); fetchLive(); }
         refreshAll();
-        setInterval(fetchLive, 30000);
+        setInterval(() => { if (!window._liveConfigOpen) fetchLive(); }, 30000);  // jangan timpa form yang sedang diedit
         setInterval(fetchMarkets, 15000);
         // Status & hasil: tiap 60 detik, kecuali sedang mengubah aturan / membaca riset
         setInterval(() => { if (!window._autotradeConfigOpen && !window._autotradeResearchOpen) fetchAutotrade(); }, 60000);

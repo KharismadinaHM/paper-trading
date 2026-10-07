@@ -258,31 +258,70 @@ def _calendar_call(fn, **kwargs):
 
 
 @app.get("/api/autotrade/calendar", dependencies=[Depends(require_auth)])
-def autotrade_calendar_api(month: Optional[str] = None, year: Optional[int] = None, strategy: Optional[str] = None):
+def autotrade_calendar_api(month: Optional[str] = None, year: Optional[int] = None, strategy: Optional[str] = None,
+                           source: str = "paper"):
     """
-    Kalender PnL auto trader (zona WIB, menurut waktu trade selesai): `month=YYYY-MM` → per hari,
-    `year=YYYY` → per bulan. `strategy`: nama strategi, btc_all, eth_all, weather_all, atau kosong = semua.
+    Kalender PnL auto trader (zona WIB): `month=YYYY-MM` → per hari, `year=YYYY` → per bulan.
+    `source=paper` (waktu trade selesai) atau `live` (order uang asli, tanggal resolve).
+    `strategy`: nama strategi, btc_all, eth_all, weather_all, atau kosong = semua.
     """
     from app.paper_trading.autotrader import pnl_calendar, pnl_calendar_year
+    from app.paper_trading.live_trader import live_calendar, live_calendar_year
+    if source not in ("paper", "live"):
+        raise HTTPException(status_code=400, detail="source: paper atau live")
     if year is not None:
-        return _calendar_call(pnl_calendar_year, year=year, strategy=strategy or None)
+        fn = live_calendar_year if source == "live" else pnl_calendar_year
+        return _calendar_call(fn, year=year, strategy=strategy or None)
     if month is not None and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
         raise HTTPException(status_code=400, detail="Format bulan: YYYY-MM")
-    return _calendar_call(pnl_calendar, month=month, strategy=strategy or None)
+    fn = live_calendar if source == "live" else pnl_calendar
+    return _calendar_call(fn, month=month, strategy=strategy or None)
 
 
 @app.get("/api/autotrade/calendar/trades", dependencies=[Depends(require_auth)])
 def autotrade_calendar_trades_api(date: Optional[str] = None, month: Optional[str] = None,
-                                  strategy: Optional[str] = None):
-    """Trade auto yang selesai pada `date=YYYY-MM-DD` atau `month=YYYY-MM` (WIB), terbaru dulu, dengan detail."""
+                                  strategy: Optional[str] = None, source: str = "paper"):
+    """Trade auto (paper) / order live yang selesai pada `date=YYYY-MM-DD` atau `month=YYYY-MM` (WIB), terbaru dulu."""
     from app.paper_trading.autotrader import closed_trades
+    from app.paper_trading.live_trader import live_closed
+    if source not in ("paper", "live"):
+        raise HTTPException(status_code=400, detail="source: paper atau live")
     if not date and not month:
         raise HTTPException(status_code=400, detail="Isi date=YYYY-MM-DD atau month=YYYY-MM")
     if date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise HTTPException(status_code=400, detail="Format tanggal: YYYY-MM-DD")
     if month and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
         raise HTTPException(status_code=400, detail="Format bulan: YYYY-MM")
-    return {"trades": _calendar_call(closed_trades, day=date, month=month, strategy=strategy or None)}
+    fn = live_closed if source == "live" else closed_trades
+    return {"trades": _calendar_call(fn, day=date, month=month, strategy=strategy or None)}
+
+
+class LiveConfigRequest(BaseModel):
+    updates: dict
+
+
+@app.get("/api/live/config", dependencies=[Depends(require_auth)])
+def live_config_api():
+    from app.paper_trading.live_trader import get_live_config
+    return get_live_config()
+
+
+@app.put("/api/live/config", dependencies=[Depends(require_auth)])
+def live_config_update_api(req: LiveConfigRequest):
+    """Ubah pengaturan live (seri, nominal, batas, slippage, auto-claim). Nominal ≤ LIVE_MAX_ORDER_USD di .env."""
+    from app.paper_trading.live_trader import live_summary, set_live_config
+    try:
+        set_live_config(req.updates)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    return live_summary()
+
+
+@app.delete("/api/live/config", dependencies=[Depends(require_auth)])
+def live_config_reset_api():
+    from app.paper_trading.live_trader import live_summary, reset_live_config
+    reset_live_config()
+    return live_summary()
 
 
 @app.get("/api/live", dependencies=[Depends(require_auth)])

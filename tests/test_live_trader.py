@@ -194,3 +194,117 @@ def test_btc_tick_triggers_live_for_hourly(live, monkeypatch):
     monkeypatch.setattr(at, "_book_side", lambda token, usd: books[token])
     assert at.btc_tick(now) is not None
     assert live["orders"] == [("tu", 2.0, 0.64)]  # token Up, batas = ask buku 62¢ + 2¢
+
+
+def test_live_config_editable_with_hard_cap(live, monkeypatch):
+    monkeypatch.setattr(settings, "LIVE_MAX_ORDER_USD", 10.0)
+    try:
+        cfg = lt.set_live_config({"STRATEGIES": ["btc", "eth15", "btc5"], "ORDER_USD": 3, "MAX_SLIPPAGE": 0.01,
+                                  "AUTO_CLAIM": False})
+        assert cfg["STRATEGIES"]["value"] == "btc,eth15,btc5" and lt.live_strategies() == ["btc", "eth15", "btc5"]
+        assert lt.lcfg("ORDER_USD") == 3.0 and lt.lcfg("AUTO_CLAIM") is False and cfg["ORDER_USD"]["max"] == 10.0
+        with pytest.raises(ValueError, match="maksimal \\$10"):
+            lt.set_live_config({"ORDER_USD": 50})  # tidak bisa melebihi LIVE_MAX_ORDER_USD di .env
+        with pytest.raises(ValueError, match="tidak dikenal"):
+            lt.set_live_config({"STRATEGIES": "btc,doge"})
+        with pytest.raises(ValueError):
+            lt.set_live_config({"LIVE_TRADING": True})  # saklar utama hanya dari .env
+        assert lt.max_price_for(0.80, 0.62, 0.07) == 0.63  # slippage maks 1¢ dari dashboard
+        from fastapi.testclient import TestClient
+        from app.dashboard import app
+        client = TestClient(app)
+        assert client.put("/api/live/config", json={"updates": {"ORDER_USD": 99}}).status_code == 400
+        data = client.put("/api/live/config", json={"updates": {"MAX_DAILY_USD": 7}}).json()
+        assert data["limits"]["max_daily_usd"] == 7.0 and data["config"]["MAX_DAILY_USD"]["overridden"] is True
+        assert client.delete("/api/live/config").json()["config"]["MAX_DAILY_USD"]["overridden"] is False
+    finally:
+        lt.reset_live_config()
+
+
+def test_live_runs_for_selected_series_even_if_paper_strategy_off(live, monkeypatch):
+    from app.paper_trading import autotrader as at
+    lt.set_live_config({"STRATEGIES": ["eth15"]})
+    try:
+        start = NOW.replace(minute=(NOW.minute // 15) * 15, second=0)
+        now = start + timedelta(minutes=10)
+        monkeypatch.setattr(at, "_btc_market", lambda s, series="btc": {"condition_id": "0xe15", "title": "ETH 15m",
+                                                                         "up": "tu", "down": "td", "accepting": True, "slug": "s"})
+        monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
+        monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: {"p_up": 0.80, "price": 2400, "open": 2390,
+                                                                    "change_pct": 0.4, "minutes_left": 5})
+        books = {"tu": {"price": 0.63, "book_price": 0.62, "fee": 0.016, "spread": 0.01, "shares": 8},
+                 "td": {"price": 0.39, "book_price": 0.38, "fee": 0.017, "spread": 0.01, "shares": 12}}
+        monkeypatch.setattr(at, "_book_side", lambda token, usd: books[token])
+        assert at.btc_tick(now, series="eth15", shadow=True) is None  # paper eth15 nonaktif: tidak beli paper
+        assert live["orders"] == [("tu", 2.0, 0.64)]                  # tapi live eth15 tetap jalan
+        assert "🔷 ETH · 15 MENIT" in live["sent"][-1]
+    finally:
+        lt.reset_live_config()
+
+
+def test_redeem_call_data_encodes_conditional_tokens_call():
+    cid = "0x" + "ab" * 32
+    to, data = lt.redeem_call_data(cid)
+    assert to == "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"  # ConditionalTokens Polygon (config py-clob-client)
+    assert data.startswith("0x01b7037c")                         # redeemPositions(address,bytes32,bytes32,uint256[])
+    assert "ab" * 32 in data and data.endswith(("0" * 63 + "1") + ("0" * 63 + "2"))  # indexSets [1, 2]
+
+
+def test_state_keys_fit_column():
+    key = lt._state_key("live_claim", "0x" + "ab" * 32)
+    assert len(key) <= 50 and key.startswith("live_claim:")
+
+
+def test_auto_claim_submits_once_and_marks_orders(live, monkeypatch):
+    monkeypatch.setattr(settings, "POLY_BUILDER_API_KEY", "k")
+    monkeypatch.setattr(settings, "POLY_BUILDER_SECRET", "s")
+    monkeypatch.setattr(settings, "POLY_BUILDER_PASSPHRASE", "p")
+    lt.live_execute(decision(key="btc|0xcw"), NOW)
+    positions = {"0xcw": {"title": "Bitcoin Up or Down - won", "value": 3.17, "shares": 3.17},
+                 "0xother": {"title": "Manual win", "value": 1.0, "shares": 1.0}}
+    monkeypatch.setattr(lt, "redeemable_positions", lambda: positions)
+    calls = []
+    monkeypatch.setattr(lt, "submit_redeem", lambda cids: calls.append(list(cids)) or {"transaction_id": "id1",
+                                                                                         "transaction_hash": "0x" + "c" * 64})
+    assert sorted(lt.auto_claim(NOW)) == ["0xcw", "0xother"]
+    assert calls == [["0xcw", "0xother"]]
+    assert lt.auto_claim(NOW + timedelta(minutes=5)) == []      # jangan kirim ulang selagi menunggu
+    assert lt.auto_claim(NOW + timedelta(minutes=31)) != []     # masih redeemable setelah 30 menit: coba lagi
+    text = next(t for t in live["sent"] if t.startswith("🪙 AUTO CLAIM"))
+    assert "2 market · ±$4.17" in text and "polygonscan.com/tx/0x" in text
+    assert lt.live_summary()["orders"][0]["claimed"] is True
+
+
+def test_auto_claim_needs_builder_creds_and_proxy_account(live, monkeypatch):
+    monkeypatch.setattr(settings, "POLY_BUILDER_API_KEY", None)
+    assert any("Builder API" in p for p in lt.claim_problems()) and lt.auto_claim(NOW) == []
+    monkeypatch.setattr(settings, "POLY_BUILDER_API_KEY", "k")
+    monkeypatch.setattr(settings, "POLY_BUILDER_SECRET", "s")
+    monkeypatch.setattr(settings, "POLY_BUILDER_PASSPHRASE", "p")
+    monkeypatch.setattr(settings, "POLY_SIGNATURE_TYPE", 0)
+    assert any("tipe 1" in p for p in lt.claim_problems())
+
+
+def test_live_calendar_and_trades(live, monkeypatch):
+    lt.live_execute(decision(key="btc|0xk1"), NOW)
+    lt.live_execute(decision(key="eth|0xk2", strategy="eth", outcome="DOWN"), NOW)
+    monkeypatch.setattr("app.paper_trading.insider.market_info", lambda ids: {i: {"winner": "YES"} for i in ids})
+    resolved = NOW + timedelta(minutes=20)
+    lt.track_results(resolved)
+    from zoneinfo import ZoneInfo as _Z
+    local = resolved.astimezone(_Z(settings.NOTIFY_TIMEZONE))
+    cal = lt.live_calendar(f"{local.year:04d}-{local.month:02d}")
+    day = cal["days"][local.date().isoformat()]
+    assert day["trades"] == 2 and day["wins"] == 1 and day["pnl"] == round(2 / 0.63 - 2 - 2, 2)
+    assert lt.live_calendar(f"{local.year:04d}-{local.month:02d}", strategy="eth_all")["totals"]["trades"] == 1
+    assert lt.live_calendar_year(local.year)["totals"]["trades"] == 2
+    trades = lt.live_closed(day=local.date().isoformat())
+    assert {t["result"] for t in trades} == {"MENANG", "KALAH"} and trades[0]["detail"].startswith("💵 live")
+    from fastapi.testclient import TestClient
+    from app.dashboard import app
+    client = TestClient(app)
+    data = client.get("/api/autotrade/calendar", params={"month": f"{local.year:04d}-{local.month:02d}", "source": "live"}).json()
+    assert data["source"] == "live" and data["totals"]["trades"] == 2
+    assert len(client.get("/api/autotrade/calendar/trades", params={"date": local.date().isoformat(), "source": "live"}).json()["trades"]) == 2
+    assert client.get("/api/autotrade/calendar", params={"source": "moon"}).status_code == 400
+    assert 'id="calSrcLive"' in client.get("/autobot").text
