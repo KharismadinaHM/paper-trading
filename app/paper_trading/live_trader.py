@@ -220,14 +220,17 @@ def _local_day(now: datetime) -> str:
 
 def max_price_for(prob: float, book_price: float, fee_rate: float) -> Optional[float]:
     """
-    Harga tertinggi yang boleh dibayar: tidak lebih dari ask saat sinyal + LIVE_MAX_SLIPPAGE, dan edge
-    (peluang − harga − fee) tetap ≥ BTC_MIN_EDGE. Dibulatkan ke bawah ke tick 1¢. None bila tidak layak.
+    Harga tertinggi yang boleh dibayar: tidak lebih dari ask + LIVE_MAX_SLIPPAGE, dan edge
+    (peluang − harga − fee) tetap ≥ BTC_MIN_EDGE. Dibulatkan ke bawah ke tick 1¢. None bila tidak layak —
+    termasuk bila batas itu di bawah ask (VWAP) sekarang: order FOK pasti tidak terisi, jadi tidak dikirim.
     """
     from app.paper_trading.autotrader import cfg, taker_fee
 
     price = min(math.floor(round((book_price + float(lcfg("MAX_SLIPPAGE"))) * 100, 6)) / 100, 0.99)
     while price >= TICK and prob - (price + taker_fee(price, fee_rate)) < cfg("BTC_MIN_EDGE") - 1e-9:
         price = round(price - TICK, 2)
+    if price < book_price - 1e-9:
+        return None
     if price < max(TICK, cfg("BTC_MIN_PRICE")) or price > cfg("MAX_PRICE"):
         return None
     return price
@@ -263,10 +266,18 @@ def risk_check(usd: float, now: datetime) -> Tuple[bool, Optional[str]]:
 
 # --- Eksekusi -------------------------------------------------------------------------------
 
-def _record(decision: Dict[str, Any], status: str, now: datetime, max_price: float, **fields) -> LiveOrder:
+FOK_RETRIES = 3   # percobaan maksimal per market bila FOK tidak terisi (harga lari / book tipis)
+
+
+def _base_key(decision: Dict[str, Any]) -> str:
+    return f"live|{decision['key']}"
+
+
+def _record(decision: Dict[str, Any], status: str, now: datetime, max_price: float, key: Optional[str] = None,
+            **fields) -> LiveOrder:
     db = get_db_session()
     try:
-        row = LiveOrder(decision_key=f"live|{decision['key']}", strategy=decision["strategy"],
+        row = LiveOrder(decision_key=(key or _base_key(decision))[:255], strategy=decision["strategy"],
                         market_id=decision["market_id"], token_id=str(decision["token"]),
                         outcome=str(decision.get("outcome") or decision["side"])[:10],
                         title=str(decision.get("title") or "")[:512],
@@ -281,12 +292,42 @@ def _record(decision: Dict[str, Any], status: str, now: datetime, max_price: flo
         db.close()
 
 
-def _already(decision: Dict[str, Any]) -> bool:
+def _rejected_attempts(decision: Dict[str, Any]) -> int:
     db = get_db_session()
     try:
-        return db.query(LiveOrder.id).filter_by(decision_key=f"live|{decision['key']}").first() is not None
+        return db.query(LiveOrder).filter(LiveOrder.decision_key.like(_base_key(decision) + "|r%")).count()
     finally:
         db.close()
+
+
+def _already(decision: Dict[str, Any]) -> bool:
+    """Market ini sudah selesai untuk live: sudah terisi / error / dry run, atau FOK gagal FOK_RETRIES kali."""
+    db = get_db_session()
+    try:
+        if db.query(LiveOrder.id).filter_by(decision_key=_base_key(decision)).first() is not None:
+            return True
+    finally:
+        db.close()
+    return _rejected_attempts(decision) >= FOK_RETRIES
+
+
+def fresh_book_price(token: str, usd: float) -> Optional[float]:
+    """Harga VWAP ask untuk `usd` dari order book SEGAR (tanpa cache 60 detik), tepat sebelum order dikirim."""
+    import json as _json
+    from app.paper_trading.live_market_data import _http, _summarize_book, vwap_for_usd
+
+    try:
+        book = _summarize_book(_json.loads(_http(f"{settings.POLY_CLOB_HOST}/book?token_id={token}", timeout=5)))
+    except Exception as err:
+        logger.warning("Order book segar gagal diambil: %s", err)
+        return None
+    fill = vwap_for_usd(book.get("asks") or [], usd)
+    return fill["price"] if fill else None
+
+
+def _is_fok_kill(message: str) -> bool:
+    text = message.lower()
+    return "fully filled" in text or ("fok" in text and "kill" in text)
 
 
 def _state_key(prefix: str, raw: str) -> str:
@@ -336,10 +377,12 @@ def live_execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Op
         kind = "risk:" + re.sub(r"[\d$.,]+", "#", reason)
         _notify_once(kind, f"⏸ LIVE dilewati · {header}\nAlasan: {reason}\n(Pesan jenis ini sekali per hari.)", now)
         return None
-    max_price = max_price_for(decision["prob"], float(decision.get("book_price") or decision["price"]),
+    # Batas harga dari order book segar; bila gagal diambil, pakai harga saat sinyal
+    book_price = fresh_book_price(decision["token"], usd) if not settings.LIVE_DRY_RUN else None
+    max_price = max_price_for(decision["prob"], float(book_price or decision.get("book_price") or decision["price"]),
                               fetch_fee_rate(decision["token"]))
     if max_price is None:
-        return None
+        return None  # harga sudah lari: edge tidak cukup lagi
     if settings.LIVE_DRY_RUN:
         row = _record(decision, "dry_run", now, max_price)
         notify(f"🧪 LIVE DRY RUN · {header}\n{decision.get('title')}\n"
@@ -356,10 +399,16 @@ def live_execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Op
         _notify_once("balance", f"⚠️ LIVE: saldo USDC ${balance:.2f} kurang dari ${usd:.2f} per order.\n"
                      "Deposit ke wallet bot atau claim kemenangan di Polymarket.", now)
         return None
+    retry_key = f"{_base_key(decision)}|r{_rejected_attempts(decision) + 1}"
     try:
         resp = place_fok_buy(decision["token"], usd, max_price, balance)
     except Exception as err:
         message = redact(err)[:500]
+        if _is_fok_kill(message):
+            # Bukan error: tidak ada yang terisi di harga ≤ batas, tidak ada uang keluar. Dicoba lagi tick berikutnya.
+            logger.info("FOK tidak terisi (%s, batas %.2f): %s", decision["key"], max_price, message[:120])
+            return _record(decision, "rejected", now, max_price, key=retry_key,
+                           error=f"tidak terisi di ≤ {max_price * 100:.0f}¢ (FOK dibatalkan, tidak ada dana keluar)")
         logger.error("Order live gagal: %s", message)
         row = _record(decision, "error", now, max_price, error=message)
         _notify_once("order_error", f"❌ LIVE ORDER GAGAL · {header}\n{message[:300]}", now)
@@ -367,7 +416,7 @@ def live_execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Op
     filled, making, taking = _parse_fill(resp)
     if not filled:
         error = redact(resp.get("errorMsg") or resp.get("error") or resp.get("status") or "tidak terisi")[:500]
-        return _record(decision, "rejected", now, max_price, order_id=resp.get("orderID"), error=error)
+        return _record(decision, "rejected", now, max_price, key=retry_key, order_id=resp.get("orderID"), error=error)
     avg = making / taking if taking else None
     row = _record(decision, "filled", now, max_price, order_id=resp.get("orderID"),
                   shares=Decimal(str(round(taking, 6))), spent=Decimal(str(round(making, 6))),

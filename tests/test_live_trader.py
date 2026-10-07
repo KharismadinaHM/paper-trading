@@ -45,6 +45,8 @@ def live(monkeypatch):
                                  "makingAmount": str(usd), "takingAmount": str(round(usd / 0.63, 4))}
 
     monkeypatch.setattr(lt, "place_fok_buy", fake_buy)
+    state["fresh"] = None  # order book segar: None = pakai harga saat sinyal
+    monkeypatch.setattr(lt, "fresh_book_price", lambda token, usd: state["fresh"])
     monkeypatch.setattr(lt, "usdc_balance", lambda: state["balance"])
     db = get_db_session()
     db.query(LiveOrder).delete()
@@ -310,3 +312,38 @@ def test_live_calendar_and_trades(live, monkeypatch):
     assert len(client.get("/api/autotrade/calendar/trades", params={"date": local.date().isoformat(), "source": "live"}).json()["trades"]) == 2
     assert client.get("/api/autotrade/calendar", params={"source": "moon"}).status_code == 400
     assert 'id="calSrcLive"' in client.get("/autobot").text
+
+
+def test_fok_kill_is_not_an_error_and_retries_three_times(live, monkeypatch):
+    def killed(token, usd, max_price, balance=None):
+        live["orders"].append((token, usd, max_price))
+        raise RuntimeError("PolyApiException[status_code=400, error_message={'error': \"order couldn't be fully "
+                           "filled. FOK orders are fully filled or killed.\", 'orderID': '0xabc'}]")
+    monkeypatch.setattr(lt, "place_fok_buy", killed)
+    sent_before = len(live["sent"])
+    rows = [lt.live_execute(decision(key="btc|0xfok"), NOW) for _ in range(4)]
+    assert [r.status if r else None for r in rows] == ["rejected", "rejected", "rejected", None]  # maks 3 percobaan
+    assert len(live["orders"]) == 3
+    assert "tidak ada dana keluar" in rows[0].error
+    assert len(live["sent"]) == sent_before  # tanpa alarm ❌
+    # percobaan berikutnya yang terisi tetap dicatat dengan kunci utama
+    monkeypatch.setattr(lt, "FOK_RETRIES", 5)
+    monkeypatch.setattr(lt, "place_fok_buy", lambda t, u, m, b=None: {"success": True, "status": "matched",
+                                                                       "makingAmount": "1", "takingAmount": "1.6"})
+    assert lt.live_execute(decision(key="btc|0xfok"), NOW).status == "filled"
+    assert lt.live_execute(decision(key="btc|0xfok"), NOW) is None
+
+
+def test_limit_uses_fresh_order_book(live):
+    live["fresh"] = 0.70  # harga sudah naik dari 62¢ saat sinyal
+    row = lt.live_execute(decision(key="btc|0xfresh", prob=0.80), NOW)
+    # 70¢ + 2¢ = 72¢; edge pada 72¢ = 80 − 72 − 1.4 = 6.6¢ ≥ 5¢ → batas 72¢
+    assert row.status == "filled" and live["orders"][-1][2] == 0.72
+    live["fresh"] = 0.79  # harga lari: batas yang masih ber-edge (73¢) di bawah ask 79¢ → pasti tak terisi, tidak dikirim
+    assert lt.live_execute(decision(key="btc|0xgone", prob=0.80), NOW) is None
+    assert len(live["orders"]) == 1
+
+
+def test_limit_below_current_ask_is_not_sent():
+    # peluang 70%, ask 68¢: harga yang edge-nya ≥ 5¢ (≤ 63¢) ada di bawah ask → tidak layak
+    assert lt.max_price_for(0.70, 0.68, 0.07) is None
