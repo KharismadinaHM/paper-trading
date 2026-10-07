@@ -347,3 +347,31 @@ def test_limit_uses_fresh_order_book(live):
 def test_limit_below_current_ask_is_not_sent():
     # peluang 70%, ask 68¢: harga yang edge-nya ≥ 5¢ (≤ 63¢) ada di bawah ask → tidak layak
     assert lt.max_price_for(0.70, 0.68, 0.07) is None
+
+
+def test_ended_markets_do_not_block_open_exposure(live, monkeypatch):
+    monkeypatch.setattr(settings, "LIVE_MAX_OPEN_USD", 2.0)
+    monkeypatch.setattr(settings, "LIVE_STRATEGIES", "btc,btc5")
+    start = NOW.replace(minute=(NOW.minute // 5) * 5, second=0)
+    assert lt.live_execute(decision(key="btc5|0xa1", strategy="btc5"), start + timedelta(minutes=2)).status == "filled"
+    # market 5 menit pertama masih berjalan → slot $2 penuh
+    assert lt.live_execute(decision(key="btc5|0xa2", strategy="btc5"), start + timedelta(minutes=3)) is None
+    # setelah market pertama selesai (+ 2 menit jeda), slot terbuka lagi walau hasilnya belum tercatat
+    later = start + timedelta(minutes=8)
+    assert lt.live_today(later)["open_usd"] == 0 and lt.live_today(later)["awaiting_result"] == 1
+    assert lt.live_execute(decision(key="btc5|0xa3", strategy="btc5"), later).status == "filled"
+
+
+def test_favourite_limit_is_capped_not_dropped(monkeypatch):
+    monkeypatch.setattr(settings, "LIVE_MAX_SLIPPAGE", 0.02)
+    # ask 89¢ + 2¢ = 91¢ > harga maks 90¢ → dibatasi 90¢ (dulu: dibatalkan)
+    assert lt.max_price_for(0.99, 0.89, 0.07) == 0.90
+    # ask sudah di atas harga maks → tidak bisa dibeli
+    assert lt.max_price_for(0.99, 0.92, 0.07) is None
+
+
+def test_live_min_price_skips_cheap_underdogs(monkeypatch):
+    monkeypatch.setattr(settings, "LIVE_MIN_PRICE", 0.30)
+    assert lt.max_price_for(0.40, 0.17, 0.07) is None          # 17¢ < 30¢: dilewati di live
+    monkeypatch.setattr(settings, "LIVE_MIN_PRICE", 0.10)
+    assert lt.max_price_for(0.40, 0.17, 0.07) == 0.19          # bila diturunkan dari dashboard

@@ -649,7 +649,8 @@
             document.getElementById('liveContainer').innerHTML = `${off}${problems}
                 <div class="mb-2">Strategi: <b class="text-white">${escapeHtml((s.strategies || []).join(', '))}</b> ·
                     $${l.order_usd}/order · maks $${l.max_daily_usd}/hari · stop rugi $${l.max_daily_loss} · maks terbuka $${l.max_open_usd} ·
-                    slippage maks ${(l.max_slippage * 100).toFixed(0)}¢</div>
+                    slippage maks ${(l.max_slippage * 100).toFixed(0)}¢ · harga min ${(l.min_price * 100).toFixed(0)}¢
+                    ${t.awaiting_result ? ` · <span class="text-muted-poly">${t.awaiting_result} market selesai menunggu hasil</span>` : ''}</div>
                 <div class="mb-2">Hari ini: <b class="text-white">${t.orders}</b> order · $${t.spent.toFixed(2)} ·
                     PnL terealisasi <b class="${pnlClass(t.realized_pnl)}">${t.realized_pnl >= 0 ? '+' : ''}${t.realized_pnl.toFixed(2)}</b> · terbuka $${t.open_usd.toFixed(2)}
                     ${tot.decided ? ` · Total ${tot.wins}/${tot.decided} menang · PnL <b class="${pnlClass(tot.pnl)}">${tot.pnl >= 0 ? '+' : ''}${tot.pnl.toFixed(2)}</b>` : ''}</div>

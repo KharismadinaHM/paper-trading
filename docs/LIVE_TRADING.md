@@ -83,7 +83,21 @@ Syarat:
 Bila auto-claim tidak aktif / gagal, claim manual: Polymarket → Portfolio → **Claim**. Tanpa claim, saldo USDC
 habis dan bot berhenti dengan pesan "saldo USDC kurang".
 
-## 6. Mengevaluasi
+## 6. Kalibrasi 7 Okt 2026 (live −$2.91 vs paper +$45)
+
+Perbandingan market yang sama (46 market): live terisi rata-rata **1.5¢ lebih murah** dari harga paper dan
+hasilnya sama di 44/46 — eksekusi bukan masalahnya; di market itu paper juga rugi. Profit paper datang dari
+market yang **tidak diambil live** (22 tidak dicoba: +$25 paper; 12 gagal terisi: +$9), mayoritas favorit
+50–90¢. Penyebab & perbaikan:
+
+| Penyebab | Perbaikan |
+|---|---|
+| Slot `maks posisi terbuka` ($5) tertahan oleh market yang sudah selesai karena hasil baru tercatat 10–15 menit kemudian | market yang sudah lewat waktunya tidak lagi dihitung terbuka; hasil dicek tiap 1–2 menit |
+| ask + slippage > 90¢ membatalkan order favorit | batas dipotong di harga maks (90¢), tidak dibatalkan |
+| Harga minimum crypto diturunkan ke 10¢ → 42 beli < 30¢, menang 7 | `LIVE_MIN_PRICE` khusus live (default 30¢, bisa diubah di dashboard), terpisah dari paper |
+| Penyesuaian fee SDK menghasilkan nominal > 2 desimal → order ditolak | nominal dikirim apa adanya (saldo sudah dicek sebelumnya) |
+
+## 7. Mengevaluasi
 
 - **Kalender PnL** di `/autobot`: tombol **💵 Live** menampilkan PnL nyata per hari/bulan (tanggal resolve);
   klik tanggal untuk riwayat order live.

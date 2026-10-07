@@ -32,7 +32,7 @@ logger = get_logger("live_trader")
 ABSOLUTE_MAX_ORDER_USD = 100.0    # batas di kode, tidak bisa dinaikkan lewat .env
 CHAIN_ID = 137                    # Polygon
 TICK = 0.01
-CHECK_INTERVAL = timedelta(minutes=10)
+CHECK_INTERVAL = timedelta(minutes=2)   # cek ulang hasil resolve per order (market 5/15 menit cepat selesai)
 _client_cache: Dict[str, Any] = {}
 
 
@@ -48,6 +48,7 @@ LIVE_EDITABLE: Dict[str, Tuple[str, float, float, str]] = {
     "MAX_DAILY_LOSS": ("float", 1, 100000, "Stop hari itu bila rugi live ≥ ($)"),
     "MAX_OPEN_USD": ("float", 1, 100000, "Maks posisi live belum resolve ($)"),
     "MAX_SLIPPAGE": ("float", 0, 0.10, "Slippage maks di atas ask (0.02 = 2¢)"),
+    "MIN_PRICE": ("float", 0.01, 0.90, "Harga beli minimum live (0.30 = 30¢)"),
     "AUTO_CLAIM": ("bool", 0, 1, "Auto-claim kemenangan"),
 }
 
@@ -201,14 +202,16 @@ def usdc_balance() -> Optional[float]:
 
 def place_fok_buy(token_id: str, usd: float, max_price: float, balance: Optional[float] = None) -> Dict[str, Any]:
     """
-    Market order BUY FOK senilai `usd` dengan harga terburuk `max_price`. `balance` dipakai SDK untuk
-    menyesuaikan nominal dengan fee. create_and_post_market_order mengulang otomatis bila versi order berubah.
+    Market order BUY FOK senilai `usd` dengan harga terburuk `max_price`. create_and_post_market_order
+    mengulang otomatis bila versi order berubah. (`balance` tidak dipakai lagi; dipertahankan untuk kompatibilitas.)
     """
     from py_clob_client_v2.clob_types import MarketOrderArgsV2, OrderType
     from py_clob_client_v2.order_builder.constants import BUY
 
     args = MarketOrderArgsV2(token_id=str(token_id), amount=round(usd, 2), side=BUY, price=max_price,
-                             order_type=OrderType.FOK, user_usdc_balance=float(balance or 0))
+                             order_type=OrderType.FOK)
+    # user_usdc_balance tidak diisi: penyesuaian fee oleh SDK bisa menghasilkan nominal >2 desimal yang ditolak
+    # server ("maker amount supports a max accuracy of 2 decimals"); saldo sudah dicek sebelum order.
     return get_client().create_and_post_market_order(args, order_type=OrderType.FOK) or {}
 
 
@@ -220,20 +223,37 @@ def _local_day(now: datetime) -> str:
 
 def max_price_for(prob: float, book_price: float, fee_rate: float) -> Optional[float]:
     """
-    Harga tertinggi yang boleh dibayar: tidak lebih dari ask + LIVE_MAX_SLIPPAGE, dan edge
-    (peluang − harga − fee) tetap ≥ BTC_MIN_EDGE. Dibulatkan ke bawah ke tick 1¢. None bila tidak layak —
-    termasuk bila batas itu di bawah ask (VWAP) sekarang: order FOK pasti tidak terisi, jadi tidak dikirim.
+    Harga tertinggi yang boleh dibayar: tidak lebih dari ask + LIVE_MAX_SLIPPAGE (dan harga maks paper), dan
+    edge (peluang − harga − fee) tetap ≥ BTC_MIN_EDGE. Dibulatkan ke bawah ke tick 1¢. None bila tidak layak:
+    - batas di bawah ask (VWAP) sekarang → FOK pasti tidak terisi;
+    - ask di bawah harga minimum live (LIVE_MIN_PRICE) → underdog murah dilewati.
     """
     from app.paper_trading.autotrader import cfg, taker_fee
 
-    price = min(math.floor(round((book_price + float(lcfg("MAX_SLIPPAGE"))) * 100, 6)) / 100, 0.99)
+    if book_price < float(lcfg("MIN_PRICE")) - 1e-9:
+        return None
+    price = math.floor(round((book_price + float(lcfg("MAX_SLIPPAGE"))) * 100, 6)) / 100
+    price = min(price, float(cfg("MAX_PRICE")), 0.99)  # dibatasi, bukan dibatalkan, bila ask + slippage > maks
     while price >= TICK and prob - (price + taker_fee(price, fee_rate)) < cfg("BTC_MIN_EDGE") - 1e-9:
         price = round(price - TICK, 2)
-    if price < book_price - 1e-9:
-        return None
-    if price < max(TICK, cfg("BTC_MIN_PRICE")) or price > cfg("MAX_PRICE"):
+    if price < book_price - 1e-9 or price < TICK:
         return None
     return price
+
+
+MARKET_END_GRACE = timedelta(minutes=2)
+
+
+def _market_running(o: LiveOrder, now: datetime) -> bool:
+    """Market order ini masih berjalan? Market yang sudah lewat waktunya tidak lagi memakan slot posisi terbuka
+    walau hasil resolusinya belum tercatat (pencatatan hasil bisa tertinggal beberapa menit)."""
+    from app.paper_trading.autotrader import BTC_SERIES, series_start
+    info = BTC_SERIES.get(o.strategy)
+    if not info:
+        return True
+    created = _aware(o.created_at)
+    end = series_start(o.strategy, created) + timedelta(minutes=info["minutes"])
+    return now < end + MARKET_END_GRACE
 
 
 def live_today(now: datetime) -> Dict[str, float]:
@@ -244,11 +264,12 @@ def live_today(now: datetime) -> Dict[str, float]:
             LiveOrder.local_day == day, LiveOrder.status == "filled").scalar()
         pnl = db.query(func.coalesce(func.sum(LiveOrder.pnl), 0)).filter(
             LiveOrder.local_day == day, LiveOrder.result.isnot(None)).scalar()
-        open_usd = db.query(func.coalesce(func.sum(LiveOrder.spent), 0)).filter(
-            LiveOrder.status == "filled", LiveOrder.result.is_(None)).scalar()
+        unresolved = db.query(LiveOrder).filter(LiveOrder.status == "filled", LiveOrder.result.is_(None)).all()
+        open_usd = sum(float(o.spent or 0) for o in unresolved if _market_running(o, now))
         orders = db.query(LiveOrder).filter(LiveOrder.local_day == day, LiveOrder.status == "filled").count()
         return {"day": day, "spent": float(spent or 0), "realized_pnl": float(pnl or 0),
-                "open_usd": float(open_usd or 0), "orders": orders}
+                "open_usd": float(open_usd), "orders": orders,
+                "awaiting_result": sum(1 for o in unresolved if not _market_running(o, now))}
     finally:
         db.close()
 
@@ -487,7 +508,7 @@ def live_summary(now: Optional[datetime] = None, limit: int = 20) -> Dict[str, A
         "problems": config_problems(), "dry_run": settings.LIVE_DRY_RUN, "strategies": live_strategies(),
         "limits": {"order_usd": float(lcfg("ORDER_USD")), "max_daily_usd": float(lcfg("MAX_DAILY_USD")),
                    "max_daily_loss": float(lcfg("MAX_DAILY_LOSS")), "max_open_usd": float(lcfg("MAX_OPEN_USD")),
-                   "max_slippage": float(lcfg("MAX_SLIPPAGE"))},
+                   "max_slippage": float(lcfg("MAX_SLIPPAGE")), "min_price": float(lcfg("MIN_PRICE"))},
         "today": live_today(now), "filled": filled, "config": get_live_config(),
         "claim": {"active": not claim_problems(), "problems": claim_problems()},
         "totals": {"decided": len(decided), "wins": wins, "win_rate": wins / len(decided) if decided else None,
@@ -516,7 +537,8 @@ def format_live_status() -> str:
     lines = [f"💵 *Live trading (uang asli)* — {state}",
              f"Strategi: {', '.join(strategy_header(x) for x in s['strategies']) or '-'}",
              f"Aturan: ${lim['order_usd']:g}/order · maks ${lim['max_daily_usd']:g}/hari · stop rugi ${lim['max_daily_loss']:g} · "
-             f"maks terbuka ${lim['max_open_usd']:g} · slippage maks {lim['max_slippage'] * 100:.0f}¢",
+             f"maks terbuka ${lim['max_open_usd']:g} · slippage maks {lim['max_slippage'] * 100:.0f}¢ · "
+             f"harga min {lim['min_price'] * 100:.0f}¢",
              f"Hari ini: {t['orders']} order · ${t['spent']:.2f} · PnL terealisasi {t['realized_pnl']:+.2f} · "
              f"terbuka ${t['open_usd']:.2f}"]
     if s["problems"] and s["enabled"]:
@@ -551,7 +573,7 @@ def run_live_tracking() -> None:
     """Dipanggil dari loop collector (tiap 5 menit); tidak pernah melempar exception."""
     import time as _time
 
-    if not settings.LIVE_TRADING or _time.monotonic() - _last_track["at"] < 300:
+    if not settings.LIVE_TRADING or _time.monotonic() - _last_track["at"] < 60:
         return
     _last_track["at"] = _time.monotonic()
     try:

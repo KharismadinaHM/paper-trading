@@ -191,6 +191,9 @@ class Settings(BaseSettings):
     LIVE_MAX_DAILY_LOSS: float = 5.0            # berhenti hari itu bila rugi live terealisasi ≥ ini
     LIVE_MAX_OPEN_USD: float = 5.0              # total posisi live yang belum resolve
     LIVE_MAX_SLIPPAGE: float = 0.02             # batas harga = ask saat sinyal + ini (dan edge tetap ≥ minimum)
+    # Harga beli minimum KHUSUS live (terpisah dari BTC_MIN_PRICE paper). Data live 7 Okt: beli < 30¢ menang
+    # 7 dari 42; ≥ 50¢ menang 8 dari 10.
+    LIVE_MIN_PRICE: float = 0.30
     LIVE_DRY_RUN: bool = False                  # susun & catat order tanpa mengirim
     # Auto-claim kemenangan (redeem posisi yang sudah resolve) lewat Relayer Polymarket, tanpa gas.
     # Butuh kredensial Builder API (Polymarket → Settings → Builder). Akun EOA (tipe 0) tidak didukung.
