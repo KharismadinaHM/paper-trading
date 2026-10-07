@@ -54,6 +54,8 @@ def no_external_side_effects(monkeypatch):
     monkeypatch.setattr("app.paper_service._notify_async", lambda *args, **kwargs: None)
     # Nilai risk default yang deterministik (tidak bergantung pada isi .env lokal)
     monkeypatch.setattr(settings, "SLIPPAGE_BPS", 0)
+    # Test strategi crypto menguji peluang model murni; penyusutan ke harga pasar diuji tersendiri
+    monkeypatch.setattr(settings, "AUTOTRADE_MODEL_WEIGHT", 1.0)
     monkeypatch.setattr(settings, "SPREAD_BPS", 0)
     monkeypatch.setattr(settings, "FEE_RATE_BPS", 0)
     monkeypatch.setattr(settings, "INITIAL_BALANCE", Decimal("20.00"))

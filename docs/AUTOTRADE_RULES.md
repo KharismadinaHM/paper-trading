@@ -54,6 +54,19 @@ status, hasil, riwayat, aturan, riset).
 pasar setelah waktu data diukur adil — market maker Polymarket mengikuti Binance hampir real-time.
 Run pertama sempat menunjukkan "edge" +15–40% yang ternyata artefak (riwayat harga CLOB hanya per menit).
 
+**Evaluasi 7 Okt 2026 — live −$10.91 (82 trade) vs paper +$45:**
+- Live vs paper di market yang sama (62): hasil sama 59/62, harga isi live hanya +0.9¢ — eksekusi bukan masalah.
+- Profit paper = 5 "tiket lotre" (beli 13–19¢, menang 6–8×: +$51.72); tanpa itu paper −$6.64 dari 141 trade.
+- **Harga basi:** order book di-cache hingga 60 detik sementara model memakai harga BTC/ETH segar. 40% sinyal
+  berurutan memakai harga Polymarket yang sama padahal BTC sudah bergerak; contoh paper "membeli" 20¢/32¢/16¢
+  saat harga segar 38¢/63¢/38¢. Edge paper sebagian besar artefak ini → **order book crypto kini maks 3 detik**
+  (`FRESH_BOOK_TTL`) untuk taker, maker, dan panel market.
+- **Model terlalu yakin saat berbeda dengan pasar** (7.685 sinyal, uji out-of-sample): model murni log-loss
+  0.4475 vs pasar 0.4330; campuran terbaik w ≈ 0.25–0.3 (0.4254). Saat model 20¢+ di atas pasar: model 57%,
+  pasar 27%, nyata 38% → peluang kini `pasar + 0.3 × (model − pasar)` (`AUTOTRADE_MODEL_WEIGHT`, dashboard ✏️).
+  Karena data lama memakai harga basi, w sebenarnya mungkin lebih rendah — kalibrasi ulang dengan
+  `scripts/calibrate_crypto_model.py --since <tanggal deploy>` setelah ≥ 200 sinyal harga segar.
+
 **Evaluasi 1 Okt 2026** (hasil live: `btc` 14 trade WR 43% ROI −29%, `btc15` 67 trade WR 40% ROI −3.7%):
 - Kerugian terkumpul di **underdog murah**: harga < 30¢ → 3 menang dari 42 (btc + btc15 + maker), −58$.
   Beli favorit (≥ 50¢) justru positif. Bot membeli underdog saat model berbeda pendapat dengan pasar,

@@ -173,6 +173,9 @@ class Settings(BaseSettings):
     # Simulasi slippage eksekusi nyata (¢ per share, 0.01 = 1¢): taker membayar ask VWAP + slippage;
     # limit maker baru dianggap terisi bila ask turun ≥ slippage di bawah harga limit.
     AUTOTRADE_SLIPPAGE: float = 0.01
+    # Bobot model crypto vs harga pasar: peluang = pasar + bobot × (model − pasar). Kalibrasi 7 Okt 2026 (7.685
+    # sinyal, out-of-sample): model penuh (1.0) kalah akurat dari pasar; 0.25–0.3 terbaik.
+    AUTOTRADE_MODEL_WEIGHT: float = 0.3
     AUTOTRADE_MAKER_MARGIN: float = 0.04
     AUTOTRADE_MAKER_MIN_EDGE: float = 0.04
     AUTOTRADE_POLL_SECONDS: int = 10

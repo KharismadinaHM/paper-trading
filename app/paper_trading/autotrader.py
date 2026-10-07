@@ -110,6 +110,7 @@ EDITABLE_CONFIG: Dict[str, Tuple[str, float, float, str]] = {
     "BTC_MIN_EDGE": ("float", 0, 0.5, "Edge minimum crypto (BTC/ETH) taker (0–1)"),
     "BTC_MIN_PRICE": ("float", 0, 0.9, "Harga beli minimum crypto (BTC/ETH), taker & maker (0–1)"),
     "SLIPPAGE": ("float", 0, 0.1, "Simulasi slippage per share (0.01 = 1¢)"),
+    "MODEL_WEIGHT": ("float", 0, 1, "Bobot model vs harga pasar crypto (0 = ikut pasar, 1 = model penuh)"),
     "WEATHER_MIN_EDGE": ("float", 0, 0.5, "Edge minimum cuaca (0–1)"),
     "MAKER_MARGIN": ("float", 0.01, 0.3, "Maker: harga limit = P − margin"),
     "MAKER_MIN_EDGE": ("float", 0, 0.3, "Maker: edge minimum"),
@@ -403,10 +404,22 @@ def format_decision(d: Dict[str, Any], order: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _book_side(token: str, usd: float) -> Optional[Dict[str, float]]:
-    from app.paper_trading.live_market_data import fetch_fee_rate, fetch_order_books, vwap_for_usd
+def blend_prob(model_prob: float, market_prob: Optional[float]) -> float:
+    """
+    Peluang yang dipakai untuk edge: harga pasar + MODEL_WEIGHT × (model − pasar). Kalibrasi 7 Okt 2026
+    (7.685 sinyal, uji out-of-sample): model sendirian kalah akurat dari pasar; bobot ≈ 0.25–0.3 paling baik.
+    Saat model jauh lebih optimis dari pasar, pasar yang lebih sering benar.
+    """
+    if market_prob is None:
+        return model_prob
+    w = float(cfg("MODEL_WEIGHT"))
+    return min(max(market_prob + w * (model_prob - market_prob), 0.0), 1.0)
 
-    book = fetch_order_books([token]).get(str(token))
+
+def _book_side(token: str, usd: float) -> Optional[Dict[str, float]]:
+    from app.paper_trading.live_market_data import FRESH_BOOK_TTL, fetch_fee_rate, fetch_order_books, vwap_for_usd
+
+    book = fetch_order_books([token], ttl=FRESH_BOOK_TTL).get(str(token))
     if not book or book.get("ask") is None:
         return None
     fill = vwap_for_usd(book.get("asks") or [], usd)
@@ -572,8 +585,9 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
                                        ("DOWN", market["down"], 1 - model["p_up"], "NO")):
         book = _book_side(token, usd)
         if book:
-            sides.append({"outcome": outcome, "side": side, "prob": prob, "token": token,
-                          "edge": prob - (book["price"] + book["fee"]), **book})
+            adj = blend_prob(prob, book.get("book_price", book["price"]))
+            sides.append({"outcome": outcome, "side": side, "prob": adj, "model_raw": prob, "token": token,
+                          "edge": adj - (book["price"] + book["fee"]), **book})
     if not sides:
         return None
     best = max(sides, key=lambda x: x["edge"])
@@ -599,7 +613,8 @@ def btc_tick(now: Optional[datetime] = None, series: str = "btc", shadow: bool =
                 "change_pct": round(model["change_pct"], 4), "sigma_1m": model.get("sigma"),
                 "btc": model["price"], "asset": BTC_SERIES[series]["asset"],
                 "open": model["open"], "spread": best["spread"], "depth_shares": best["shares"],
-                "slippage": best.get("slippage"),
+                "slippage": best.get("slippage"), "model_raw": round(best["model_raw"], 4),
+                "model_weight": float(cfg("MODEL_WEIGHT")),
                 "other_side_edge": round(min(sides, key=lambda x: x["edge"])["edge"], 4) if len(sides) > 1 else None}
     bucket = int(minute // SIGNAL_BUCKET_MINUTES[series])
     decision = {
@@ -652,7 +667,7 @@ def reserved_usd() -> float:
 
 def maker_place(now: Optional[datetime] = None, series: str = "btc") -> Optional[Dict[str, Any]]:
     """Pasang satu limit order per market pada sisi dengan edge terbesar."""
-    from app.paper_trading.live_market_data import fetch_order_books
+    from app.paper_trading.live_market_data import FRESH_BOOK_TTL, fetch_order_books
 
     now = now or datetime.now(timezone.utc)
     ctx = _btc_context(series, now, _window(MAKER_WINDOWS[series]()))
@@ -666,13 +681,14 @@ def maker_place(now: Optional[datetime] = None, series: str = "btc") -> Optional
             return None
     finally:
         db.close()
-    books = fetch_order_books([market["up"], market["down"]])
+    books = fetch_order_books([market["up"], market["down"]], ttl=FRESH_BOOK_TTL)
     best = None
     for outcome, token, prob, side in (("UP", market["up"], model["p_up"], "YES"),
                                        ("DOWN", market["down"], 1 - model["p_up"], "NO")):
         book = books.get(str(token))
         if not book or book.get("ask") is None:
             continue
+        prob = blend_prob(prob, book["ask"])
         limit = math.floor(round((prob - cfg("MAKER_MARGIN")) * 100, 6)) / 100  # 65.9999… → 66
         limit = min(limit, round(book["ask"] - 0.01, 2))  # tetap di sisi maker (tidak menyilang ask)
         if not max(0.05, cfg("BTC_MIN_PRICE")) <= limit <= cfg("MAX_PRICE"):
@@ -706,13 +722,13 @@ def maker_place(now: Optional[datetime] = None, series: str = "btc") -> Optional
 
 def maker_manage(now: Optional[datetime] = None) -> List[str]:
     """Cek order terbuka: isi (ask menembus limit), batalkan (edge hilang), atau kedaluwarsa."""
-    from app.paper_trading.live_market_data import fetch_order_books
+    from app.paper_trading.live_market_data import FRESH_BOOK_TTL, fetch_order_books
 
     now = now or datetime.now(timezone.utc)
     orders = _open_limit_orders()
     if not orders:
         return []
-    books = fetch_order_books([o.token_id for o in orders])
+    books = fetch_order_books([o.token_id for o in orders], ttl=FRESH_BOOK_TTL)
     events: List[str] = []
     for o in orders:
         expires = o.expires_at if o.expires_at.tzinfo else o.expires_at.replace(tzinfo=timezone.utc)
@@ -730,7 +746,7 @@ def maker_manage(now: Optional[datetime] = None) -> List[str]:
                 start = series_start(series, now)
                 model = btc_model(klines, start, now, BTC_SERIES[series]["minutes"])
                 if model is not None:
-                    prob = model["p_up"] if o.outcome == "UP" else 1 - model["p_up"]
+                    prob = blend_prob(model["p_up"] if o.outcome == "UP" else 1 - model["p_up"], book.get("ask"))
                     if prob - limit < cfg("MAKER_MIN_EDGE") / 2:
                         status, reason = "cancelled", f"edge hilang (model {prob * 100:.0f}%)"
         if status is None:
@@ -947,7 +963,7 @@ def crypto_markets_overview(now: Optional[datetime] = None) -> List[Dict[str, An
     Market crypto Up/Down yang sedang berjalan per seri (BTC & ETH): harga aset vs open, sisa waktu,
     peluang model, ask/bid Up & Down, biaya (ask + slippage + fee), edge, jendela masuk & status strategi.
     """
-    from app.paper_trading.live_market_data import fetch_fee_rate, fetch_order_books
+    from app.paper_trading.live_market_data import FRESH_BOOK_TTL, fetch_fee_rate, fetch_order_books
 
     now = now or datetime.now(timezone.utc)
     strategies = enabled_strategies()
@@ -970,12 +986,14 @@ def crypto_markets_overview(now: Optional[datetime] = None) -> List[Dict[str, An
                 continue
             row.update(title=market["title"], slug=market["slug"], accepting=market["accepting"])
             model = btc_model(_series_klines(series), start, now, info["minutes"])
-            books = fetch_order_books([market["up"], market["down"]])
+            books = fetch_order_books([market["up"], market["down"]], ttl=FRESH_BOOK_TTL)
             sides = {}
             for outcome, token, prob in (("UP", market["up"], model["p_up"] if model else None),
                                          ("DOWN", market["down"], (1 - model["p_up"]) if model else None)):
                 book = books.get(str(token)) or {}
                 ask = book.get("ask")
+                if prob is not None:
+                    prob = blend_prob(prob, ask)
                 cost = None
                 if ask is not None:
                     price = min(0.99, ask + slippage)

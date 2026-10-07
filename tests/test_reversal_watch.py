@@ -148,7 +148,7 @@ class TestFilterAndFollowUp:
 
     def test_liquidity_check_uses_spread_and_bid_depth(self, monkeypatch):
         books = {"t33°C": {"ask": 0.97, "bid": 0.96, "bid_depth_usd": 450.0}}
-        monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books", lambda tokens: books)
+        monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books", lambda tokens, ttl=None: books)
         fav = br("33°C", 0.965)
         assert rw.liquidity(fav)["bid_depth_usd"] == 450.0
         books["t33°C"] = {"ask": 0.99, "bid": 0.90, "bid_depth_usd": 450.0}  # spread 9¢

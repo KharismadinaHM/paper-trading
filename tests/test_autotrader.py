@@ -332,7 +332,7 @@ class TestBtc15AndMaker:
         monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: {"p_up": state["p_up"], "price": 1, "open": 1,
                                                                     "change_pct": 0.1, "minutes_left": 40})
         monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
-                            lambda tokens: {t: state["books"][t] for t in tokens if t in state["books"]})
+                            lambda tokens, ttl=None: {t: state["books"][t] for t in tokens if t in state["books"]})
         return now, state
 
     def test_maker_places_below_fair_value_and_fills_on_trade_through(self, funded, sent, monkeypatch):
@@ -515,7 +515,7 @@ def test_hourly_report_skipped_when_hour_is_empty(monkeypatch):
 
 def test_slippage_added_to_taker_price_and_fee(monkeypatch):
     monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
-                        lambda tokens: {"tok": {"ask": 0.60, "bid": 0.59, "asks": [(0.60, 100.0)]}})
+                        lambda tokens, ttl=None: {"tok": {"ask": 0.60, "bid": 0.59, "asks": [(0.60, 100.0)]}})
     monkeypatch.setattr("app.paper_trading.live_market_data.fetch_fee_rate", lambda token: 0.07)
     monkeypatch.setattr(settings, "AUTOTRADE_SLIPPAGE", 0.01)
     book = at._book_side("tok", 5.0)
@@ -618,7 +618,7 @@ def test_crypto_markets_overview(monkeypatch):
     monkeypatch.setattr(at, "btc_model", lambda k, s, n, d=60: {"p_up": 0.7, "price": 100.0, "open": 99.0,
                                                                 "change_pct": 1.0, "minutes_left": 3.0})
     monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
-                        lambda tokens: {t: {"ask": 0.60 if t.startswith("u") else 0.42, "bid": 0.58} for t in tokens})
+                        lambda tokens, ttl=None: {t: {"ask": 0.60 if t.startswith("u") else 0.42, "bid": 0.58} for t in tokens})
     monkeypatch.setattr("app.paper_trading.live_market_data.fetch_fee_rate", lambda token: 0.07)
     monkeypatch.setattr(settings, "AUTOTRADE_SLIPPAGE", 0.01)
     rows = {r["series"]: r for r in at.crypto_markets_overview(now)}
@@ -693,3 +693,36 @@ def test_strategy_headers_distinguish_asset_and_length():
     assert at.strategy_header("maker_eth15") == "🔷 ETH · 15 MENIT · MAKER"
     assert at.strategy_header("btc5") == "🟠 BTC · 5 MENIT"
     assert at.strategy_header("weather_post") == "🌡 CUACA · PASCA PUNCAK"
+
+
+def test_model_weight_shrinks_toward_market(monkeypatch):
+    monkeypatch.setattr(settings, "AUTOTRADE_MODEL_WEIGHT", 0.3)
+    assert at.blend_prob(0.60, 0.30) == pytest.approx(0.39)   # 30¢ + 0.3 × (60 − 30)
+    assert at.blend_prob(0.60, None) == 0.60
+    monkeypatch.setattr(settings, "AUTOTRADE_MODEL_WEIGHT", 1.0)
+    assert at.blend_prob(0.60, 0.30) == pytest.approx(0.60)
+
+
+def test_btc_tick_uses_blended_probability_and_fresh_books(funded, sent, monkeypatch):
+    monkeypatch.setattr(settings, "AUTOTRADE_MODEL_WEIGHT", 0.3)
+    hour = NOW.replace(minute=0, second=0)
+    now = hour + timedelta(minutes=45)
+    seed_market("0xblend", at=now)
+    monkeypatch.setattr(at, "_btc_market", lambda h, series="btc": {"condition_id": "0xblend", "title": "BTC blend",
+                                                                     "up": "tu", "down": "td", "accepting": True, "slug": "s"})
+    monkeypatch.setattr(at, "_btc_klines", lambda symbol="BTCUSDT": [])
+    monkeypatch.setattr(at, "btc_model", lambda k, h, n, d=60: {"p_up": 0.80, "price": 1, "open": 1, "change_pct": 0.2,
+                                                                "minutes_left": 15})
+    ttls = []
+    books = {"tu": {"ask": 0.62, "bid": 0.61, "asks": [(0.62, 100.0)]}, "td": {"ask": 0.39, "bid": 0.38, "asks": [(0.39, 100.0)]}}
+    monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
+                        lambda tokens, ttl=None: ttls.append(ttl) or {t: books[t] for t in tokens})
+    monkeypatch.setattr("app.paper_trading.live_market_data.fetch_fee_rate", lambda token: 0.07)
+    # model 80% vs pasar 62% → 62 + 0.3 × 18 = 67.4%; biaya 63¢ + fee 1.6¢ → edge 2.8¢ < 5¢: tidak beli
+    assert at.btc_tick(now) is None and not sent
+    assert set(ttls) == {3}  # order book segar (≤ 3 detik), bukan cache 60 detik
+    books["tu"] = {"ask": 0.45, "bid": 0.44, "asks": [(0.45, 100.0)]}
+    # model 80% vs pasar 45% → 55.5%; biaya 46¢ + 1.7¢ → edge 7.8¢ ≥ 5¢: beli
+    d = at.btc_tick(now + timedelta(seconds=10))
+    assert d is not None and d["outcome"] == "UP" and d["prob"] == pytest.approx(0.555)
+    assert d["features"]["model_raw"] == 0.8 and d["features"]["model_weight"] == 0.3

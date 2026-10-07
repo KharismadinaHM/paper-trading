@@ -77,8 +77,15 @@ def _summarize_book(book: Dict[str, Any]) -> Dict[str, Optional[float]]:
     }
 
 
-def fetch_order_books(token_ids: Iterable[str]) -> Dict[str, Dict[str, Optional[float]]]:
-    """{token_id: {ask, ask_size, bid}}; kosong jika CLOB tidak bisa dihubungi."""
+FRESH_BOOK_TTL = 3     # detik — market crypto 5/15 menit/1 jam: harga bergerak bersama BTC/ETH dalam hitungan detik
+
+
+def fetch_order_books(token_ids: Iterable[str], ttl: Optional[float] = None) -> Dict[str, Dict[str, Optional[float]]]:
+    """
+    {token_id: {ask, ask_size, bid}}; kosong jika CLOB tidak bisa dihubungi. `ttl` = umur cache maksimum (detik);
+    default BOOK_TTL (60 detik, cukup untuk market cuaca). Market crypto memakai FRESH_BOOK_TTL: harga yang
+    di-cache 60 detik membuat paper "membeli" di harga lama yang sudah tidak ada (edge palsu).
+    """
     tokens = sorted({t for t in token_ids if t})
     if not tokens:
         return {}
@@ -93,7 +100,7 @@ def fetch_order_books(token_ids: Iterable[str]) -> Dict[str, Dict[str, Optional[
         return out
 
     try:
-        return _cached("books:" + ",".join(tokens), BOOK_TTL, load)
+        return _cached("books:" + ",".join(tokens), BOOK_TTL if ttl is None else ttl, load)
     except Exception as err:
         logger.warning("Gagal mengambil order book CLOB: %s", err)
         return {}
