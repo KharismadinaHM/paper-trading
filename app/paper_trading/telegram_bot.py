@@ -65,7 +65,7 @@ def build_help_message() -> str:
         "🔬 `/autoresearch` - Riset auto trade: kalibrasi, ROI per edge, saran ambang (`/autoresearch 14`)\n"
         "🏅 `/autostats` - Win rate, PnL & ROI auto trade per strategi (`/autostats 7` · `semua` · `reset` · `sejak 2026-10-02`)\n"
         "💵 `/live` - Status trading uang asli (BTC & ETH 1 jam) · `/livestop` jeda · `/livestart` lanjut\n"
-        "📜 `/autoriwayat` - Riwayat trade auto: menang/kalah, PnL & detail (`/autoriwayat 20 btc`)\n"
+        "📜 `/autoriwayat` - Riwayat trade auto: menang/kalah, PnL & detail (`/autoriwayat 20 btc`)\n"        "🧪 `/autoverdict` - Layak live? Cek 5 kriteria per seri crypto (jumlah trade, ROI, tanpa tiket lotre, konsistensi)\n"
         "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover [kategori]` - Rekomendasi wallet per kategori market: cuaca, kripto, olahraga, politik, … (tombol Ikuti / Skip)\n"
         "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"        "🕵️ `/insider [jam]` - Taruhan besar berpola insider (wallet baru, longshot, nominal besar) & ketepatannya\n"
@@ -474,6 +474,10 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
             return format_status(all_time=True)
         days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
         return format_status(days=days)
+    elif cmd in ("/autoverdict", "/verdict"):
+        from app.paper_trading.autotrade_verdict import format_verdict
+        days = int(args[0]) if args and args[0].isdigit() and int(args[0]) > 0 else None
+        return format_verdict(days)
     elif cmd in ("/autoriwayat", "/autohistory"):
         from app.paper_trading.autotrader import STRATEGY_VERSIONS, format_trade_history
         limit, strategy = 10, None

@@ -78,6 +78,20 @@
             <div id="liveContainer" class="small text-muted-poly">Memuat…</div>
         </div>
 
+        <!-- VERDICT PAPER → LIVE -->
+        <div class="poly-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <h5 class="fw-bold text-white mb-0"><i class="bi bi-clipboard-check me-2 text-success"></i>Verdict paper → live</h5>
+                <span class="small text-muted-poly" id="verdictLabel"></span>
+            </div>
+            <div class="small text-muted-poly mb-2" id="verdictCriteria"></div>
+            <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
+                <thead><tr class="text-muted-poly"><th>Seri</th><th>Verdict</th><th class="text-end">Trade</th><th class="text-end">Hari</th>
+                    <th class="text-end">ROI</th><th class="text-end">Tanpa 5 terbesar</th><th class="text-end">Paruh 1 / 2</th><th class="text-end">z</th><th>Belum terpenuhi</th></tr></thead>
+                <tbody id="verdictBody"><tr><td colspan="9" class="text-muted-poly">Memuat…</td></tr></tbody></table></div>
+            <div class="small text-muted-poly mt-2">LULUS = boleh dicoba live dengan nominal kecil. Dihitung dari trade paper sejak "Mulai periode baru". Statistik, bukan jaminan.</div>
+        </div>
+
         <!-- KALENDER PnL -->
         <div class="poly-card p-4 mb-4">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -735,7 +749,32 @@
             }
         }
 
-        function refreshAll() { fetchMarkets(); fetchAutotrade(); loadCalendar(); fetchLive(); }
+        // --- VERDICT PAPER → LIVE ---
+        async function fetchVerdict() {
+            const body = document.getElementById('verdictBody');
+            try {
+                const res = await fetch('/api/autotrade/verdict');
+                if (!res.ok) throw new Error('Failed');
+                const d = await res.json();
+                const c = d.criteria;
+                document.getElementById('verdictLabel').textContent = d.label;
+                document.getElementById('verdictCriteria').textContent = `Kriteria: ≥ ${c.min_trades} trade total (≥ ${c.min_trades_series} per seri) · ≥ ${c.min_days} hari · ROI positif · tetap positif tanpa ${c.top_excluded} menang terbesar · kedua paruh positif`;
+                const badge = { LULUS: '<span class="badge bg-success">✅ LULUS</span>', GAGAL: '<span class="badge bg-danger">❌ GAGAL</span>', BELUM: '<span class="badge bg-secondary">⏳ BELUM</span>' };
+                const pct = v => v === null || v === undefined ? '-' : `<span class="${pnlClass(v)}">${(v * 100).toFixed(1)}%</span>`;
+                const row = (name, r, strong) => `<tr${strong ? ' class="fw-semibold"' : ''}><td>${escapeHtml(name)}</td><td>${badge[r.verdict] || ''}</td>
+                    <td class="text-end">${r.n}/${r.min_trades}</td><td class="text-end">${r.days ?? '-'}</td>
+                    <td class="text-end">${pct(r.roi)}</td><td class="text-end">${pct(r.roi_without_top)}</td>
+                    <td class="text-end">${pct(r.roi_first_half)} / ${pct(r.roi_second_half)}</td>
+                    <td class="text-end">${r.z === null || r.z === undefined ? '-' : r.z.toFixed(1)}</td>
+                    <td class="text-muted-poly">${r.verdict === 'LULUS' ? '' : escapeHtml((r.reasons || []).join('; '))}</td></tr>`;
+                body.innerHTML = row('Gabungan crypto', d.total, true)
+                    + Object.entries(d.series).map(([name, r]) => row(LIVE_SERIES_LABEL[name] || name, r, false)).join('');
+            } catch (err) {
+                body.innerHTML = '<tr><td colspan="9" class="text-muted-poly">Gagal memuat verdict.</td></tr>';
+            }
+        }
+
+        function refreshAll() { fetchMarkets(); fetchAutotrade(); loadCalendar(); fetchLive(); fetchVerdict(); }
         refreshAll();
         setInterval(() => { if (!window._liveConfigOpen) fetchLive(); }, 30000);  // jangan timpa form yang sedang diedit
         setInterval(fetchMarkets, 15000);

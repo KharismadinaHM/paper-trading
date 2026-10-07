@@ -341,6 +341,13 @@ def live_switch_api(action: str):
     return live_summary()
 
 
+@app.get("/api/autotrade/verdict", dependencies=[Depends(require_auth)])
+def autotrade_verdict_api(days: Optional[int] = None):
+    """Verdict paper → live per seri crypto: jumlah trade, ROI, tanpa 5 menang terbesar, kedua paruh, z."""
+    from app.paper_trading.autotrade_verdict import verdict
+    return verdict(days if days and days > 0 else None)
+
+
 @app.get("/api/autotrade/markets", dependencies=[Depends(require_auth)])
 def autotrade_markets_api():
     """Market crypto Up/Down yang sedang berjalan (BTC & ETH: 1 jam, 15 menit, 5 menit) + peluang model & edge."""

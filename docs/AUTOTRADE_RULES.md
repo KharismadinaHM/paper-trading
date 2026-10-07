@@ -203,6 +203,7 @@ lengkap — lalu hasilnya diisi otomatis setelah market resolve (`app/paper_trad
 | `/live` · `/livestop` · `/livestart` | Trading **uang asli** untuk BTC & ETH 1 jam (mati secara default) — lihat `docs/LIVE_TRADING.md` |
 | `/autostats [hari]` | Win rate, PnL, ROI total & per strategi. `/autostats reset` mulai periode statistik baru, `/autostats sejak YYYY-MM-DD`, `/autostats semua` (data lama tidak dihapus; juga tombol di dashboard) |
 | (otomatis, grup auto trade) | Laporan per jam: trade selesai jam itu (WR, PnL per strategi) + trade dibuka; hanya ke `TELEGRAM_AUTOTRADE_CHAT_ID`, dilewati bila jam itu kosong. Pesan "PAPER TRADE SETTLED" per posisi tidak lagi dikirim |
+| `/autoverdict [hari]` | Layak live? Per seri crypto: ≥ 400 trade (150 per seri), ≥ 7 hari, ROI positif, tetap positif tanpa 5 menang terbesar, kedua paruh positif → LULUS / BELUM / GAGAL (juga kartu di `/autobot`) |
 | `/autoriwayat [n] [strategi]` | Riwayat trade: menang/kalah/terbuka, harga masuk & keluar, PnL, detail keputusan (juga di dashboard) |
 | `/autoresearch [hari]` | Laporan riset & saran ambang |
 | `/tesnotif` | Kirim pesan uji ke chat auto trade (`TELEGRAM_AUTOTRADE_CHAT_ID`) |
