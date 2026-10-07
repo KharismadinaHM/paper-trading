@@ -39,7 +39,7 @@ def live(monkeypatch):
     lt.set_switch(True)
     state = {"orders": [], "balance": 50.0, "resp": None, "sent": []}
 
-    def fake_buy(token, usd, max_price):
+    def fake_buy(token, usd, max_price, balance=None):
         state["orders"].append((token, usd, max_price))
         return state["resp"] or {"success": True, "status": "matched", "orderID": "0xorder",
                                  "makingAmount": str(usd), "takingAmount": str(round(usd / 0.63, 4))}
@@ -118,7 +118,7 @@ def test_daily_budget_balance_and_rejection(live):
 
 
 def test_order_error_is_redacted(live, monkeypatch):
-    def boom(token, usd, max_price):
+    def boom(token, usd, max_price, balance=None):
         raise RuntimeError(f"signing failed with key {KEY}")
     monkeypatch.setattr(lt, "place_fok_buy", boom)
     row = lt.live_execute(decision(key="btc|0xerr"), NOW)
@@ -245,7 +245,9 @@ def test_live_runs_for_selected_series_even_if_paper_strategy_off(live, monkeypa
 def test_redeem_call_data_encodes_conditional_tokens_call():
     cid = "0x" + "ab" * 32
     to, data = lt.redeem_call_data(cid)
-    assert to == "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"  # ConditionalTokens Polygon (config py-clob-client)
+    assert to == "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"  # ConditionalTokens Polygon (config py-clob-client-v2)
+    # collateral CLOB V2 (bukan USDC.e lama 0x2791…) sebagai argumen pertama
+    assert data[10:74].lower() == "0" * 24 + "c011a7e12a19f7b1f670d46f03b03f3342e82dfb"
     assert data.startswith("0x01b7037c")                         # redeemPositions(address,bytes32,bytes32,uint256[])
     assert "ab" * 32 in data and data.endswith(("0" * 63 + "1") + ("0" * 63 + "2"))  # indexSets [1, 2]
 

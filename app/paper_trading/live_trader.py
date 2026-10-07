@@ -175,36 +175,41 @@ def redact(text: Any) -> str:
 # --- Klien CLOB -----------------------------------------------------------------------------
 
 def get_client():
-    """ClobClient level 2 (private key + kredensial API turunan), di-cache per proses."""
+    """
+    ClobClient level 2 (private key + kredensial API turunan), di-cache per proses. Memakai SDK CLOB V2
+    (`py-clob-client-v2`): server menolak order format lama ("invalid order version").
+    """
     if "client" in _client_cache:
         return _client_cache["client"]
-    from py_clob_client.client import ClobClient
+    from py_clob_client_v2.client import ClobClient
 
-    client = ClobClient(settings.POLY_CLOB_HOST, key=settings.POLY_PRIVATE_KEY, chain_id=CHAIN_ID,
+    client = ClobClient(settings.POLY_CLOB_HOST, CHAIN_ID, key=settings.POLY_PRIVATE_KEY,
                         signature_type=settings.POLY_SIGNATURE_TYPE, funder=settings.POLY_FUNDER_ADDRESS or None)
-    client.set_api_creds(client.create_or_derive_api_creds())
+    client.set_api_creds(client.create_or_derive_api_key())
     _client_cache["client"] = client
     return client
 
 
 def usdc_balance() -> Optional[float]:
-    """Saldo USDC (collateral) yang bisa dipakai trading, dalam $."""
-    from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
+    """Saldo collateral (USD) yang bisa dipakai trading, dalam $."""
+    from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
 
     data = get_client().get_balance_allowance(BalanceAllowanceParams(asset_type=AssetType.COLLATERAL))
     raw = (data or {}).get("balance")
     return int(raw) / 1e6 if raw is not None else None
 
 
-def place_fok_buy(token_id: str, usd: float, max_price: float) -> Dict[str, Any]:
-    """Market order BUY FOK senilai `usd` dengan harga terburuk `max_price`. Kembalikan respons CLOB."""
-    from py_clob_client.clob_types import MarketOrderArgs, OrderType
-    from py_clob_client.order_builder.constants import BUY
+def place_fok_buy(token_id: str, usd: float, max_price: float, balance: Optional[float] = None) -> Dict[str, Any]:
+    """
+    Market order BUY FOK senilai `usd` dengan harga terburuk `max_price`. `balance` dipakai SDK untuk
+    menyesuaikan nominal dengan fee. create_and_post_market_order mengulang otomatis bila versi order berubah.
+    """
+    from py_clob_client_v2.clob_types import MarketOrderArgsV2, OrderType
+    from py_clob_client_v2.order_builder.constants import BUY
 
-    client = get_client()
-    order = client.create_market_order(MarketOrderArgs(token_id=str(token_id), amount=round(usd, 2), side=BUY,
-                                                       price=max_price, order_type=OrderType.FOK))
-    return client.post_order(order, OrderType.FOK) or {}
+    args = MarketOrderArgsV2(token_id=str(token_id), amount=round(usd, 2), side=BUY, price=max_price,
+                             order_type=OrderType.FOK, user_usdc_balance=float(balance or 0))
+    return get_client().create_and_post_market_order(args, order_type=OrderType.FOK) or {}
 
 
 # --- Aturan ---------------------------------------------------------------------------------
@@ -352,7 +357,7 @@ def live_execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Op
                      "Deposit ke wallet bot atau claim kemenangan di Polymarket.", now)
         return None
     try:
-        resp = place_fok_buy(decision["token"], usd, max_price)
+        resp = place_fok_buy(decision["token"], usd, max_price, balance)
     except Exception as err:
         message = redact(err)[:500]
         logger.error("Order live gagal: %s", message)
@@ -630,7 +635,7 @@ def redeem_call_data(condition_id: str) -> Tuple[str, str]:
     """(alamat ConditionalTokens, calldata redeemPositions) untuk satu market biner."""
     from eth_abi import encode
     from eth_utils import keccak, to_checksum_address
-    from py_clob_client.config import get_contract_config
+    from py_clob_client_v2.config import get_contract_config  # collateral CLOB V2 (bukan USDC.e lama)
 
     contracts = get_contract_config(CHAIN_ID)
     selector = keccak(text=REDEEM_SIGNATURE)[:4]

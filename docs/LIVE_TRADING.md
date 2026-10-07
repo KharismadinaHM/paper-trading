@@ -2,7 +2,8 @@
 
 Bot paper tetap berjalan seperti biasa. Bila diaktifkan, setiap sinyal crypto Up/Down dari seri yang dipilih
 untuk live (default **BTC 1 jam & ETH 1 jam**) yang lolos aturan sinyal (edge ≥ ambang, harga 30–90¢, spread,
-jendela menit masuk) juga dikirim sebagai order **uang asli** ke Polymarket lewat SDK resmi `py-clob-client`.
+jendela menit masuk) juga dikirim sebagai order **uang asli** ke Polymarket lewat SDK resmi CLOB V2
+`py-clob-client-v2` (collateral V2; auto-claim memakai alamat collateral dari config SDK itu).
 Kemenangan bisa di-claim otomatis. Kode: `app/paper_trading/live_trader.py`.
 
 > Risiko: bot bisa rugi. Hasil paper bukan jaminan hasil nyata (eksekusi, slippage, ukuran order).
