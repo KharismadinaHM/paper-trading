@@ -171,7 +171,7 @@ def test_commands_and_api(live):
     assert data["active"] is True and KEY not in str(data)
     assert client.post("/api/live/stop").json()["switch_on"] is False
     assert client.post("/api/live/start").json()["switch_on"] is True
-    assert 'id="liveContainer"' in client.get("/autobot").text
+    assert 'id="settingsContainer"' in client.get("/autobot").text
 
 
 def test_btc_tick_triggers_live_for_hourly(live, monkeypatch):
@@ -312,6 +312,12 @@ def test_live_calendar_and_trades(live, monkeypatch):
     assert len(client.get("/api/autotrade/calendar/trades", params={"date": local.date().isoformat(), "source": "live"}).json()["trades"]) == 2
     assert client.get("/api/autotrade/calendar", params={"source": "moon"}).status_code == 400
     assert 'id="calSrcLive"' in client.get("/autobot").text
+    assert day["fee"] == round(2 * 0.07 * 0.63 * 0.37 * 2 / 0.63, 2)  # perkiraan fee 2 order @63¢
+
+    from app.paper_trading.autobot_overview import overview
+    ov = overview(source="live", now=resolved + timedelta(minutes=1))
+    assert ov["trades"] == 2 and ov["wins"] == 1 and ov["fees_estimated"] and ov["balance"] == 50.0
+    assert ov["best"]["strategy"] == "btc" and ov["open"] == {"count": 0, "value": 0.0}
 
 
 def test_fok_kill_is_not_an_error_and_retries_three_times(live, monkeypatch):

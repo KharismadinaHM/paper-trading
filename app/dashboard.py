@@ -278,6 +278,13 @@ def autotrade_calendar_api(month: Optional[str] = None, year: Optional[int] = No
     return _calendar_call(fn, month=month, strategy=strategy or None)
 
 
+@app.get("/api/autotrade/overview", dependencies=[Depends(require_auth)])
+def autotrade_overview_api(source: str = "paper", period: str = "all", strategy: Optional[str] = None):
+    """Ringkasan profil Auto Bot: PnL, win rate, volume, fee, trade terbaik/terburuk, kurva PnL, per seri."""
+    from app.paper_trading.autobot_overview import overview
+    return _calendar_call(overview, source=source, period=period, strategy=strategy or None)
+
+
 @app.get("/api/autotrade/calendar/trades", dependencies=[Depends(require_auth)])
 def autotrade_calendar_trades_api(date: Optional[str] = None, month: Optional[str] = None,
                                   strategy: Optional[str] = None, source: str = "paper"):

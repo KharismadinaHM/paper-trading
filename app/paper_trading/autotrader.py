@@ -1046,8 +1046,9 @@ def _bucket(rows: List[PaperTrade], key) -> Dict[str, Dict[str, Any]]:
     for t in rows:
         closed = t.closed_at if t.closed_at.tzinfo else t.closed_at.replace(tzinfo=timezone.utc)
         k = key(closed.astimezone(tz))
-        b = out.setdefault(k, {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0, "cost": 0.0})
+        b = out.setdefault(k, {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0, "cost": 0.0, "fee": 0.0})
         pnl = float(t.net_pnl or 0)
+        b["fee"] += float(t.fees or 0)
         b["pnl"] += pnl
         b["trades"] += 1
         b["wins"] += 1 if pnl > 0 else 0
@@ -1056,6 +1057,7 @@ def _bucket(rows: List[PaperTrade], key) -> Dict[str, Dict[str, Any]]:
     for b in out.values():
         b["pnl"] = round(b["pnl"], 2)
         b["cost"] = round(b["cost"], 2)
+        b["fee"] = round(b["fee"], 2)
         b["roi"] = b["pnl"] / b["cost"] if b["cost"] else None
     return out
 
@@ -1067,6 +1069,7 @@ def _totals(buckets: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     wins = sum(b["wins"] for b in buckets.values())
     days = [b["pnl"] for b in buckets.values()]
     return {"pnl": pnl, "trades": trades, "wins": wins, "win_rate": wins / trades if trades else None,
+            "volume": round(cost, 2), "fees": round(sum(b.get("fee", 0.0) for b in buckets.values()), 2),
             "roi": pnl / cost if cost else None, "green": sum(1 for p in days if p > 0),
             "red": sum(1 for p in days if p < 0), "best": max(days, default=None), "worst": min(days, default=None)}
 

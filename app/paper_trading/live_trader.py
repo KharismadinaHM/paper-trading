@@ -698,20 +698,27 @@ def _resolved_between(start: datetime, end: datetime, strategy: Optional[str]) -
         db.close()
 
 
+def _live_fee(o: LiveOrder) -> float:
+    """Perkiraan fee taker order live: 0.07 × p × (1 − p) per share."""
+    p = float(o.avg_price or 0)
+    return 0.07 * p * (1 - p) * float(o.shares or 0)
+
+
 def _live_buckets(rows: List[LiveOrder], key) -> Dict[str, Dict[str, Any]]:
     tz = ZoneInfo(settings.NOTIFY_TIMEZONE)
     out: Dict[str, Dict[str, Any]] = {}
     for o in rows:
         k = key(_aware(o.resolved_at).astimezone(tz))
-        b = out.setdefault(k, {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0, "cost": 0.0})
+        b = out.setdefault(k, {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0, "cost": 0.0, "fee": 0.0})
         pnl = float(o.pnl or 0)
+        b["fee"] += _live_fee(o)
         b["pnl"] += pnl
         b["trades"] += 1
         b["wins"] += 1 if pnl > 0 else 0
         b["losses"] += 1 if pnl < 0 else 0
         b["cost"] += float(o.spent or 0)
     for b in out.values():
-        b["pnl"], b["cost"] = round(b["pnl"], 2), round(b["cost"], 2)
+        b["pnl"], b["cost"], b["fee"] = round(b["pnl"], 2), round(b["cost"], 2), round(b["fee"], 2)
         b["roi"] = b["pnl"] / b["cost"] if b["cost"] else None
     return out
 

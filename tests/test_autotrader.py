@@ -291,7 +291,7 @@ class TestControls:
         assert client.post("/api/autotrade/boom").status_code == 404
         assert 'id="autotradeContainer"' not in client.get("/").text and 'href="/autobot"' in client.get("/").text
         page = client.get("/autobot").text
-        assert 'id="autotradeContainer"' in page and 'id="marketsContainer"' in page and "/api/autotrade/markets" in page
+        assert 'id="historyContainer"' in page and 'id="marketsContainer"' in page and '/api/autotrade/overview' in page and "/api/autotrade/markets" in page
 
 
 class TestBtc15AndMaker:
@@ -683,6 +683,20 @@ def test_pnl_calendar_days_months_and_trades(funded, sent):
     assert len(client.get("/api/autotrade/calendar/trades", params={"month": "2031-04"}).json()["trades"]) == 1
     assert client.get("/api/autotrade/calendar/trades").status_code == 400
     assert 'id="calGrid"' in client.get("/autobot").text
+    assert cal["days"]["2031-03-04"]["fee"] == 0.0 and cal["totals"]["volume"] == 4.0
+
+    from app.paper_trading.autobot_overview import overview
+    ov = overview(period="all", now=datetime(2031, 4, 3, tzinfo=timezone.utc))
+    assert ov["trades"] == 3 and ov["wins"] == 2 and ov["losses"] == 1 and ov["pnl"] == 2.5 and ov["volume"] == 6.0
+    assert ov["best"]["pnl"] == 3.5 and ov["worst"]["pnl"] == -2.0 and ov["worst"]["strategy"] == "eth15"
+    assert [p["pnl"] for p in ov["curve"]] == [3.5, 1.5, 2.5]
+    assert {s["strategy"]: s["pnl"] for s in ov["series"]} == {"btc": 4.5, "eth15": -2.0}
+    week = overview(period="1w", strategy="btc_all", now=datetime(2031, 4, 3, tzinfo=timezone.utc))
+    assert week["trades"] == 1 and week["pnl"] == 1.0 and week["worst"] is None
+    data = client.get("/api/autotrade/overview", params={"period": "1m"}).json()
+    assert data["source"] == "paper" and "curve" in data and "open" in data
+    assert client.get("/api/autotrade/overview", params={"period": "5y"}).status_code == 400
+    assert client.get("/api/autotrade/overview", params={"source": "moon"}).status_code == 400
 
 
 def test_strategy_headers_distinguish_asset_and_length():
