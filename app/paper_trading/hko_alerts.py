@@ -20,6 +20,8 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+from sqlalchemy.exc import IntegrityError
+
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.logging import get_logger
@@ -215,8 +217,12 @@ def hko_status(now: Optional[datetime] = None, db=None) -> Optional[Dict[str, An
     try:
         reading = fetch_hko_reading()
         if reading:
-            record_reading(reading, db)
-            db.commit()
+            try:
+                record_reading(reading, db)
+                db.commit()
+            except IntegrityError:
+                # Proses lain (collector, atau request dashboard paralel) baru saja menyimpan bacaan yang sama
+                db.rollback()
         rows = readings_today(db, now)
     finally:
         if close:

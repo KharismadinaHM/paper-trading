@@ -251,3 +251,24 @@ def test_telegram_commands_and_api(ai):
     assert client.post("/api/hk/ask", json={"question": " "}).status_code == 400
     assert "RINGKASAN" in client.post("/api/hk/summary").json()["text"]
     assert 'id="chatInput"' in client.get("/hk").text
+
+
+def test_hko_status_survives_concurrent_duplicate_reading(monkeypatch):
+    """Dua request paralel (/api/hk/live & /api/hk/bot) menyimpan bacaan yang sama: yang kalah tidak boleh gagal."""
+    from sqlalchemy.exc import IntegrityError
+    from app.paper_trading import hko_alerts as ha
+    now = hkt(15).astimezone(timezone.utc)
+    db = get_db_session()
+    db.add(StationReading(station="HKO", observed_at=(now - timedelta(minutes=10)), temp=Decimal("29.5")))
+    db.commit()
+    db.close()
+    monkeypatch.setattr(ha, "fetch_hko_reading", lambda: {"observed_at": now.astimezone(HKT), "temp": 29.8, "max": 30.6, "min": 25.4})
+
+    def racing(reading, db):
+        raise IntegrityError("INSERT", {}, Exception("duplicate key value violates unique constraint"))
+    monkeypatch.setattr(ha, "record_reading", racing)
+    monkeypatch.setattr(ha, "hko_official_forecast", lambda: None)
+    monkeypatch.setattr(ha, "_today_market", lambda now, kind="highest": [])
+    monkeypatch.setattr("app.paper_trading.weather_outlook.fetch_hourly_forecast", lambda *a, **k: [])
+    status = ha.hko_status(now=now)
+    assert status is not None and status["temp"] == 29.5
