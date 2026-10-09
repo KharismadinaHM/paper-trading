@@ -534,7 +534,7 @@
         const chips = [];
         if (liveData && liveData.available) {
             chips.push(`<span class="chip on">● HKO ${new Date(liveData.observed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Hong_Kong' })} HKT</span>`);
-        } else chips.push('<span class="chip off">● HKO belum ada data</span>');
+        } else chips.push('<span class="chip warn" title="Setelah pergantian hari HKT, bacaan pertama biasanya masuk dalam ±10 menit">● HKO menunggu bacaan hari ini</span>');
         if (botData) {
             const s = botData.strategies || [];
             chips.push(s.length ? `<span class="chip on">bot ${esc(s.join(' · '))}</span>` : '<span class="chip warn">bot shadow</span>');

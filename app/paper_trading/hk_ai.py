@@ -308,14 +308,21 @@ def actual_extremes(day: date) -> Optional[Dict[str, float]]:
     try:
         rows = (db.query(StationReading).filter(StationReading.station == STATION,
                                                 StationReading.observed_at >= start.astimezone(timezone.utc),
-                                                StationReading.observed_at < (start + timedelta(days=1)).astimezone(timezone.utc))
-                .all())
+                                                StationReading.observed_at <= (start + timedelta(days=1)).astimezone(timezone.utc))
+                .all())  # termasuk bacaan 00:00 besoknya: max/min resmi penutupan hari ini
     finally:
         db.close()
-    if len(rows) < 100:  # hari tidak lengkap (layanan mati): jangan dinilai
+    from app.paper_trading.hko_alerts import row_extremes
+
+    own = [r for r in rows if _aware(r.observed_at) < start + timedelta(days=1)]
+    if len(own) < 100:  # hari tidak lengkap (layanan mati): jangan dinilai
         return None
-    highs = [float(r.max_since_midnight) for r in rows if r.max_since_midnight is not None] + [float(r.temp) for r in rows]
-    lows = [float(r.min_since_midnight) for r in rows if r.min_since_midnight is not None] + [float(r.temp) for r in rows]
+    highs, lows = [float(r.temp) for r in own], [float(r.temp) for r in own]
+    for r in rows:
+        d, mx, mn = row_extremes(r)
+        if d == day:
+            highs += [mx] if mx is not None else []
+            lows += [mn] if mn is not None else []
     return {"max": max(highs), "min": min(lows)}
 
 

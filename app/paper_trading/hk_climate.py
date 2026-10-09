@@ -76,12 +76,19 @@ def recorded_daily(after: Optional[date], today: date) -> Dict[str, Dict[date, f
         rows = []
     finally:
         db.close()
+    from app.paper_trading.hko_alerts import row_extremes
+
     for r in rows:
         d = _aware(r.observed_at).astimezone(HKT).date()
-        hi = float(r.max_since_midnight) if r.max_since_midnight is not None else float(r.temp)
-        lo = float(r.min_since_midnight) if r.min_since_midnight is not None else float(r.temp)
-        out["max"][d] = max(out["max"].get(d, -math.inf), hi, float(r.temp))
-        out["min"][d] = min(out["min"].get(d, math.inf), lo, float(r.temp))
+        temp = float(r.temp)
+        out["max"][d] = max(out["max"].get(d, -math.inf), temp)
+        out["min"][d] = min(out["min"].get(d, math.inf), temp)
+        # max/min 'sejak tengah malam' milik hari yang dimaksud (bacaan 00:00 = penutupan hari sebelumnya)
+        day, hi, lo = row_extremes(r)
+        if hi is not None and (day in out["max"] or day == d):
+            out["max"][day] = max(out["max"].get(day, -math.inf), hi)
+        if lo is not None and (day in out["min"] or day == d):
+            out["min"][day] = min(out["min"].get(day, math.inf), lo)
     return out
 
 

@@ -272,3 +272,29 @@ def test_hko_status_survives_concurrent_duplicate_reading(monkeypatch):
     monkeypatch.setattr("app.paper_trading.weather_outlook.fetch_hourly_forecast", lambda *a, **k: [])
     status = ha.hko_status(now=now)
     assert status is not None and status["temp"] == 29.5
+
+
+def test_midnight_reading_carries_previous_day_extremes(monkeypatch):
+    """Bacaan HKO 00:00 berisi max/min HARI SEBELUMNYA: tidak boleh menjadi max/min hari ini, tapi dipakai untuk kemarin."""
+    from app.paper_trading import hko_alerts as ha
+    db = get_db_session()
+    yesterday = hkt(0, day=8)
+    for i in range(144):  # 8 Okt: suhu 25.0–29.0 per 10 menit
+        db.add(StationReading(station="HKO", observed_at=(yesterday + timedelta(minutes=10 * i)).astimezone(timezone.utc),
+                              temp=Decimal(str(round(25 + 4 * (i / 143), 1)))))
+    # 9 Okt 00:00: max/min 'sejak tengah malam' = penutupan 8 Okt (31.2 / 24.8 — di antara bacaan 10 menit)
+    db.add(StationReading(station="HKO", observed_at=hkt(0).astimezone(timezone.utc), temp=Decimal("26.0"),
+                          max_since_midnight=Decimal("31.2"), min_since_midnight=Decimal("24.8")))
+    db.add(StationReading(station="HKO", observed_at=hkt(0, 10).astimezone(timezone.utc), temp=Decimal("25.9"),
+                          max_since_midnight=Decimal("26.0"), min_since_midnight=Decimal("25.9")))
+    db.commit()
+    db.close()
+    monkeypatch.setattr(ha, "fetch_hko_reading", lambda: None)
+    monkeypatch.setattr(ha, "hko_official_forecast", lambda: None)
+    monkeypatch.setattr(ha, "_today_market", lambda now, kind="highest", day=None: [])
+    monkeypatch.setattr("app.paper_trading.weather_outlook.fetch_hourly_forecast", lambda *a, **k: [])
+    status = ha.hko_status(now=hkt(0, 15).astimezone(timezone.utc))
+    assert status["max"] == 26.0 and status["min"] == 25.9          # bukan 31.2 / 24.8 dari kemarin
+    assert hk_ai.actual_extremes(yesterday.date()) == {"max": 31.2, "min": 24.8}  # penutupan resmi kemarin
+    rows = ha.readings_for_day(hkt(0).date())
+    assert rows[0]["max"] is None and rows[1]["max"] == 26.0

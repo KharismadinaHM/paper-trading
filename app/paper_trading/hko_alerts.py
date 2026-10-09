@@ -138,6 +138,19 @@ def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def row_extremes(row: StationReading) -> Tuple["date", Optional[float], Optional[float]]:
+    """
+    (hari, max, min) dari kolom 'sejak tengah malam' sebuah bacaan. Bacaan 00:00 HKT berisi max/min HARI SEBELUMNYA
+    (HKO menutup hari itu pada 24:00) — angka itu milik kemarin, bukan hari ini.
+    """
+    local = _aware(row.observed_at).astimezone(HKT)
+    day = local.date()
+    if local.hour == 0 and local.minute == 0:
+        day -= timedelta(days=1)
+    return (day, float(row.max_since_midnight) if row.max_since_midnight is not None else None,
+            float(row.min_since_midnight) if row.min_since_midnight is not None else None)
+
+
 def readings_today(db, now: datetime) -> List[StationReading]:
     start = datetime.combine(now.astimezone(HKT).date(), datetime.min.time(), tzinfo=HKT).astimezone(timezone.utc)
     return (db.query(StationReading)
@@ -233,8 +246,10 @@ def hko_status(now: Optional[datetime] = None, db=None) -> Optional[Dict[str, An
     latest_at = _aware(latest.observed_at)
     temp = float(latest.temp)
     series = [(_aware(r.observed_at), float(r.temp)) for r in rows]
-    observed_max = max([float(r.max_since_midnight) for r in rows if r.max_since_midnight is not None]
-                       + [t for _, t in series])
+    today = now.astimezone(HKT).date()
+    extremes = [row_extremes(r) for r in rows]
+    own = [(mx, mn) for d, mx, mn in extremes if d == today]  # bacaan 00:00 (angka kemarin) tidak ikut
+    observed_max = max([mx for mx, _ in own if mx is not None] + [t for _, t in series])
     window_start = latest_at - timedelta(minutes=settings.HKO_ALERT_WINDOW_MINUTES)
     window = [t for ts, t in series if ts >= window_start]
     rise = round(temp - min(window), 1) if window else 0.0
@@ -277,8 +292,7 @@ def hko_status(now: Optional[datetime] = None, db=None) -> Optional[Dict[str, An
         market = []
 
     # Suhu terendah hari kalender: bisa masih turun sampai tengah malam
-    observed_min = min([float(r.min_since_midnight) for r in rows if r.min_since_midnight is not None]
-                       + [t for _, t in series])
+    observed_min = min([mn for _, mn in own if mn is not None] + [t for _, t in series])
     tied = [ts for ts, t in series if abs(t - observed_min) < 1e-9]
     min_at = (tied[0] + (tied[-1] - tied[0]) / 2).astimezone(HKT) if tied else None
     min_out = wo.outlook("lowest", HKT, local_date, observed_min, min_at, temp, latest_at, forecast, "C", now)
@@ -296,13 +310,13 @@ def hko_status(now: Optional[datetime] = None, db=None) -> Optional[Dict[str, An
         min_market = []
     return {
         "observed_at": latest_at.astimezone(HKT), "temp": temp, "max": observed_max,
-        "min": float(latest.min_since_midnight) if latest.min_since_midnight is not None else min(t for _, t in series),
+        "min": observed_min,
         "rise": rise, "rate": rate, "outlook": out, "projection": projection, "estimate": estimate,
         "official": official, "official_hint": official_hint,
         "peak": peak, "peak_passed": peak_passed, "final_ok": final_ok, "market": market,
         "min_at": min_at, "min_outlook": min_out, "min_estimate": min_estimate, "min_hint": min_hint,
         "min_market": min_market,
-        "previous_max": max([float(r.max_since_midnight) for r in rows[:-1] if r.max_since_midnight is not None]
+        "previous_max": max([mx for (d, mx, _) in extremes[:-1] if d == today and mx is not None]
                             + [float(r.temp) for r in rows[:-1]], default=None),
     }
 
@@ -562,9 +576,10 @@ def readings_for_day(day: Optional["date"] = None) -> List[Dict[str, Any]]:
     out = []
     for r in rows:
         at = _aware(r.observed_at).astimezone(HKT)
+        own_day = row_extremes(r)[0] == at.date()  # 00:00: angka kemarin → tidak ditampilkan sebagai hari ini
         out.append({"at": at, "temp": float(r.temp),
-                    "max": float(r.max_since_midnight) if r.max_since_midnight is not None else None,
-                    "min": float(r.min_since_midnight) if r.min_since_midnight is not None else None,
+                    "max": float(r.max_since_midnight) if r.max_since_midnight is not None and own_day else None,
+                    "min": float(r.min_since_midnight) if r.min_since_midnight is not None and own_day else None,
                     "alerts": [f"{k}:{float(v):g}" for t, k, v in alert_times
                                if at <= t < at + timedelta(minutes=10)]})
     return out
@@ -586,9 +601,10 @@ def readings_between(start: datetime, end: datetime) -> List[Dict[str, Any]]:
     out = []
     for r in rows:
         at = _aware(r.observed_at).astimezone(HKT)
+        own_day = row_extremes(r)[0] == at.date()  # 00:00: angka kemarin → tidak ditampilkan sebagai hari ini
         out.append({"at": at, "temp": float(r.temp),
-                    "max": float(r.max_since_midnight) if r.max_since_midnight is not None else None,
-                    "min": float(r.min_since_midnight) if r.min_since_midnight is not None else None,
+                    "max": float(r.max_since_midnight) if r.max_since_midnight is not None and own_day else None,
+                    "min": float(r.min_since_midnight) if r.min_since_midnight is not None and own_day else None,
                     "alerts": [t for t in alert_times if at <= t < at + timedelta(minutes=10)]})
     return out
 
