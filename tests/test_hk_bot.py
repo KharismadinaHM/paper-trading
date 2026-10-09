@@ -298,3 +298,46 @@ def test_midnight_reading_carries_previous_day_extremes(monkeypatch):
     assert hk_ai.actual_extremes(yesterday.date()) == {"max": 31.2, "min": 24.8}  # penutupan resmi kemarin
     rows = ha.readings_for_day(hkt(0).date())
     assert rows[0]["max"] is None and rows[1]["max"] == 26.0
+
+
+def test_gemini_caps_thinking_and_retries_when_truncated(monkeypatch):
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(settings, "GEMINI_MODEL", "gemini-2.5-flash")
+    bodies = []
+
+    class Resp:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps(self.payload).encode()
+
+    def fake_urlopen(req, timeout=60):
+        bodies.append(json.loads(req.data))
+        if len(bodies) == 1:  # percobaan pertama: kuota habis untuk berpikir, JSON terpotong
+            return Resp({"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": '{"max": {"perki'}]}}],
+                         "usageMetadata": {"candidatesTokenCount": 154, "thoughtsTokenCount": 3928}})
+        return Resp({"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": '{"ok": true}'}]}}]})
+    monkeypatch.setattr(hk_ai.urllib.request, "urlopen", fake_urlopen)
+    assert hk_ai.parse_json(hk_ai.gemini("p", "s", json_mode=True)) == {"ok": True}
+    assert bodies[0]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 1024}
+    assert bodies[0]["generationConfig"]["maxOutputTokens"] == 8192
+    assert bodies[1]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+    monkeypatch.setattr(settings, "GEMINI_MODEL", "gemini-2.0-flash")  # model tanpa "berpikir": tanpa thinkingConfig
+    bodies.clear()
+    monkeypatch.setattr(hk_ai.urllib.request, "urlopen", lambda req, timeout=60: (bodies.append(json.loads(req.data)) or
+                        Resp({"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "halo"}]}}]})))
+    assert hk_ai.gemini("p", "s") == "halo" and "thinkingConfig" not in bodies[0]["generationConfig"]
+
+
+def test_parse_json_tolerates_fences_and_extra_text():
+    assert hk_ai.parse_json('```json\n{"a": 1}\n```') == {"a": 1}
+    assert hk_ai.parse_json('Berikut hasilnya: {"a": {"b": 2}} semoga membantu') == {"a": {"b": 2}}
+    with pytest.raises(hk_ai.GeminiError):
+        hk_ai.parse_json('{"a": 1')

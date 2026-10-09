@@ -48,15 +48,28 @@ def ai_problems() -> List[str]:
     return problems
 
 
-def gemini(prompt: str, system: str, json_mode: bool = False, timeout: int = 60) -> str:
-    """Satu panggilan generateContent; teks jawaban. Melempar GeminiError (tanpa API key di pesannya)."""
-    if ai_problems():
-        raise GeminiError("; ".join(ai_problems()))
+MAX_OUTPUT_TOKENS = 8192
+THINKING_BUDGET = {"json": 1024, "text": 512}  # model 2.5 "berpikir" dari kuota output yang sama: dibatasi
+
+
+class GeminiTruncated(GeminiError):
+    pass
+
+
+def _supports_thinking(model: str) -> bool:
+    return any(tag in model for tag in ("2.5", "-3"))
+
+
+def _call(prompt: str, system: str, json_mode: bool, timeout: int, thinking: Optional[int]) -> str:
+    config: Dict[str, Any] = {"temperature": 0.2, "maxOutputTokens": MAX_OUTPUT_TOKENS}
+    if json_mode:
+        config["responseMimeType"] = "application/json"
+    if thinking is not None and _supports_thinking(settings.GEMINI_MODEL):
+        config["thinkingConfig"] = {"thinkingBudget": thinking}
     body = {
         "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096,
-                             **({"responseMimeType": "application/json"} if json_mode else {})},
+        "generationConfig": config,
     }
     req = urllib.request.Request(
         GEMINI_URL.format(model=settings.GEMINI_MODEL), data=json.dumps(body).encode(), method="POST",
@@ -73,12 +86,50 @@ def gemini(prompt: str, system: str, json_mode: bool = False, timeout: int = 60)
         raise GeminiError(f"Gemini HTTP {err.code}: {detail}".strip()) from None
     except Exception as err:
         raise GeminiError(f"Gemini tidak bisa dihubungi: {type(err).__name__}") from None
-    parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+    candidate = (data.get("candidates") or [{}])[0]
+    parts = (candidate.get("content") or {}).get("parts") or []
     text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+    reason = candidate.get("finishReason")
+    if reason == "MAX_TOKENS":
+        usage = data.get("usageMetadata") or {}
+        logger.warning("Gemini terpotong (MAX_TOKENS): output %s token, berpikir %s token",
+                       usage.get("candidatesTokenCount"), usage.get("thoughtsTokenCount"))
+        if json_mode or not text:
+            raise GeminiTruncated("Jawaban Gemini terpotong (batas token)")
     if not text:
-        reason = (data.get("candidates") or [{}])[0].get("finishReason") or data.get("promptFeedback")
-        raise GeminiError(f"Gemini tidak memberi jawaban ({reason})")
+        raise GeminiError(f"Gemini tidak memberi jawaban ({reason or data.get('promptFeedback')})")
     return text
+
+
+def gemini(prompt: str, system: str, json_mode: bool = False, timeout: int = 60) -> str:
+    """
+    Satu panggilan generateContent; teks jawaban. Melempar GeminiError (tanpa API key di pesannya).
+    Kuota "berpikir" dibatasi agar jawaban tidak terpotong; bila tetap terpotong, diulang sekali tanpa berpikir.
+    """
+    if ai_problems():
+        raise GeminiError("; ".join(ai_problems()))
+    try:
+        return _call(prompt, system, json_mode, timeout, THINKING_BUDGET["json" if json_mode else "text"])
+    except GeminiTruncated:
+        return _call(prompt, system, json_mode, timeout, 0)
+
+
+def parse_json(raw: str) -> Dict[str, Any]:
+    """JSON dari jawaban model: toleran terhadap pagar ``` dan teks di luar objek."""
+    text = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        data = json.loads(text)
+    except ValueError:
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            raise GeminiError("Jawaban Gemini bukan JSON yang valid") from None
+        try:
+            data = json.loads(text[start:end + 1])
+        except ValueError:
+            raise GeminiError("Jawaban Gemini bukan JSON yang valid") from None
+    if not isinstance(data, dict):
+        raise GeminiError("Jawaban Gemini bukan objek JSON")
+    return data
 
 
 def _knowledge() -> str:
@@ -213,17 +264,14 @@ def ai_view(now: Optional[datetime] = None, ctx: Optional[Dict[str, Any]] = None
         f"({tomorrow.get('tanggal') or '-'}) dengan peluang per bracket: max: {labels_tomorrow['max']} · min: {labels_tomorrow['min']}\n"
         "3. Prediksi suhu HKO dan kondisi cuaca untuk 6 jam ke depan (per jam).\n"
         "Bandingkan dengan model bot dan harga pasar; jelaskan bila kamu berbeda pendapat.\n"
+        "Ringkas: di 'peluang' cantumkan hanya bracket dengan peluang ≥ 0.01 (sisanya dianggap 0); alasan maks 3 poin pendek.\n"
         'Balas JSON saja: {"max": {"perkiraan": angka, "peluang": {"<bracket>": angka}}, '
         '"min": {"perkiraan": angka, "peluang": {"<bracket>": angka}}, '
         '"besok": {"max": {"perkiraan": angka, "peluang": {...}}, "min": {"perkiraan": angka, "peluang": {...}}}, '
         '"per_jam": [{"jam": "HH:MM", "suhu": angka, "cuaca": "singkat"}], '
         '"ringkasan": "2-3 kalimat kondisi saat ini", "alasan": ["..."], "risiko": ["..."]}'
     )
-    raw = gemini(prompt, SYSTEM + _knowledge(), json_mode=True)
-    try:
-        data = json.loads(raw.strip().removeprefix("```json").removesuffix("```").strip())
-    except ValueError:
-        raise GeminiError("Jawaban Gemini bukan JSON yang valid") from None
+    data = parse_json(gemini(prompt, SYSTEM + _knowledge(), json_mode=True))
     out: Dict[str, Any] = {"ringkasan": str(data.get("ringkasan") or "")[:600],
                            "alasan": [str(x)[:200] for x in (data.get("alasan") or [])][:4],
                            "risiko": [str(x)[:200] for x in (data.get("risiko") or [])][:3]}
