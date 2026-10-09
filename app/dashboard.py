@@ -405,6 +405,35 @@ def hk_bot_api():
                        "min_edge": float(cfg("HK_MIN_EDGE"))})
 
 
+def _hk_calibration_payload(cal=None):
+    from app.paper_trading import hk_calibration as hc
+    from app.paper_trading.autotrader import _config_overrides
+    return {"calibration": hc.current() if cal is None else cal, "enabled": hc.is_enabled(),
+            "buckets": [label for _, _, label in hc.BUCKETS], "min_days": hc.MIN_DAYS,
+            "weight_in_use": hc.model_weight(), "manual_weight": "HK_MODEL_WEIGHT" in _config_overrides()}
+
+
+@app.get("/api/hk/calibration", dependencies=[Depends(require_auth)])
+def hk_calibration_api():
+    """Kalibrasi otomatis bot HK: bias per kelompok jam (max/min), bobot model vs pasar, dan status."""
+    return _hk_calibration_payload()
+
+
+@app.post("/api/hk/calibration/run", dependencies=[Depends(require_auth)])
+def hk_calibration_run_api():
+    """Hitung ulang kalibrasi sekarang (melangkah dari nilai sebelumnya, dengan pengaman yang sama)."""
+    from app.paper_trading.hk_calibration import calibrate
+    return _hk_calibration_payload(calibrate())
+
+
+@app.delete("/api/hk/calibration", dependencies=[Depends(require_auth)])
+def hk_calibration_reset_api():
+    """Reset kalibrasi: bias 0, bobot model kembali ke default .env."""
+    from app.paper_trading.hk_calibration import reset
+    reset()
+    return _hk_calibration_payload({})
+
+
 class HkAskRequest(BaseModel):
     question: str
 

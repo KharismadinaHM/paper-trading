@@ -203,6 +203,16 @@
                     <div class="small" id="aiSummary" style="white-space: pre-wrap">-</div>
                     <div class="small muted mt-3" id="aiScore"></div>
                 </div>
+                <div class="card-x p-4 mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+                        <div class="section-title"><i class="bi bi-sliders me-1"></i>Kalibrasi otomatis</div>
+                        <div class="d-flex gap-2">
+                            <button class="btn-x ghost sm" onclick="runCalibration()" id="calRunBtn">Hitung ulang</button>
+                            <button class="btn-x ghost sm" onclick="resetCalibration()">Reset</button>
+                        </div>
+                    </div>
+                    <div id="calibrationBox" class="small muted">Memuat…</div>
+                </div>
                 <div class="card-x p-4">
                     <div class="section-title mb-2"><i class="bi bi-chat-dots me-1"></i>Tanya AI</div>
                     <div id="chatLog" class="small mb-2" style="max-height: 320px; overflow-y: auto"></div>
@@ -538,7 +548,7 @@
         }).join('');
     }
     function botInfo(d) {
-        return d ? `terukur ${d.observed.toFixed(1)}° · model ${d.mu.toFixed(1)}±${d.sigma.toFixed(1)}° · ${d.source}${d.final ? ' · final' : ''}` : '';
+        return d ? `terukur ${d.observed.toFixed(1)}° · model ${d.mu.toFixed(1)}±${d.sigma.toFixed(1)}°${Math.abs(d.bias || 0) >= 0.05 ? ` (bias ${d.bias > 0 ? '+' : ''}${d.bias.toFixed(1)})` : ''} · ${d.source}${d.final ? ' · final' : ''}` : '';
     }
     function renderScore(score) {
         const names = { ai: 'AI', model: 'Model', market: 'Pasar' };
@@ -603,6 +613,44 @@
         finally { btn.disabled = false; log.scrollTop = log.scrollHeight; }
     }
 
+    // --- KALIBRASI ---
+    function renderCalibration(d) {
+        const box = document.getElementById('calibrationBox');
+        const c = d.calibration || {};
+        const state = d.enabled ? '<span class="chip on">aktif</span>' : '<span class="chip off">nonaktif</span>';
+        if (!c.updated_at) {
+            box.innerHTML = `${state} <span class="ms-1">Belum ada kalibrasi. Dihitung tiap hari setelah 00:30 HKT; koreksi dipakai setelah ≥ ${d.min_days} hari data.</span>
+                <div class="mt-2">Bobot model vs pasar dipakai: <b class="mono">${num(d.weight_in_use, 2)}</b>${d.manual_weight ? ' (manual dari dashboard)' : ''}</div>`;
+            return;
+        }
+        const cell = e => !e || !e.days ? '<span class="dim">-</span>'
+            : `<span class="${e.value > 0.04 ? 'hot' : e.value < -0.04 ? 'cold' : ''}">${e.value > 0 ? '+' : ''}${e.value.toFixed(2)}</span><span class="dim"> ${e.days}h</span>`;
+        const rows = d.buckets.map(b => `<tr><td>${b}</td><td class="text-end">${cell((c.bias.max || {})[b])}</td><td class="text-end">${cell((c.bias.min || {})[b])}</td></tr>`).join('');
+        const w = c.weight || {};
+        box.innerHTML = `<div class="d-flex justify-content-between flex-wrap gap-2 mb-2">${state}
+                <span class="mono">${new Date(c.updated_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${c.signals} sinyal / ${c.window_days} hari</span></div>
+            <div class="table-responsive"><table class="table table-dark table-sm mb-2"><thead><tr><th>Jam HKT</th><th class="text-end">Bias max °C</th><th class="text-end">Bias min °C</th></tr></thead>
+                <tbody>${rows}</tbody></table></div>
+            <div>Bobot model vs pasar dipakai: <b class="mono text-white">${num(d.weight_in_use, 2)}</b>${d.manual_weight ? ' (manual dari dashboard)' : ''}
+                ${w.best !== null && w.best !== undefined ? ` · terbaik di data <span class="mono">${w.best}</span> (${w.days} hari)` : ' · belum ada sinyal resolve'}</div>
+            ${w.logloss_market !== null && w.logloss_market !== undefined ? `<div class="mt-1 mono">log-loss: pasar ${w.logloss_market} · model ${w.logloss_model} · terbaik ${w.logloss_best}</div>` : ''}
+            <div class="dim mt-2">Bias = hasil resmi − perkiraan (positif: model meremehkan). Dipakai setelah ≥ ${d.min_days} hari, ditarik ke nol bila data sedikit, maks ±0.3°/hari.</div>`;
+    }
+    async function loadCalibration() {
+        try { const res = await fetch('/api/hk/calibration'); renderCalibration(await res.json()); }
+        catch (e) { document.getElementById('calibrationBox').textContent = 'Gagal memuat kalibrasi.'; }
+    }
+    async function runCalibration() {
+        const btn = document.getElementById('calRunBtn'); btn.disabled = true;
+        try { const res = await fetch('/api/hk/calibration/run', { method: 'POST' }); renderCalibration(await res.json()); loadBot(); }
+        catch (e) { alert('Gagal menghitung kalibrasi.'); } finally { btn.disabled = false; }
+    }
+    async function resetCalibration() {
+        if (!confirm('Reset kalibrasi HK? Bias kembali 0 dan bobot model kembali ke default.')) return;
+        const res = await fetch('/api/hk/calibration', { method: 'DELETE' });
+        if (res.ok) { renderCalibration(await res.json()); loadBot(); }
+    }
+
     // --- MUAT DATA ---
     async function loadLive() {
         try {
@@ -645,6 +693,7 @@
     }
     async function loadAll() {
         loadBot();
+        loadCalibration();
         await loadLive();
         await loadClimate();
         loadHourly();

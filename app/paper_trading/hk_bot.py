@@ -168,12 +168,16 @@ def estimate(kind: str, now: datetime, status: Dict[str, Any],
     hint = (status.get("official") or {}).get("max_hint" if kind == "highest" else "min_hint")
     w = float(settings.AUTOTRADE_HK_OFFICIAL_WEIGHT)
     use_hint = hint is not None and (local.hour < 15 if kind == "highest" else True)
-    mu = (1 - w) * value + w * float(hint) if use_hint else value
+    mu_raw = (1 - w) * value + w * float(hint) if use_hint else value
+    from app.paper_trading.hk_calibration import bias_for
+    bias = bias_for(KIND_LABEL[kind], local.hour + local.minute / 60)  # koreksi bias historis (kalibrasi harian)
+    mu = mu_raw + bias
     sigma = sigma_for(lead, now)
     final = kind == "highest" and can_be_final(now, status.get("temp"), observed) and local.hour >= 15
     if final:
         sigma = SIGMA_FINAL
-    return {"kind": kind, "observed": observed, "mu": round(mu, 2), "sigma": round(sigma, 2), "lead": round(lead, 2),
+    return {"kind": kind, "observed": observed, "mu": round(mu, 2), "mu_raw": round(mu_raw, 2), "bias": round(bias, 2),
+            "sigma": round(sigma, 2), "lead": round(lead, 2),
             "at": at.astimezone(HKT).isoformat() if at else None, "projected": round(value, 2),
             "official_hint": hint if use_hint else None, "final": final, "source": source}
 
@@ -202,8 +206,9 @@ def analyze(now: Optional[datetime] = None, status: Optional[Dict[str, Any]] = N
     from app.paper_trading.autotrader import cfg
 
     projection = _projection(now) if projection is None else projection
-    weight = float(cfg("HK_MODEL_WEIGHT"))
-    out: Dict[str, Any] = {"now": now.astimezone(HKT).isoformat(), "temp": status["temp"],
+    from app.paper_trading.hk_calibration import model_weight
+    weight = model_weight()
+    out: Dict[str, Any] = {"now": now.astimezone(HKT).isoformat(), "temp": status["temp"], "model_weight": weight,
                            "observed_at": status["observed_at"].isoformat() if status.get("observed_at") else None,
                            "projection": [{"at": ts.astimezone(HKT).strftime("%H:%M"), "value": v} for ts, v in projection],
                            "official": (status.get("official") or {}).get("text")}
@@ -269,6 +274,7 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
     label = KIND_LABEL[kind]
     detail = (f"HKO {label} terukur {dist['observed']:.1f}°C · {dist['source']} {dist['projected']:.1f}°C · "
               f"model {dist['mu']:.1f}±{dist['sigma']:.1f}°C"
+              + (f" (koreksi bias {dist['bias']:+.1f})" if abs(dist.get("bias") or 0) >= 0.05 else "")
               + (f" · resmi HKO {dist['official_hint']:g}°C" if dist.get("official_hint") is not None else "")
               + (" · max dianggap final" if dist.get("final") else "")
               + f" · peluang model {target['model'] * 100:.0f}% vs pasar "
@@ -281,9 +287,10 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
         "size": usd, "detail": detail, "skip_reason": reason,
         "features": {
             "kind": kind, "bracket": target["bracket"], "observed": dist["observed"], "mu": dist["mu"],
+            "mu_raw": dist.get("mu_raw", dist["mu"]), "bias": dist.get("bias", 0.0),
             "sigma": dist["sigma"], "lead": dist["lead"], "projected": dist["projected"],
             "official_hint": dist.get("official_hint"), "final": dist.get("final"), "model_raw": target["model"],
-            "market_prob": target.get("market_prob"), "model_weight": float(cfg("HK_MODEL_WEIGHT")),
+            "market_prob": target.get("market_prob"), "model_weight": analysis.get("model_weight"),
             "temp": analysis.get("temp"), "hour_hkt": round(local.hour + local.minute / 60, 2),
             "spread": book.get("spread") if book else None, "slippage": book.get("slippage") if book else None,
         },

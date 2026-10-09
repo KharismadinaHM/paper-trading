@@ -21,6 +21,20 @@ Sinyal dicatat tiap 30 menit (juga bila strategi dimatikan) untuk dinilai dengan
 `knowledge/hk_karakteristik.md` (pola harian, faktor musiman) dipakai sebagai pengetahuan AI dan kerangka pengecekan;
 angka peluang tetap dari data.
 
+## Kalibrasi otomatis harian
+
+Setiap hari setelah 00:30 HKT (`hk_calibration.py`), dari sinyal 30 hari terakhir:
+
+- **Bias per kelompok jam HKT** (00–06, 06–09, 09–12, 12–15, 15–18, 18–24) untuk max dan min: rata-rata
+  (hasil resmi − perkiraan mentah). Ditambahkan ke titik perkiraan berikutnya. Perkiraan mentah disimpan di sinyal
+  (`mu_raw`) sehingga koreksi tidak menghitung dirinya sendiri.
+- **Bobot model vs pasar**: bobot dengan log-loss terkecil pada sinyal yang sudah resolve.
+
+Pengaman: dipakai setelah ≥ 10 hari data; ditarik ke 0 / bobot default bila data sedikit; bias maks ±1.5°C;
+berubah maks 0.3°C dan 0.1 bobot per hari; tiap hari berbobot sama. Bobot manual di dashboard selalu menang.
+Hasil dikabarkan ke grup auto trade. `/kalibrasi` (status) · `/kalibrasi jalankan` · `/kalibrasi reset`; juga di
+halaman `/hk` → Overview. Matikan dengan *Hong Kong: kalibrasi otomatis harian* di Auto Bot → Pengaturan.
+
 ## AI (Gemini) — bayangan, tidak menentukan pembelian
 
 - Ringkasan otomatis pada `HK_AI_REPORT_HOURS` (default 00, 03, 06, 09, 12, 15, 18, 21) zona `HK_AI_REPORT_TZ` (WIB) ke chat utama.

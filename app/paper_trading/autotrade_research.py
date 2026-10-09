@@ -30,7 +30,8 @@ WAIT_BY_LENGTH = {60: timedelta(minutes=70), 15: timedelta(minutes=25), 5: timed
 WEATHER_WAIT = timedelta(hours=8)
 CHECK_INTERVAL = timedelta(minutes=30)
 RETENTION = timedelta(days=120)
-THRESHOLD_SETTING = {"weather": "WEATHER_MIN_EDGE", "weather_post": "WEATHER_MIN_EDGE"}  # seri crypto: BTC_MIN_EDGE
+THRESHOLD_SETTING = {"weather": "WEATHER_MIN_EDGE", "weather_post": "WEATHER_MIN_EDGE",
+                     "hk_max": "HK_MIN_EDGE", "hk_min": "HK_MIN_EDGE"}  # seri crypto: BTC_MIN_EDGE
 # Sinyal yang HANYA terhalang oleh ambang edge (layak dipakai untuk menguji ambang lain)
 EDGE_ONLY_REASONS = {None, "edge di bawah minimum"}
 

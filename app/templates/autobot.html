@@ -813,7 +813,11 @@
                        class="form-control form-control-sm mono" value="${safeNumber(c.value)}"
                        title="Default .env: ${escapeHtml(String(c.default))} · rentang ${safeNumber(c.min)}–${safeNumber(c.max)}">
             </div>`).join('');
-        const agree = config.WEATHER_REQUIRE_AGREEMENT || {};
+        const bools = Object.entries(config).filter(([, c]) => c.type === 'bool').map(([name, c]) => `
+            <div class="form-check small mt-2">
+                <input class="form-check-input" type="checkbox" id="cfg_${name}" data-cfg-bool="${name}" ${c.value ? 'checked' : ''}>
+                <label class="form-check-label" for="cfg_${name}">${escapeHtml(c.label || name)}${c.overridden ? ' <span style="color: var(--live)">•</span>' : ''}</label>
+            </div>`).join('');
         const strat = config.STRATEGIES || {};
         const active = String(strat.value || '').split(',');
         const checks = (strat.options || []).map(opt => `
@@ -826,10 +830,7 @@
                 ${checks}
             </div>
             <div class="row g-3">${numeric}</div>
-            <div class="form-check small mt-3">
-                <input class="form-check-input" type="checkbox" id="cfg_WEATHER_REQUIRE_AGREEMENT" ${agree.value ? 'checked' : ''}>
-                <label class="form-check-label" for="cfg_WEATHER_REQUIRE_AGREEMENT">${escapeHtml(agree.label || '')}</label>
-            </div>
+            <div class="mt-2">${bools}</div>
             <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
                 <button class="btn-x" onclick="saveAutotradeConfig()"><i class="bi bi-save me-1"></i>Simpan</button>
                 <button class="btn-x ghost" onclick="resetAutotradeConfig()">Kembalikan ke default .env</button>
@@ -848,8 +849,9 @@
         const strategies = [...document.querySelectorAll('[data-strategy]')].filter(el => el.checked).map(el => el.dataset.strategy);
         const currentStrategies = String((config.STRATEGIES || {}).value || '').split(',').filter(Boolean).sort().join(',');
         if ([...strategies].sort().join(',') !== currentStrategies) values.STRATEGIES = strategies;
-        const agree = document.getElementById('cfg_WEATHER_REQUIRE_AGREEMENT').checked;
-        if (agree !== !!(config.WEATHER_REQUIRE_AGREEMENT || {}).value) values.WEATHER_REQUIRE_AGREEMENT = agree;
+        document.querySelectorAll('[data-cfg-bool]').forEach(el => {
+            if (el.checked !== !!(config[el.dataset.cfgBool] || {}).value) values[el.dataset.cfgBool] = el.checked;
+        });
         const msg = document.getElementById('autotradeConfigMsg');
         if (!Object.keys(values).length) { msg.innerHTML = '<span class="muted">Tidak ada perubahan.</span>'; return; }
         try {

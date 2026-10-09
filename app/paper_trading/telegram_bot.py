@@ -73,6 +73,7 @@ def build_help_message() -> str:
         "🔄 `/berbalik` - Riwayat waspada berbalik: favorit ≥90¢, warning, benar berbalik atau tidak (`/berbalik 7`)\n"
         "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan) · `/hk iklim` (klimatologi bulan ini + insight)\n"
         "🧠 `/rangkum` - Ringkasan Hong Kong saat ini: bacaan HKO, model bot HK, pandangan AI (Gemini), posisi & akurasi (`/rangkum baru` paksa segar). Otomatis tiap jam 00·03·06·09·12·15·18·21\n"
+        "🧮 `/kalibrasi` - Kalibrasi otomatis bot HK: koreksi bias per jam & bobot model (`/kalibrasi jalankan` · `reset`)\n"
         "💬 `/tanya <pertanyaan>` - Tanya AI tentang market Hong Kong hari ini (mis. `/tanya peluang max 30°C?`)\n"
         "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
@@ -544,6 +545,16 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
     elif cmd in ("/rangkum", "/ringkas", "/hkai"):
         from app.paper_trading.hk_ai import build_summary
         return build_summary(use_cache=not (args and args[0].lower() in ("baru", "segar", "refresh")))["text"]
+    elif cmd in ("/kalibrasi", "/calibration"):
+        from app.paper_trading import hk_calibration as hc
+        sub = args[0].lower() if args else ""
+        if sub == "reset":
+            hc.reset()
+            return "🧮 Kalibrasi HK di-reset: bias 0 dan bobot model kembali ke default .env."
+        if sub in ("jalankan", "run", "hitung"):
+            previous = hc.current()
+            return hc.format_status(hc.calibrate(), previous)
+        return hc.format_status()
     elif cmd in ("/tanya", "/ask"):
         from app.paper_trading.hk_ai import ask
         from app.paper_trading.wallet_bot import md
