@@ -192,6 +192,10 @@ class Settings(BaseSettings):
     AUTOTRADE_HK_MIN_PRICE: float = 0.05
     AUTOTRADE_HK_OFFICIAL_WEIGHT: float = 0.5  # bobot angka prakiraan resmi HKO (bila disebut) dalam rata-rata
     AUTOTRADE_HK_AUTO_CALIBRATE: bool = True   # kalibrasi harian bias & bobot model (hk_calibration.py)
+    # Hujan diperkirakan ±2 jam (nowcast radar HKO / peringatan hujan & petir / sedang hujan): sisa kenaikan max
+    # tinggal fraksi ini, min diturunkan sekian °C (hujan bisa menjatuhkan suhu 3–5°C). Disetel ulang oleh kalibrasi rezim.
+    AUTOTRADE_HK_RAIN_RISE_KEEP: float = 0.4
+    AUTOTRADE_HK_RAIN_MIN_DROP: float = 1.0
     # --- AI Hong Kong (Gemini): pandangan bayangan + ringkasan terjadwal + /tanya. Tidak menentukan pembelian. ---
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash"

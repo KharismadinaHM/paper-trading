@@ -116,3 +116,119 @@ def test_hk_api_forecast_tomorrow_and_trades(http, monkeypatch):
 def test_trade_history_supports_hk_all():
     from app.paper_trading import autotrader as at
     assert at.trade_history(strategy="hk_all") == []
+
+
+# --- Ensemble, nowcast hujan, koreksi hujan, rezim --------------------------------------
+
+NOWCAST_CSV = ("Updated Date and Time (in Hong Kong Time),Ending Date and Time (in Hong Kong Time),Latitude (degree),"
+               "Longitude (degree),Half-hourly Nowcast Accumulated Rainfall (mm)\n"
+               "202610091330,202610091400,22.304,114.163,0.4\n"
+               "202610091330,202610091400,22.304,114.182,0.6\n"
+               "202610091330,202610091400,22.380,114.230,3.5\n"
+               "202610091330,202610091430,22.304,114.163,0.1\n"
+               "202610091330,202610091400,23.487,112.956,9.9\n")
+
+
+def ensemble_json():
+    start = datetime(2026, 10, 9, 0, tzinfo=timezone.utc)
+    times = [(start + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M") for i in range(72)]
+    hourly = {"time": times}
+    for model, peak in zip(hk_forecast.ENSEMBLE_MODELS, [31.0, 30.0, 30.5, 31.5, 29.0]):
+        hourly[f"temperature_2m_{model}"] = [peak if (i + 8) % 24 == 14 else 27.0 for i in range(72)]
+    return {"hourly": hourly}
+
+
+@pytest.fixture
+def wx(monkeypatch):
+    state = {"warn": {}}
+
+    def fake(url, data=None, timeout=10):
+        if "Gridded_rainfall_nowcast" in url:
+            return NOWCAST_CSV
+        if "warnsum" in url:
+            return json.dumps(state["warn"])
+        if "models=" in url:
+            return json.dumps(ensemble_json())
+        if "rhrread" in url:
+            return json.dumps(RHRREAD)
+        if "open-meteo" in url:
+            return json.dumps(open_meteo())
+        if "dataType=fnd" in url:
+            return json.dumps(FND)
+        raise AssertionError(url)
+    monkeypatch.setattr("app.paper_trading.live_market_data._http", fake)
+    return state
+
+
+def test_nowcast_and_rain_signal(wx):
+    nc = hk_forecast.nowcast()
+    assert nc["steps"][0]["near_mm"] == 0.5 and nc["steps"][0]["area_max_mm"] == 3.5   # titik jauh (9.9) diabaikan
+    assert nc["near_total_mm"] == 0.6 and nc["updated"].startswith("2026-10-09T13:30")
+    sig = hk_forecast.rain_signal(NOW)
+    assert sig["expected"] and "nowcast 0.6 mm di stasiun" in sig["reasons"][0]
+    wx["warn"] = {"WTS": {"name": "Thunderstorm Warning", "code": "WTS", "actionCode": "ISSUE"}}
+    from app.paper_trading.live_market_data import clear_cache
+    clear_cache()
+    assert any("Badai petir" in r for r in hk_forecast.rain_signal(NOW)["reasons"])
+    assert hk_forecast.regime(NOW)["name"] == "hujan"
+
+
+def test_ensemble_extremes_and_table(wx):
+    start = datetime(2026, 10, 10, 0, tzinfo=HKT)
+    ext = hk_forecast.ensemble_extremes("highest", start, start + timedelta(days=1), None, None)
+    assert {k: v["value"] for k, v in ext.items()} == dict(zip(hk_forecast.ENSEMBLE_MODELS, [31.0, 30.0, 30.5, 31.5, 29.0]))
+    table = hk_forecast.ensemble_table(NOW)
+    assert table[0]["name"] == "ECMWF" and table[0]["tomorrow_max"] == 31.0 and table[0]["tomorrow_min"] == 27.0
+
+
+def test_estimate_blends_ensemble_and_cuts_rise_when_rain():
+    now = datetime(2026, 10, 9, 11, 0, tzinfo=HKT).astimezone(timezone.utc)
+    status = {"temp": 29.0, "max": 29.2, "min": 25.0, "official": {}}
+    proj = [(datetime(2026, 10, 9, 14, tzinfo=HKT), 31.0)]
+    ens = {"highest": {m: {"value": v} for m, v in zip("abcde", [31.0, 30.0, 30.5, 31.5, 29.0])}}
+    est = hk_bot.estimate("highest", now, status, proj, {"ens": ens})
+    assert est["ensemble_mean"] == pytest.approx(30.4) and est["mu"] == pytest.approx(30.7)   # (31 + 30.4) / 2
+    assert est["spread"] == pytest.approx(0.86, abs=0.01) and est["sigma"] >= est["spread"]
+    rainy = hk_bot.estimate("highest", now, status, proj, {"ens": ens, "rain": {"expected": True, "reasons": ["nowcast"]}})
+    # sisa kenaikan dari 29.2 ke 30.7 (1.5) tinggal 40% → 29.8; ketidakpastian ×1.3
+    assert rainy["mu"] == pytest.approx(29.8) and rainy["rain_adjusted"] and rainy["sigma"] == pytest.approx(est["sigma"] * 1.3, abs=0.01)
+    warm = {"temp": 28.0, "max": 30.0, "min": 27.6, "official": {}}
+    trough = [(datetime(2026, 10, 9, 23, tzinfo=HKT), 27.5)]
+    dry = hk_bot.estimate("lowest", now, warm, trough, {})
+    wet = hk_bot.estimate("lowest", now, warm, trough, {"rain": {"expected": True, "reasons": ["petir"]}})
+    assert dry["mu"] == pytest.approx(27.5) and wet["mu"] == pytest.approx(27.0) and wet["rain_adjusted"]  # 28 − 1°C
+
+
+def test_regime_calibration_adjusts_cloudy_days(monkeypatch):
+    from decimal import Decimal
+    from app.paper_trading import hk_calibration as hc
+    from app.paper_trading.models import AutotradeSignal
+    monkeypatch.setattr(hc, "_cache", {"at": 0.0, "value": None})
+    monkeypatch.setattr("app.paper_trading.hk_ai.actual_extremes", lambda day: {"max": 30.0, "min": 25.0})
+    today = datetime(2026, 10, 20, 1, 0, tzinfo=HKT)
+    db = get_db_session()
+    for i in range(20):
+        day = today.date() - timedelta(days=i + 1)
+        cloudy = i % 2 == 0           # hari mendung: proyeksi 31 (terlalu tinggi 1°C); cerah: proyeksi tepat 30
+        at = datetime.combine(day, datetime.min.time(), tzinfo=HKT) + timedelta(hours=10)
+        db.add(AutotradeSignal(signal_key=f"hk_max|{day}", strategy="hk_max", market_id=f"0x{i}", side="YES",
+                               model_prob=Decimal("0.5"), price=Decimal("0.5"), fee=Decimal("0"), edge=Decimal("0"),
+                               action="skipped", local_day=day.isoformat(), created_at=at.astimezone(timezone.utc),
+                               features=json.dumps({"mu_raw": 31.0 if cloudy else 30.0, "observed": 28.0, "hour_hkt": 10,
+                                                    "regime": "mendung" if cloudy else "cerah"})))
+    db.commit()
+    db.close()
+    cal = hc.calibrate(today.astimezone(timezone.utc))
+    assert cal["bias"]["max"]["09–12"]["mean"] == pytest.approx(-0.5)
+    mendung, cerah = cal["regime"]["max"]["mendung"], cal["regime"]["max"]["cerah"]
+    assert mendung["days"] == 10 and mendung["mean"] == pytest.approx(-0.5) and cerah["mean"] == pytest.approx(0.5)
+    assert mendung["value"] == pytest.approx(-0.3)   # langkah maks per hari
+    assert hc.bias_for("max", 10.5, "mendung") == pytest.approx(cal["bias"]["max"]["09–12"]["value"] - 0.3)
+
+
+def test_forecast_api_has_nowcast_and_ensemble(wx):
+    from fastapi.testclient import TestClient
+    from app.dashboard import app
+    data = TestClient(app).get("/api/hk/forecast").json()
+    assert data["rain"]["expected"] and data["regime"]["name"] == "hujan" and len(data["ensemble"]) == 5
+    assert data["nowcast"]["steps"][0]["near_mm"] == 0.5

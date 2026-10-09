@@ -36,6 +36,7 @@ SIGMA_DEFAULT = {1: 0.5, 2: 0.6, 3: 0.7, 4: 0.8, 5: 0.9, 6: 1.0}
 SIGMA_PER_HOUR_BEYOND = 0.1
 SIGMA_CAP = 2.5
 SIGNAL_BUCKET_MINUTES = 30
+RAIN_SIGMA_FACTOR = 1.3    # hujan diperkirakan: ketidakpastian diperlebar
 _sigma_cache: Dict[str, Any] = {"at": 0.0, "values": None}
 
 
@@ -148,12 +149,67 @@ def _projection(now: datetime) -> List[Tuple[datetime, float]]:
     return [(ts, v) for ts, v in project_ahead(now, readings, model, hours=hours) if ts < midnight]
 
 
+def weather_context(now: datetime, status: Optional[Dict[str, Any]] = None, day_offset: int = 0) -> Dict[str, Any]:
+    """
+    Data cuaca tambahan untuk estimasi (sekali per analisis): puncak/lembah tiap model ensemble untuk sisa hari
+    (atau besok), sinyal hujan ±2 jam (nowcast radar, peringatan, cuaca terkini), dan rezim cuaca.
+    """
+    from app.paper_trading import hk_forecast as hf
+
+    local = now.astimezone(HKT)
+    day_start = datetime.combine(local.date() + timedelta(days=day_offset), datetime.min.time(), tzinfo=HKT)
+    start, end = (now if day_offset == 0 else day_start), day_start + timedelta(days=1)
+    latest_at = status["observed_at"] if status and status.get("observed_at") else None
+    latest_temp = status.get("temp") if status else None
+    if latest_at is None:
+        from app.paper_trading.hko_hourly import _readings
+        db = get_db_session()
+        try:
+            readings = _readings(db, now - timedelta(hours=3), now + timedelta(minutes=1))
+        finally:
+            db.close()
+        if readings:
+            latest_at, latest_temp = readings[-1]
+    out: Dict[str, Any] = {"ens": {}, "rain": {"expected": False, "reasons": []}, "regime": None}
+    for kind in ("highest", "lowest"):
+        try:
+            out["ens"][kind] = hf.ensemble_extremes(kind, start, end, latest_at, latest_temp)
+        except Exception as err:
+            logger.warning("Ensemble HK gagal: %s", err)
+            out["ens"][kind] = {}
+    if day_offset == 0:
+        try:
+            out["rain"] = hf.rain_signal(now)
+            out["regime"] = hf.regime(now, out["rain"])
+        except Exception as err:
+            logger.warning("Sinyal hujan / rezim HK gagal: %s", err)
+    return out
+
+
+def _ensemble_stats(ens: Dict[str, Dict[str, Any]]) -> Tuple[Optional[float], Optional[float], Dict[str, float]]:
+    values = {m: v["value"] for m, v in (ens or {}).items()}
+    if len(values) < 3:
+        return None, None, values
+    xs = list(values.values())
+    mean = sum(xs) / len(xs)
+    spread = math.sqrt(sum((x - mean) ** 2 for x in xs) / len(xs))
+    return mean, spread, values
+
+
 def estimate(kind: str, now: datetime, status: Dict[str, Any],
-             projection: Optional[List[Tuple[datetime, float]]] = None) -> Dict[str, Any]:
-    """Puncak (max) / lembah (min) sisa hari: mu, sigma, dan dari mana angkanya."""
+             projection: Optional[List[Tuple[datetime, float]]] = None,
+             weather: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Puncak (max) / lembah (min) sisa hari: mu, sigma, dan dari mana angkanya.
+
+    Urutan: proyeksi per jam → dirata-rata dengan rata-rata ensemble (≥3 model) → koreksi hujan (nowcast/peringatan:
+    sisa kenaikan dipangkas, min diturunkan) → rata-rata dengan prakiraan resmi HKO → bias kalibrasi per jam & rezim.
+    sigma = maks(error historis, sebaran ensemble), diperlebar bila hujan diperkirakan.
+    """
     from app.paper_trading.hko_alerts import can_be_final
 
     projection = _projection(now) if projection is None else projection
+    weather = weather or {}
     observed = status["max"] if kind == "highest" else status["min"]
     local = now.astimezone(HKT)
     if projection:
@@ -165,20 +221,44 @@ def estimate(kind: str, now: datetime, status: Dict[str, Any],
         fallback = status.get("estimate") if kind == "highest" else status.get("min_estimate")
         value = fallback if fallback is not None else status["temp"]
         at, lead, source = None, 3.0, "perkiraan HKO/Open-Meteo (proyeksi tidak tersedia)"
+    projected = value
+    ens_mean, spread, ens_values = _ensemble_stats((weather.get("ens") or {}).get(kind) or {})
+    if ens_mean is not None:
+        value = (value + ens_mean) / 2 if projection else ens_mean
+        source += f" + ensemble {len(ens_values)} model"
+    final = kind == "highest" and can_be_final(now, status.get("temp"), observed) and local.hour >= 15
+    rain = weather.get("rain") or {}
+    rain_adjusted = False
+    if rain.get("expected") and not final:
+        temp = status.get("temp") if status.get("temp") is not None else observed
+        if kind == "highest":
+            current = max(observed, temp)
+            if value > current:
+                value = current + (value - current) * float(settings.AUTOTRADE_HK_RAIN_RISE_KEEP)
+                rain_adjusted = True
+        else:
+            dropped = temp - float(settings.AUTOTRADE_HK_RAIN_MIN_DROP)
+            if dropped < value:
+                value, rain_adjusted = dropped, True
     hint = (status.get("official") or {}).get("max_hint" if kind == "highest" else "min_hint")
     w = float(settings.AUTOTRADE_HK_OFFICIAL_WEIGHT)
     use_hint = hint is not None and (local.hour < 15 if kind == "highest" else True)
     mu_raw = (1 - w) * value + w * float(hint) if use_hint else value
     from app.paper_trading.hk_calibration import bias_for
-    bias = bias_for(KIND_LABEL[kind], local.hour + local.minute / 60)  # koreksi bias historis (kalibrasi harian)
+    regime = (weather.get("regime") or {}).get("name")
+    bias = bias_for(KIND_LABEL[kind], local.hour + local.minute / 60, regime)  # koreksi historis per jam & rezim
     mu = mu_raw + bias
-    sigma = sigma_for(lead, now)
-    final = kind == "highest" and can_be_final(now, status.get("temp"), observed) and local.hour >= 15
+    sigma = max(sigma_for(lead, now), spread or 0.0)
+    if rain.get("expected"):
+        sigma *= RAIN_SIGMA_FACTOR
     if final:
         sigma = SIGMA_FINAL
     return {"kind": kind, "observed": observed, "mu": round(mu, 2), "mu_raw": round(mu_raw, 2), "bias": round(bias, 2),
             "sigma": round(sigma, 2), "lead": round(lead, 2),
-            "at": at.astimezone(HKT).isoformat() if at else None, "projected": round(value, 2),
+            "at": at.astimezone(HKT).isoformat() if at else None, "projected": round(projected, 2),
+            "ensemble": ens_values, "ensemble_mean": round(ens_mean, 2) if ens_mean is not None else None,
+            "spread": round(spread, 2) if spread is not None else None,
+            "rain": rain.get("reasons") or [], "rain_adjusted": rain_adjusted, "regime": regime,
             "official_hint": hint if use_hint else None, "final": final, "source": source}
 
 
@@ -212,8 +292,11 @@ def analyze(now: Optional[datetime] = None, status: Optional[Dict[str, Any]] = N
                            "observed_at": status["observed_at"].isoformat() if status.get("observed_at") else None,
                            "projection": [{"at": ts.astimezone(HKT).strftime("%H:%M"), "value": v} for ts, v in projection],
                            "official": (status.get("official") or {}).get("text")}
+    weather = weather_context(now, status)
+    out["regime"] = weather.get("regime")
+    out["rain"] = {k: (weather.get("rain") or {}).get(k) for k in ("expected", "reasons")}
     for kind, market_key in (("highest", "market"), ("lowest", "min_market")):
-        est = estimate(kind, now, status, projection)
+        est = estimate(kind, now, status, projection, weather)
         out[KIND_LABEL[kind]] = {**est, "brackets": _bracket_rows(status.get(market_key) or [], kind, est, weight)}
     return out
 
@@ -247,7 +330,8 @@ SIGMA_TOMORROW_FLOOR = 1.2   # °C — besok belum ada angka terukur; prakiraan 
 
 
 def analyze_tomorrow(now: Optional[datetime] = None, hours: Optional[List[Dict[str, Any]]] = None,
-                     fnd: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+                     fnd: Optional[Dict[str, Any]] = None,
+                     ensemble: Optional[Dict[str, Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
     """
     Distribusi model untuk max & min BESOK (HKT): puncak/lembah per jam besok (Open-Meteo + bias HKO meluruh)
     dirata-rata dengan prakiraan 9 hari resmi HKO; ketidakpastian = error proyeksi 6 jam, min. SIGMA_TOMORROW_FLOOR. Tanpa angka terukur.
@@ -265,24 +349,35 @@ def analyze_tomorrow(now: Optional[datetime] = None, hours: Optional[List[Dict[s
     tomorrow = [h for h in hours if h["date"] == day.isoformat()]
     weight = model_weight()
     w_off = float(settings.AUTOTRADE_HK_OFFICIAL_WEIGHT)
+    weather = weather_context(now, None, day_offset=1) if ensemble is None else {"ens": ensemble}
     out: Dict[str, Any] = {"day": day.isoformat(), "model_weight": weight, "official": official,
                            "projection": [{"at": h["hour"], "value": h["temp"]} for h in tomorrow]}
     for kind in ("highest", "lowest"):
         label = KIND_LABEL[kind]
         hint = (official or {}).get("max" if kind == "highest" else "min")
+        ens_mean, spread, ens_values = _ensemble_stats((weather.get("ens") or {}).get(kind) or {})
         if tomorrow:
             pick = max if kind == "highest" else min
             peak = pick(tomorrow, key=lambda h: h["temp"])
             value, lead = peak["temp"], (datetime.fromisoformat(peak["at"]) - now).total_seconds() / 3600
             source = f"proyeksi {'puncak' if kind == 'highest' else 'lembah'} besok {peak['hour']}"
+        elif ens_mean is not None:
+            value, lead, source = ens_mean, 30.0, f"ensemble {len(ens_values)} model"
         elif hint is not None:
             value, lead, source = float(hint), 30.0, "prakiraan 9 hari HKO"
         else:
             continue
-        mu = (1 - w_off) * value + w_off * float(hint) if hint is not None and tomorrow else value
+        projected = value
+        if ens_mean is not None and tomorrow:
+            value = (value + ens_mean) / 2
+            source += f" + ensemble {len(ens_values)} model"
+        mu = (1 - w_off) * value + w_off * float(hint) if hint is not None and source != "prakiraan 9 hari HKO" else value
         est = {"kind": kind, "observed": None, "mu": round(mu, 2), "mu_raw": round(mu, 2), "bias": 0.0,
-               "sigma": round(max(sigma_for(6, now), SIGMA_TOMORROW_FLOOR), 2), "lead": round(lead, 2),
-               "projected": round(value, 2), "official_hint": hint, "final": False, "source": source}
+               "sigma": round(max(sigma_for(6, now), SIGMA_TOMORROW_FLOOR, spread or 0.0), 2), "lead": round(lead, 2),
+               "projected": round(projected, 2), "ensemble": ens_values,
+               "ensemble_mean": round(ens_mean, 2) if ens_mean is not None else None,
+               "spread": round(spread, 2) if spread is not None else None, "rain": [], "regime": None,
+               "official_hint": hint, "final": False, "source": source}
         try:
             markets = _today_market(now, kind, day=day)
         except Exception as err:
@@ -332,6 +427,8 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
     detail = (f"HKO {label} terukur {dist['observed']:.1f}°C · {dist['source']} {dist['projected']:.1f}°C · "
               f"model {dist['mu']:.1f}±{dist['sigma']:.1f}°C"
               + (f" (koreksi bias {dist['bias']:+.1f})" if abs(dist.get("bias") or 0) >= 0.05 else "")
+              + (f" · sebaran ensemble ±{dist['spread']:.1f}" if dist.get("spread") is not None else "")
+              + (f" · 🌧 {'; '.join(dist['rain'])}" if dist.get("rain") else "")
               + (f" · resmi HKO {dist['official_hint']:g}°C" if dist.get("official_hint") is not None else "")
               + (" · max dianggap final" if dist.get("final") else "")
               + f" · peluang model {target['model'] * 100:.0f}% vs pasar "
@@ -345,6 +442,9 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
         "features": {
             "kind": kind, "bracket": target["bracket"], "observed": dist["observed"], "mu": dist["mu"],
             "mu_raw": dist.get("mu_raw", dist["mu"]), "bias": dist.get("bias", 0.0),
+            "regime": dist.get("regime"), "spread": dist.get("spread"), "n_models": len(dist.get("ensemble") or {}),
+            "rain_adjusted": dist.get("rain_adjusted"), "rain_reasons": dist.get("rain"),
+            "cloud": ((analysis.get("regime") or {}).get("cloud")),
             "sigma": dist["sigma"], "lead": dist["lead"], "projected": dist["projected"],
             "official_hint": dist.get("official_hint"), "final": dist.get("final"), "model_raw": target["model"],
             "market_prob": target.get("market_prob"), "model_weight": analysis.get("model_weight"),

@@ -6,7 +6,10 @@ Yang dipelajari dari sinyal hk_max / hk_min yang tercatat tiap 30 menit (autotra
 1. Bias titik perkiraan per jam HKT (per kelompok jam): rata-rata (hasil resmi − perkiraan mentah), dengan
    perkiraan = max(terukur, puncak sisa hari) untuk max dan min(terukur, lembah) untuk min. Perkiraan MENTAH
    (sebelum koreksi) disimpan di sinyal (features.mu_raw), jadi koreksi tidak menghitung dirinya sendiri.
-2. Bobot model vs harga pasar: bobot dengan log-loss terkecil pada sinyal yang sudah resolve.
+2. Penyesuaian per rezim cuaca saat perkiraan dibuat ('hujan' / 'mendung' / 'cerah', dari nowcast radar, peringatan,
+   dan tutupan awan/peluang hujan beberapa jam ke depan): rata-rata residu yang tersisa setelah bias per jam.
+   Contoh: "saat mendung tebal, max biasanya 0.8°C di bawah proyeksi" → max hari mendung digeser turun.
+3. Bobot model vs harga pasar: bobot dengan log-loss terkecil pada sinyal yang sudah resolve.
 
 Pengaman (data sedikit mudah menyesatkan, pelajaran bot BTC):
 - dipakai setelah ≥ MIN_DAYS hari data; sebelum itu 0 / bobot default;
@@ -38,6 +41,8 @@ WEIGHT_SHRINK_DAYS = 20       # bobot = default + (terbaik − default) × n / (
 MAX_WEIGHT_STEP = 0.1
 WEIGHT_RANGE = (0.1, 1.0)
 RUN_AFTER_HKT = (0, 30)       # jalan sekali sehari setelah 00:30 HKT
+REGIMES = ("hujan", "mendung", "cerah")
+MIN_REGIME_DAYS = 8           # penyesuaian rezim dipakai setelah ≥ 8 hari rezim itu
 BUCKETS = [(0, 6, "00–06"), (6, 9, "06–09"), (9, 12, "09–12"), (12, 15, "12–15"), (15, 18, "15–18"), (18, 24, "18–24")]
 _cache: Dict[str, Any] = {"at": 0.0, "value": None}
 
@@ -74,12 +79,17 @@ def _store(value: Dict[str, Any], now: datetime) -> None:
     _cache.update(at=0.0, value=None)
 
 
-def bias_for(kind: str, hour: float) -> float:
-    """Koreksi °C untuk perkiraan 'max'/'min' yang dibuat pada jam HKT ini (0 bila nonaktif / belum cukup data)."""
+def bias_for(kind: str, hour: float, regime: Optional[str] = None) -> float:
+    """
+    Koreksi °C untuk perkiraan 'max'/'min' yang dibuat pada jam HKT ini: bias per kelompok jam + penyesuaian
+    rezim cuaca ('hujan' / 'mendung' / 'cerah'). 0 bila nonaktif / belum cukup data.
+    """
     if not is_enabled():
         return 0.0
-    entry = ((current().get("bias") or {}).get(kind) or {}).get(bucket_of(hour)) or {}
-    return float(entry.get("value") or 0.0)
+    cal = current()
+    entry = ((cal.get("bias") or {}).get(kind) or {}).get(bucket_of(hour)) or {}
+    adj = ((cal.get("regime") or {}).get(kind) or {}).get(regime or "") or {}
+    return float(entry.get("value") or 0.0) + float(adj.get("value") or 0.0)
 
 
 def model_weight() -> float:
@@ -125,15 +135,17 @@ def load_rows(now: datetime, days: int = WINDOW_DAYS) -> List[Dict[str, Any]]:
             "kind": "max" if s.strategy == "hk_max" else "min", "day": local.date(),
             "hour": f.get("hour_hkt", local.hour + local.minute / 60), "mu_raw": mu_raw, "observed": f.get("observed"),
             "model": f.get("model_raw"), "market": f.get("market_prob"), "outcome": s.outcome,
+            "regime": f.get("regime"),
         })
     return rows
 
 
-def _bias_table(rows: List[Dict[str, Any]], previous: Dict[str, Any]) -> Dict[str, Any]:
+def _residuals(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """(hasil resmi − perkiraan mentah) per sinyal; perkiraan = max(terukur, puncak) / min(terukur, lembah)."""
     from app.paper_trading.hk_ai import actual_extremes
 
     actuals: Dict[date, Optional[Dict[str, float]]] = {}
-    per: Dict[tuple, Dict[date, List[float]]] = {}
+    out = []
     for r in rows:
         if r["mu_raw"] is None or r["observed"] is None:
             continue
@@ -143,19 +155,46 @@ def _bias_table(rows: List[Dict[str, Any]], previous: Dict[str, Any]) -> Dict[st
         if not actual:
             continue
         point = max(r["observed"], r["mu_raw"]) if r["kind"] == "max" else min(r["observed"], r["mu_raw"])
-        per.setdefault((r["kind"], bucket_of(r["hour"])), {}).setdefault(r["day"], []).append(actual[r["kind"]] - point)
+        out.append({**r, "bucket": bucket_of(r["hour"]), "resid": actual[r["kind"]] - point})
+    return out
+
+
+def _shrunk_step(daily: List[float], min_days: int, old: float) -> Dict[str, Any]:
+    n = len(daily)
+    mean = sum(daily) / n if n else 0.0
+    target = mean * n / (n + BIAS_SHRINK_DAYS) if n >= min_days else 0.0
+    target = max(-BIAS_CAP, min(BIAS_CAP, target))
+    value = old + max(-MAX_BIAS_STEP, min(MAX_BIAS_STEP, target - old))
+    return {"value": round(value, 2), "target": round(target, 2), "mean": round(mean, 2), "days": n}
+
+
+def _bias_table(resid: List[Dict[str, Any]], previous: Dict[str, Any]) -> Dict[str, Any]:
+    per: Dict[tuple, Dict[date, List[float]]] = {}
+    for r in resid:
+        per.setdefault((r["kind"], r["bucket"]), {}).setdefault(r["day"], []).append(r["resid"])
     table: Dict[str, Dict[str, Any]] = {"max": {}, "min": {}}
     for kind in ("max", "min"):
         for _, _, label in BUCKETS:
-            days = per.get((kind, label), {})
-            daily = [sum(v) / len(v) for v in days.values()]
-            n = len(daily)
-            mean = sum(daily) / n if n else 0.0
-            target = mean * n / (n + BIAS_SHRINK_DAYS) if n >= MIN_DAYS else 0.0
-            target = max(-BIAS_CAP, min(BIAS_CAP, target))
+            daily = [sum(v) / len(v) for v in per.get((kind, label), {}).values()]
             old = float((((previous.get("bias") or {}).get(kind) or {}).get(label) or {}).get("value") or 0.0)
-            value = old + max(-MAX_BIAS_STEP, min(MAX_BIAS_STEP, target - old))
-            table[kind][label] = {"value": round(value, 2), "target": round(target, 2), "mean": round(mean, 2), "days": n}
+            table[kind][label] = _shrunk_step(daily, MIN_DAYS, old)
+    return table
+
+
+def _regime_table(resid: List[Dict[str, Any]], bias: Dict[str, Any], previous: Dict[str, Any]) -> Dict[str, Any]:
+    """Penyesuaian per rezim cuaca: rata-rata residu yang tersisa setelah bias per kelompok jam (rata-rata mentahnya)."""
+    per: Dict[tuple, Dict[date, List[float]]] = {}
+    for r in resid:
+        if r.get("regime") not in REGIMES:
+            continue
+        base = ((bias.get(r["kind"]) or {}).get(r["bucket"]) or {}).get("mean", 0.0)
+        per.setdefault((r["kind"], r["regime"]), {}).setdefault(r["day"], []).append(r["resid"] - base)
+    table: Dict[str, Dict[str, Any]] = {"max": {}, "min": {}}
+    for kind in ("max", "min"):
+        for name in REGIMES:
+            daily = [sum(v) / len(v) for v in per.get((kind, name), {}).values()]
+            old = float((((previous.get("regime") or {}).get(kind) or {}).get(name) or {}).get("value") or 0.0)
+            table[kind][name] = _shrunk_step(daily, MIN_REGIME_DAYS, old)
     return table
 
 
@@ -198,7 +237,11 @@ def calibrate(now: Optional[datetime] = None, store: bool = True) -> Dict[str, A
     previous = current()
     rows = load_rows(now)
     result = {"updated_at": now.isoformat(), "window_days": WINDOW_DAYS, "min_days": MIN_DAYS,
-              "bias": _bias_table(rows, previous), "weight": _weight(rows, previous), "signals": len(rows)}
+              "weight": _weight(rows, previous), "signals": len(rows)}
+    resid = _residuals(rows)
+    result["bias"] = _bias_table(resid, previous)
+    result["regime"] = _regime_table(resid, result["bias"], previous)
+    result["min_regime_days"] = MIN_REGIME_DAYS
     if store:
         _store(result, now)
     return result
@@ -230,6 +273,11 @@ def format_status(cal: Optional[Dict[str, Any]] = None, previous: Optional[Dict[
             moved = f" (dari {old:+.2f})" if old is not None and abs(old - e["value"]) >= 0.005 else ""
             parts.append(f"{label}: {e['value']:+.2f}°{moved} [{e['days']} hr, mentah {e['mean']:+.2f}]")
         lines.append(f"{title}: " + ("; ".join(parts) if parts else "belum ada data"))
+    for kind, title in (("max", "Rezim max"), ("min", "Rezim min")):
+        parts = [f"{name} {e['value']:+.2f}° [{e['days']} hr]" for name, e in ((cal.get("regime") or {}).get(kind) or {}).items()
+                 if e.get("days")]
+        if parts:
+            lines.append(f"{title}: " + "; ".join(parts))
     w = cal.get("weight") or {}
     old_w = ((previous or {}).get("weight") or {}).get("value")
     lines.append(f"Bobot model vs pasar: {w.get('value', settings.AUTOTRADE_HK_MODEL_WEIGHT)}"

@@ -126,6 +126,8 @@ def context(now: Optional[datetime] = None, analysis: Optional[Dict[str, Any]] =
         if not d:
             return None
         return {"terukur": d.get("observed"), "model_mu": d["mu"], "model_sigma": d["sigma"], "sumber": d["source"],
+                "ensemble_per_model": d.get("ensemble"), "sebaran_ensemble": d.get("spread"),
+                "koreksi_hujan": d.get("rain") or None, "rezim": d.get("regime"),
                 "final": d.get("final"),
                 "bracket": [{"bracket": r["bracket"], "model": r["model"], "pasar": r.get("market_prob"),
                              "ask": r.get("ask")} for r in d["brackets"]]}
@@ -157,6 +159,10 @@ def context(now: Optional[datetime] = None, analysis: Optional[Dict[str, Any]] =
         "model_bot": {"max": compact((analysis or {}).get("max")), "min": compact((analysis or {}).get("min"))},
         "posisi_paper_hk": positions,
         "cuaca_sekarang_hko": {k: cuaca.get(k) for k in ("text", "humidity", "rain_max_mm", "uv", "warnings")} if cuaca else None,
+        "nowcast_hujan_2_jam": [f"s/d {x['end'][11:16]}: stasiun {x['near_mm']} mm, ±10 km maks {x['area_max_mm']} mm"
+                                for x in ((forecast.get("nowcast") or {}).get("steps") or [])],
+        "peringatan_hko": [w["name"] for w in forecast.get("warnings") or []],
+        "rezim_cuaca": forecast.get("regime"),
         "per_jam_12_jam": [f"{h['hour']} {h['temp']:.1f}°C {h['text']} hujan {h.get('rain_prob')}% RH {h.get('humidity')}%"
                            for h in (forecast.get("hours") or [])[:12]],
         "prakiraan_9_hari_hko": [{k: d.get(k) for k in ("date", "max", "min", "weather", "psr")}

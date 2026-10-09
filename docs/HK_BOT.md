@@ -21,6 +21,19 @@ Sinyal dicatat tiap 30 menit (juga bila strategi dimatikan) untuk dinilai dengan
 `knowledge/hk_karakteristik.md` (pola harian, faktor musiman) dipakai sebagai pengetahuan AI dan kerangka pengecekan;
 angka peluang tetap dari data.
 
+## Ensemble, nowcast hujan, dan rezim cuaca
+
+- **Ensemble 5 model** (ECMWF, GFS, ICON, JMA, CMA lewat Open-Meteo), masing-masing dikoreksi bacaan HKO terakhir.
+  Rata-ratanya dirata-rata dengan proyeksi per jam; sebarannya (±) menjadi batas bawah ketidakpastian, jadi bila model
+  tidak sepakat bot otomatis lebih hati-hati. Juga dipakai untuk model hari besok.
+- **Nowcast hujan 2 jam** (grid radar HKO per 30 menit) + **peringatan HKO** (hujan lebat, badai petir, siklon) + cuaca
+  terkini. Bila hujan diperkirakan di stasiun: sisa kenaikan max tinggal `AUTOTRADE_HK_RAIN_RISE_KEEP` (40%), min
+  diturunkan `AUTOTRADE_HK_RAIN_MIN_DROP` (1°C), ketidakpastian ×1.3.
+- **Rezim** saat perkiraan dibuat: `hujan` (hujan diperkirakan / peluang hujan ≥ 60%), `mendung` (awan ≥ 80% 3 jam ke
+  depan), `cerah`. Disimpan di tiap sinyal untuk kalibrasi.
+
+Semua terlihat di `/hk` → Forecast (nowcast, peringatan, rezim, tabel ensemble) dan di detail model Overview.
+
 ## Kalibrasi otomatis harian
 
 Setiap hari setelah 00:30 HKT (`hk_calibration.py`), dari sinyal 30 hari terakhir:
@@ -28,6 +41,8 @@ Setiap hari setelah 00:30 HKT (`hk_calibration.py`), dari sinyal 30 hari terakhi
 - **Bias per kelompok jam HKT** (00–06, 06–09, 09–12, 12–15, 15–18, 18–24) untuk max dan min: rata-rata
   (hasil resmi − perkiraan mentah). Ditambahkan ke titik perkiraan berikutnya. Perkiraan mentah disimpan di sinyal
   (`mu_raw`) sehingga koreksi tidak menghitung dirinya sendiri.
+- **Penyesuaian per rezim cuaca** (hujan / mendung / cerah): rata-rata residu yang tersisa setelah bias per jam,
+  dipakai setelah ≥ 8 hari rezim itu. Ini juga menyetel ulang efek koreksi hujan di atas berdasarkan hasil nyata.
 - **Bobot model vs pasar**: bobot dengan log-loss terkecil pada sinyal yang sudah resolve.
 
 Pengaman: dipakai setelah ≥ 10 hari data; ditarik ke 0 / bobot default bila data sedikit; bias maks ±1.5°C;

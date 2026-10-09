@@ -294,6 +294,30 @@
 
     <!-- FORECAST -->
     <div class="tab-pane-x" id="tab-forecast">
+        <div class="row g-3 mb-3">
+            <div class="col-lg-5">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title"><i class="bi bi-cloud-drizzle me-1"></i>Nowcast hujan 2 jam</div>
+                        <span id="regimeChip"></span>
+                    </div>
+                    <div id="nowcastBox" class="small muted">Memuat…</div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title"><i class="bi bi-diagram-3 me-1"></i>Ensemble model</div>
+                        <span class="small dim mono">dikoreksi bacaan HKO terakhir</span>
+                    </div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Model</th><th class="text-end">Max hari ini</th><th class="text-end">Min hari ini</th>
+                            <th class="text-end">Max besok</th><th class="text-end">Min besok</th></tr></thead>
+                        <tbody id="ensRows"><tr><td colspan="5" class="muted">Memuat…</td></tr></tbody></table></div>
+                    <div class="small dim mt-2">Rata-rata model dipakai sebagai perkiraan; sebaran antar model (±) memperlebar ketidakpastian bila model tidak sepakat.</div>
+                </div>
+            </div>
+        </div>
         <div class="row g-3">
             <div class="col-lg-7">
                 <div class="card-x p-4 h-100">
@@ -667,6 +691,9 @@
         if (d.observed !== null && d.observed !== undefined) parts.push(`terukur ${d.observed.toFixed(1)}°`);
         parts.push(`model ${d.mu.toFixed(1)}±${d.sigma.toFixed(1)}°${Math.abs(d.bias || 0) >= 0.05 ? ` (bias ${d.bias > 0 ? '+' : ''}${d.bias.toFixed(1)})` : ''}`);
         if (d.official_hint !== null && d.official_hint !== undefined) parts.push(`HKO ${d.official_hint}°`);
+        if (d.spread !== null && d.spread !== undefined) parts.push(`ensemble ${Object.keys(d.ensemble || {}).length} model ±${d.spread.toFixed(1)}`);
+        if ((d.rain || []).length) parts.push('🌧 ' + d.rain.join('; '));
+        if (d.regime) parts.push('rezim ' + d.regime);
         parts.push(d.source + (d.final ? ' · final' : ''));
         return parts.join(' · ');
     }
@@ -732,6 +759,7 @@
         } catch (e) { forecastData = null; }
         renderWeather();
         renderForecast();
+        renderNowcast();
         renderAiHourly();
     }
     function renderWeather() {
@@ -746,6 +774,36 @@
         document.getElementById('wxMeta').innerHTML = esc(meta.join(' · ')) + ((w.warnings || []).length ? ` · <span style="color: var(--live)">⚠️ ${esc(w.warnings.join('; '))}</span>` : '');
         const next = ((forecastData && forecastData.hours) || []).filter((_, i) => i % 2 === 0).slice(0, 4);
         document.getElementById('wxNext').innerHTML = next.map(h => `<span class="wx-chip" title="${esc(h.text)}">${esc(h.hour)} ${h.icon} ${num(h.temp)}°${h.rain_prob ? ` <span class="cold">${h.rain_prob}%</span>` : ''}</span>`).join('');
+    }
+    function renderNowcast() {
+        const f = forecastData || {};
+        const reg = f.regime || {};
+        const cls = { hujan: 'cold', mendung: '', cerah: 'up' }[reg.name] ?? '';
+        document.getElementById('regimeChip').innerHTML = reg.name ? `<span class="chip ${cls === 'up' ? 'on' : cls === 'cold' ? 'warn' : ''}">rezim: ${esc(reg.name)}</span>` : '';
+        const nc = f.nowcast;
+        const steps = (nc && nc.steps) || [];
+        const maxMm = Math.max(1, ...steps.map(x => x.area_max_mm));
+        const bar = (v, color) => `<div class="bar-track" style="height: 8px"><div class="bar-fill" style="width:${Math.min(100, v / maxMm * 100).toFixed(0)}%; background:${color}"></div></div>`;
+        const rain = f.rain || {};
+        document.getElementById('nowcastBox').innerHTML = `
+            <div class="mb-2 ${rain.expected ? 'cold fw-semibold' : 'up'}">${rain.expected ? '🌧 Hujan diperkirakan: ' + esc((rain.reasons || []).join('; ')) : '☀️ Tidak ada hujan diperkirakan di stasiun HKO dalam 2 jam'}</div>
+            ${steps.length ? `<div class="d-grid gap-2">${steps.map(x => `<div class="bar-row" style="grid-template-columns: 52px 1fr 1fr 90px">
+                <span>${esc(x.end.slice(11, 16))}</span>${bar(x.near_mm, 'var(--cold)')}${bar(x.area_max_mm, 'var(--line-2)')}
+                <span class="text-end">${num(x.near_mm, 1)} / ${num(x.area_max_mm, 1)} mm</span></div>`).join('')}</div>
+                <div class="dim mono mt-1" style="font-size: .7rem">biru = di stasiun · abu = maks ±10 km · per 30 menit · update ${esc((nc.updated || '').slice(11, 16))} HKT</div>`
+              : '<div class="dim">Nowcast radar tidak tersedia.</div>'}
+            <div class="mt-2">${(f.warnings || []).length ? (f.warnings || []).map(w => `<span class="chip warn me-1">⚠️ ${esc(w.name)}</span>`).join('') : '<span class="dim">Tidak ada peringatan HKO aktif.</span>'}</div>
+            <div class="dim mt-2">Awan 3 jam ke depan ${reg.cloud === null || reg.cloud === undefined ? '-' : Math.round(reg.cloud) + '%'} · peluang hujan maks ${reg.rain_prob ?? '-'}%</div>`;
+        const ens = f.ensemble || [];
+        const stat = key => { const xs = ens.map(e => e[key]).filter(v => v !== undefined && v !== null); if (xs.length < 2) return '-';
+            const m = xs.reduce((a, b) => a + b, 0) / xs.length; const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length);
+            return `${m.toFixed(1)} <span class="dim">±${sd.toFixed(1)}</span>`; };
+        document.getElementById('ensRows').innerHTML = ens.length ? ens.map(e => `<tr><td>${esc(e.name)}</td>
+            <td class="text-end hot">${num(e.today_max)}</td><td class="text-end cold">${num(e.today_min)}</td>
+            <td class="text-end hot">${num(e.tomorrow_max)}</td><td class="text-end cold">${num(e.tomorrow_min)}</td></tr>`).join('')
+            + `<tr class="top-row"><td><b>Rata-rata</b></td><td class="text-end">${stat('today_max')}</td><td class="text-end">${stat('today_min')}</td>
+                <td class="text-end">${stat('tomorrow_max')}</td><td class="text-end">${stat('tomorrow_min')}</td></tr>`
+            : '<tr><td colspan="5" class="muted">Ensemble tidak tersedia.</td></tr>';
     }
     function renderForecast() {
         const hours = (forecastData && forecastData.hours) || [];
@@ -928,10 +986,12 @@
             : `<span class="${e.value > 0.04 ? 'hot' : e.value < -0.04 ? 'cold' : ''}">${e.value > 0 ? '+' : ''}${e.value.toFixed(2)}</span><span class="dim"> ${e.days}h</span>`;
         const rows = d.buckets.map(b => `<tr><td>${b}</td><td class="text-end">${cell((c.bias.max || {})[b])}</td><td class="text-end">${cell((c.bias.min || {})[b])}</td></tr>`).join('');
         const w = c.weight || {};
+        const reg = c.regime || {};
+        const regRows = ['hujan', 'mendung', 'cerah'].map(n => `<tr><td>rezim ${n}</td><td class="text-end">${cell((reg.max || {})[n])}</td><td class="text-end">${cell((reg.min || {})[n])}</td></tr>`).join('');
         box.innerHTML = `<div class="d-flex justify-content-between flex-wrap gap-2 mb-2">${state}
                 <span class="mono">${new Date(c.updated_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${c.signals} sinyal / ${c.window_days} hari</span></div>
             <div class="table-responsive"><table class="table table-dark table-sm mb-2"><thead><tr><th>Jam HKT</th><th class="text-end">Bias max °C</th><th class="text-end">Bias min °C</th></tr></thead>
-                <tbody>${rows}</tbody></table></div>
+                <tbody>${rows}${regRows}</tbody></table></div>
             <div>Bobot model vs pasar dipakai: <b class="mono text-white">${num(d.weight_in_use, 2)}</b>${d.manual_weight ? ' (manual dari dashboard)' : ''}
                 ${w.best !== null && w.best !== undefined ? ` · terbaik di data <span class="mono">${w.best}</span> (${w.days} hari)` : ' · belum ada sinyal resolve'}</div>
             ${w.logloss_market !== null && w.logloss_market !== undefined ? `<div class="mt-1 mono">log-loss: pasar ${w.logloss_market} · model ${w.logloss_model} · terbaik ${w.logloss_best}</div>` : ''}
