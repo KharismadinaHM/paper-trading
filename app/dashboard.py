@@ -393,7 +393,7 @@ def _json_safe(value):
 def hk_bot_api():
     """Bot HK: distribusi model max/min per bracket vs pasar, pandangan AI terbaru, dan skor akurasi."""
     from app.paper_trading import hk_ai, hk_bot
-    from app.paper_trading.autotrader import enabled_strategies
+    from app.paper_trading.autotrader import cfg, enabled_strategies
     analysis = hk_bot.analyze()
     try:
         score = hk_ai.scorecard()
@@ -401,7 +401,8 @@ def hk_bot_api():
         score = {}
     return _json_safe({"analysis": analysis, "ai": hk_ai.latest_views(), "score": score,
                        "ai_problems": hk_ai.ai_problems(), "positions": hk_bot.positions_today(),
-                       "strategies": [s for s in ("hk_max", "hk_min") if s in enabled_strategies()]})
+                       "strategies": [s for s in ("hk_max", "hk_min") if s in enabled_strategies()],
+                       "min_edge": float(cfg("HK_MIN_EDGE"))})
 
 
 class HkAskRequest(BaseModel):

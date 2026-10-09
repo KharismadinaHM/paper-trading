@@ -6,179 +6,320 @@
     <title>Hong Kong Market</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         :root {
-            --poly-bg: #0b0e14; --poly-card: #131823; --poly-border: #232938; --poly-text-muted: #8b949e;
-            --hot: #f97316; --cold: #38bdf8; --poly-green: #10b981;
+            --bg: #0a0b0d; --card: #111316; --card-2: #16191d; --line: #1f2328; --line-2: #2a2f36;
+            --text: #eef0f3; --muted: #8a919b; --dim: #5d646e;
+            --up: #22c55e; --down: #ef4444; --hot: #f97316; --cold: #38bdf8; --accent: #f5f5f5; --live: #f5b524;
+            --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
         }
-        body { background-color: var(--poly-bg); color: #f0f6fc; font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
-        .poly-card { background-color: var(--poly-card); border: 1px solid var(--poly-border); border-radius: 16px; }
-        .text-muted-poly { color: var(--poly-text-muted) !important; }
-        .tile { border: 1px solid var(--poly-border); border-radius: 12px; padding: 12px; height: 100%; }
-        .tile .label { color: var(--poly-text-muted); font-size: .8rem; }
-        .tile .value { font-size: 1.35rem; font-weight: 700; }
-        .bar-row { display: grid; grid-template-columns: 48px 1fr 48px 52px; gap: 8px; align-items: center; font-size: .82rem; }
-        .bar-track { background: #1c2230; border-radius: 6px; height: 14px; overflow: hidden; }
-        .bar-fill { height: 100%; border-radius: 6px; }
-        .bar-fill.hot { background: linear-gradient(90deg, #fb923c, #ef4444); }
-        .bar-fill.cold { background: linear-gradient(90deg, #7dd3fc, #3b82f6); }
-        .bar-row.today { outline: 1px dashed #facc15; outline-offset: 2px; border-radius: 6px; }
-        textarea.insight { background: #0f141d; color: #f0f6fc; border: 1px solid var(--poly-border); font-size: 1.05rem; line-height: 1.5; }
-        .table-dark { --bs-table-bg: transparent; }
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+        a { color: inherit; }
+        .mono { font-family: var(--mono); }
+        .muted, .text-muted-poly { color: var(--muted) !important; }
+        .dim { color: var(--dim) !important; }
+        .up { color: var(--up) !important; }
+        .down { color: var(--down) !important; }
+        .hot { color: var(--hot) !important; }
+        .cold { color: var(--cold) !important; }
+        .wrap { max-width: 1320px; margin: 0 auto; padding: 0 16px; }
+
+        .topbar { border-bottom: 1px solid var(--line); background: rgba(10, 11, 13, .92); position: sticky; top: 0; z-index: 20; backdrop-filter: blur(8px); }
+        .topbar .wrap { display: flex; align-items: center; gap: 28px; height: 56px; }
+        .brand { font-weight: 800; letter-spacing: .06em; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+        .navlinks { display: flex; gap: 22px; font-size: .92rem; }
+        .navlinks a { color: var(--muted); text-decoration: none; }
+        .navlinks a:hover, .navlinks a.active { color: var(--text); }
+
+        .card-x { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+        .tcard { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; height: 100%; }
+        .label { font-family: var(--mono); font-size: .7rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+        .btn-x { background: var(--accent); color: #0a0b0d; border: 0; border-radius: 9px; font-weight: 600; font-size: .9rem; padding: 7px 16px; }
+        .btn-x:hover { background: #fff; }
+        .btn-x:disabled { opacity: .6; }
+        .btn-x.ghost { background: transparent; color: var(--text); border: 1px solid var(--line-2); }
+        .btn-x.ghost:hover { background: var(--card-2); }
+        .btn-x.sm { font-size: .78rem; padding: 4px 10px; border-radius: 7px; }
+        .icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; color: var(--text);
+                    display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+        .icon-btn:hover { background: var(--card-2); color: var(--text); }
+        .chip { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: .68rem; padding: 2px 7px; border-radius: 6px;
+                background: var(--card-2); border: 1px solid var(--line-2); color: var(--muted); }
+        .chip.on { color: var(--up); border-color: rgba(34, 197, 94, .35); }
+        .chip.off { color: var(--down); border-color: rgba(239, 68, 68, .35); }
+        .chip.warn { color: var(--live); border-color: rgba(245, 181, 36, .35); }
+
+        .avatar { width: 58px; height: 58px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem;
+                  background: radial-gradient(circle at 30% 30%, #e0473a, #7f1d1d); box-shadow: 0 0 0 3px var(--card), 0 0 0 5px rgba(239, 68, 68, .45); flex-shrink: 0; }
+        .handle { font-family: var(--mono); font-weight: 700; font-size: 1.35rem; }
+        .big { font-size: 1.5rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; }
+        .huge { font-size: 2.2rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; line-height: 1.1; }
+        .kv { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .kv .k { color: var(--muted); font-size: .88rem; }
+        .kv .v { text-align: right; }
+        .kv .s { font-size: .74rem; color: var(--muted); font-family: var(--mono); }
+        .clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+        .tabs { display: flex; gap: 30px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+        .tabs button { border: 0; background: transparent; color: var(--muted); padding: 12px 2px; font-size: 1rem; font-weight: 500; white-space: nowrap;
+                       border-bottom: 2px solid transparent; margin-bottom: -1px; }
+        .tabs button.active { color: var(--text); border-bottom-color: var(--text); }
+        .tab-pane-x { display: none; }
+        .tab-pane-x.active { display: block; }
+        .section-title { font-weight: 600; font-size: 1rem; }
+
+        .table-dark { --bs-table-bg: transparent; --bs-table-border-color: var(--line); }
+        .table thead th { font-family: var(--mono); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted) !important; font-weight: 600; }
+        .table td { font-family: var(--mono); font-size: .82rem; }
+        .table td:first-child { font-family: Inter, sans-serif; }
+        tr.top-row td { background: rgba(255, 255, 255, .04); }
+        .form-control, .form-select { background-color: var(--card-2) !important; border-color: var(--line-2) !important; color: var(--text) !important; }
+        .bar-row { display: grid; grid-template-columns: 48px 1fr 48px 52px; gap: 8px; align-items: center; font-size: .8rem; font-family: var(--mono); }
+        .bar-track { background: var(--card-2); border-radius: 5px; height: 12px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 5px; }
+        .bar-fill.hot { background: var(--hot); }
+        .bar-fill.cold { background: var(--cold); }
+        .bar-row.today { outline: 1px dashed var(--live); outline-offset: 2px; border-radius: 6px; }
+        textarea.insight { font-size: 1.02rem; line-height: 1.5; }
         .hit { color: var(--hot); font-weight: 600; }
         .hit-cold { color: var(--cold); font-weight: 600; }
-        @media (max-width: 576px) { .tile .value { font-size: 1.1rem; } .bar-row { grid-template-columns: 40px 1fr 40px 44px; } }
+        .chat-q { color: var(--muted); }
+        .chat-a { white-space: pre-wrap; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+        .pill { font-family: var(--mono); font-size: .66rem; padding: 2px 6px; border-radius: 5px; font-weight: 600; background: var(--card-2); color: var(--muted); border: 1px solid var(--line-2); }
+
+        @media (max-width: 768px) {
+            .navlinks { display: none; }
+            .tabs { gap: 20px; }
+            .tabs button { font-size: .92rem; }
+            .huge { font-size: 1.8rem; }
+            .bar-row { grid-template-columns: 40px 1fr 40px 44px; }
+        }
     </style>
 </head>
 <body>
-<div class="container py-4" style="max-width: 1140px;">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-        <div>
-            <h3 class="fw-bold mb-0">🇭🇰 Hong Kong Market</h3>
-            <div class="text-muted-poly small">Stasiun resolusi: Hong Kong Observatory (HKO) · bracket dibulatkan ke bawah (33.9 → 33°C)</div>
+<nav class="topbar">
+    <div class="wrap">
+        <a class="brand" href="/hk"><i class="bi bi-hexagon-half"></i>AUTOBOT</a>
+        <div class="navlinks">
+            <a href="/">Dashboard</a>
+            <a href="/autobot">Auto Bot</a>
+            <a href="/hk" class="active">HK</a>
         </div>
-        <div class="d-flex gap-2">
-            <button class="btn btn-sm btn-outline-secondary" onclick="loadAll()"><i class="bi bi-arrow-repeat"></i> Refresh</button>
-            <a class="btn btn-sm btn-outline-secondary" href="/"><i class="bi bi-grid"></i> Dashboard</a>
+        <div class="ms-auto">
+            <button class="btn-x sm" id="summaryBtn" onclick="loadSummary(true)"><i class="bi bi-stars me-1"></i>Ringkasan AI</button>
+        </div>
+    </div>
+</nav>
+
+<div class="wrap py-4">
+    <!-- HEADER -->
+    <div class="row g-3 mb-4">
+        <div class="col-lg-5">
+            <div class="card-x p-4 h-100">
+                <div class="d-flex gap-3 align-items-start">
+                    <div class="avatar">HK</div>
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="handle">HK Observatory</div>
+                        <div class="d-flex gap-1 mt-2 flex-wrap" id="hdrChips"><span class="chip">memuat…</span></div>
+                    </div>
+                </div>
+                <div class="small muted mt-3 clamp" id="liveOfficial" title="">Prakiraan resmi HKO: memuat…</div>
+                <div class="d-flex justify-content-between align-items-center mt-3 gap-2">
+                    <div class="small dim">Bracket dibulatkan ke bawah (33.9 → 33°C)</div>
+                    <div class="d-flex gap-2">
+                        <button class="icon-btn" title="Refresh" onclick="loadAll()"><i class="bi bi-arrow-repeat"></i></button>
+                        <a class="icon-btn" title="Auto Bot" href="/autobot"><i class="bi bi-robot"></i></a>
+                        <a class="icon-btn" title="Dashboard" href="/"><i class="bi bi-grid"></i></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <div class="card-x p-4 h-100 d-flex flex-column gap-3" id="liveTiles"><div class="small muted">Memuat data HKO…</div></div>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <div class="card-x p-4 h-100">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                        <div class="muted small">Perkiraan model hari ini</div>
+                        <div class="d-flex gap-4 mt-1">
+                            <div><div class="label">Max</div><div class="big hot text-nowrap" id="estMax">-</div></div>
+                            <div><div class="label">Min</div><div class="big cold text-nowrap" id="estMin">-</div></div>
+                        </div>
+                    </div>
+                    <span class="small mono muted text-nowrap" id="liveObserved">-</span>
+                </div>
+                <div id="hdrSpark" class="mt-2" style="height: 70px"></div>
+                <div class="small dim mono" id="sparkNote"></div>
+            </div>
         </div>
     </div>
 
-    <!-- 1. HARI INI -->
-    <div class="poly-card p-4 mb-4">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-            <h5 class="fw-bold mb-0"><i class="bi bi-thermometer-sun me-2 text-warning"></i>Hari ini</h5>
-            <span class="small text-muted-poly" id="liveObserved">-</span>
-        </div>
-        <div class="row g-2 mb-3" id="liveTiles"><div class="col-12 small text-muted-poly">Memuat data HKO...</div></div>
-        <div class="small text-muted-poly mb-3" id="liveOfficial"></div>
+    <!-- TABS -->
+    <div class="tabs mb-3" id="tabs">
+        <button data-tab="overview" onclick="setTab('overview')">Overview</button>
+        <button data-tab="market" onclick="setTab('market')">Market</button>
+        <button data-tab="hourly" onclick="setTab('hourly')">Per jam</button>
+        <button data-tab="climate" onclick="setTab('climate')">Iklim</button>
+        <button data-tab="insight" onclick="setTab('insight')">Insight</button>
+    </div>
+
+    <!-- OVERVIEW: BOT HK & AI -->
+    <div class="tab-pane-x" id="tab-overview">
         <div class="row g-3">
-            <div class="col-lg-6">
-                <div class="fw-semibold mb-1">Market suhu tertinggi hari ini</div>
-                <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
-                    <thead><tr class="text-muted-poly"><th>Bracket</th><th class="text-end">Harga</th><th class="text-end">Bid / Ask</th>
-                        <th class="text-end" title="Frekuensi bracket di sekitar tanggal ini (±3 hari, 30 tahun)">Historis ±3 hari</th></tr></thead>
-                    <tbody id="marketMax"></tbody></table></div>
+            <div class="col-xl-7">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div class="section-title">Model vs AI vs pasar <span class="chip ms-1">paper</span></div>
+                        <span class="small muted" id="botStrategies"></span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-1">
+                        <div class="label hot">Suhu tertinggi</div><div class="small muted mono" id="botMaxInfo"></div>
+                    </div>
+                    <div class="table-responsive mb-4"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
+                            <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end" title="Peluang campuran model+pasar − (ask + fee)">Edge</th></tr></thead>
+                        <tbody id="botMax"><tr><td colspan="6" class="muted">Memuat…</td></tr></tbody></table></div>
+                    <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-1">
+                        <div class="label cold">Suhu terendah</div><div class="small muted mono" id="botMinInfo"></div>
+                    </div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
+                            <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end">Edge</th></tr></thead>
+                        <tbody id="botMin"><tr><td colspan="6" class="muted">Memuat…</td></tr></tbody></table></div>
+                    <div class="small dim mt-3">Model = max/min terukur HKO + proyeksi per jam + error historis. Edge = campuran model &amp; pasar − (ask + fee);
+                        hijau = memenuhi ambang beli. AI (Gemini) hanya bayangan: dinilai akurasinya, tidak menentukan pembelian.</div>
+                </div>
             </div>
-            <div class="col-lg-6">
-                <div class="fw-semibold mb-1">Market suhu terendah hari ini</div>
-                <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
-                    <thead><tr class="text-muted-poly"><th>Bracket</th><th class="text-end">Harga</th><th class="text-end">Bid / Ask</th>
-                        <th class="text-end">Historis ±3 hari</th></tr></thead>
-                    <tbody id="marketMin"></tbody></table></div>
+            <div class="col-xl-5">
+                <div class="card-x p-4 mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title"><i class="bi bi-stars me-1"></i>Pandangan AI</div>
+                        <span class="small muted mono" id="aiTime"></span>
+                    </div>
+                    <div class="small" id="aiSummary" style="white-space: pre-wrap">-</div>
+                    <div class="small muted mt-3" id="aiScore"></div>
+                </div>
+                <div class="card-x p-4">
+                    <div class="section-title mb-2"><i class="bi bi-chat-dots me-1"></i>Tanya AI</div>
+                    <div id="chatLog" class="small mb-2" style="max-height: 320px; overflow-y: auto"></div>
+                    <form class="d-flex gap-2" onsubmit="askAi(event)">
+                        <input class="form-control form-control-sm" id="chatInput" maxlength="1000"
+                               placeholder="mis. berapa peluang max ≥ 30°C hari ini?" autocomplete="off">
+                        <button class="btn-x sm" id="chatSend" type="submit"><i class="bi bi-send"></i></button>
+                    </form>
+                </div>
             </div>
         </div>
-        <div class="small text-muted-poly mt-2">Historis = berapa persen hari di sekitar tanggal ini (30 tahun terakhir) yang jatuh di bracket itu —
-            konteks iklim, bukan peluang hari ini (cuaca hari ini jauh lebih menentukan).</div>
     </div>
 
-    <!-- 1b. BOT HK & AI -->
-    <div class="poly-card p-4 mb-4">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-            <h5 class="fw-bold mb-0"><i class="bi bi-robot me-2 text-info"></i>Bot HK &amp; AI <span class="badge bg-dark border border-secondary-subtle text-muted-poly ms-1">paper</span></h5>
+    <!-- MARKET -->
+    <div class="tab-pane-x" id="tab-market">
+        <div class="card-x p-4">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="label hot mb-2">Market suhu tertinggi hari ini</div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Bracket</th><th class="text-end">Harga</th><th class="text-end">Bid / Ask</th>
+                            <th class="text-end" title="Frekuensi bracket di sekitar tanggal ini (±3 hari, 30 tahun)">Historis ±3 hari</th></tr></thead>
+                        <tbody id="marketMax"></tbody></table></div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="label cold mb-2">Market suhu terendah hari ini</div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Bracket</th><th class="text-end">Harga</th><th class="text-end">Bid / Ask</th>
+                            <th class="text-end">Historis ±3 hari</th></tr></thead>
+                        <tbody id="marketMin"></tbody></table></div>
+                </div>
+            </div>
+            <div class="small dim mt-3">Historis = persen hari di sekitar tanggal ini (30 tahun terakhir) yang jatuh di bracket itu —
+                konteks iklim, bukan peluang hari ini.</div>
+        </div>
+    </div>
+
+    <!-- PER JAM -->
+    <div class="tab-pane-x" id="tab-hourly">
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="card-x p-4 h-100">
+                    <div class="section-title mb-2">Hari ini: real vs expected</div>
+                    <div id="hourlyChart" style="height: 260px"></div>
+                    <div class="small dim mono mt-1">Garis putih = bacaan HKO · garis putus = expected / proyeksi 6 jam ke depan</div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="card-x p-4 h-100">
+                    <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-dark table-sm mb-0">
+                        <thead class="sticky-top" style="background: var(--card)"><tr><th>Jam</th><th class="text-end">Expected</th><th class="text-end">Δ</th><th class="text-end">Real</th></tr></thead>
+                        <tbody id="hourlyRows"></tbody></table></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- IKLIM -->
+    <div class="tab-pane-x" id="tab-climate">
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title" id="climateTitle">Klimatologi</div>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm w-auto" id="monthSelect" onchange="loadClimate()" aria-label="Bulan"></select>
+                    <select class="form-select form-select-sm w-auto" id="yearsSelect" onchange="loadClimate()" aria-label="Rentang tahun">
+                        <option value="5">5 tahun</option><option value="10" selected>10 tahun</option><option value="20">20 tahun</option><option value="30">30 tahun</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row g-2 mb-4" id="climateTiles"></div>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6">
+                    <div class="label hot mb-2">Sebaran suhu tertinggi harian <span class="dim" id="distMaxLabel"></span></div>
+                    <div id="distMax" class="d-grid gap-1"></div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="label cold mb-2">Sebaran suhu terendah harian <span class="dim" id="distMinLabel"></span></div>
+                    <div id="distMin" class="d-grid gap-1"></div>
+                </div>
+            </div>
+            <div class="section-title mb-2">Per tahun</div>
+            <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                <thead><tr><th>Tahun</th><th class="text-end">Max bulan</th><th class="text-end">Rata² max</th>
+                    <th class="text-end">Min bulan</th><th class="text-end">Rata² min</th><th id="hitMaxHead">Hari high ≥</th><th id="hitMinHead">Hari low</th></tr></thead>
+                <tbody id="yearRows"></tbody></table></div>
+            <div class="small dim mt-2" id="climateSource"></div>
+        </div>
+    </div>
+
+    <!-- INSIGHT -->
+    <div class="tab-pane-x" id="tab-insight">
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title">Insight siap posting</div>
+                <div class="d-flex gap-2 align-items-center small">
+                    <label class="muted" for="maxThreshold">High ≥</label>
+                    <input type="number" class="form-control form-control-sm mono" style="width: 72px" id="maxThreshold" onchange="loadClimate()">
+                    <label class="muted" for="minThreshold">Low</label>
+                    <input type="number" class="form-control form-control-sm mono" style="width: 72px" id="minThreshold" onchange="loadClimate()">
+                </div>
+            </div>
+            <textarea class="form-control insight mb-3" id="insightText" rows="5" placeholder="Memuat..."></textarea>
             <div class="d-flex gap-2 align-items-center">
-                <span class="small text-muted-poly" id="botStrategies"></span>
-                <button class="btn btn-sm btn-outline-info" id="summaryBtn" onclick="loadSummary(true)"><i class="bi bi-stars"></i> Ringkasan sekarang</button>
+                <button class="btn-x" onclick="copyInsight()"><i class="bi bi-clipboard me-1"></i>Salin</button>
+                <span class="small muted" id="copyStatus"></span>
             </div>
+            <div class="small dim mt-3">Ambang default = bracket perkiraan max &amp; min hari ini; bulan &amp; rentang tahun mengikuti tab Iklim.
+                "Low" di atas median bulan ini dihitung sebagai malam hangat (min ≥ ambang), di bawahnya malam dingin (min ≤ ambang). Teks bisa diedit sebelum disalin.</div>
         </div>
-        <div class="row g-3 mb-3">
-            <div class="col-lg-6">
-                <div class="fw-semibold mb-1">Suhu tertinggi <span class="small text-muted-poly" id="botMaxInfo"></span></div>
-                <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
-                    <thead><tr class="text-muted-poly"><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
-                        <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end" title="Peluang campuran model+pasar − (ask + fee)">Edge</th></tr></thead>
-                    <tbody id="botMax"><tr><td colspan="6" class="text-muted-poly">Memuat…</td></tr></tbody></table></div>
-            </div>
-            <div class="col-lg-6">
-                <div class="fw-semibold mb-1">Suhu terendah <span class="small text-muted-poly" id="botMinInfo"></span></div>
-                <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
-                    <thead><tr class="text-muted-poly"><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
-                        <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end">Edge</th></tr></thead>
-                    <tbody id="botMin"><tr><td colspan="6" class="text-muted-poly">Memuat…</td></tr></tbody></table></div>
-            </div>
-        </div>
-        <div class="row g-3">
-            <div class="col-lg-6">
-                <div class="fw-semibold mb-1">Pandangan AI terbaru</div>
-                <div class="small" id="aiSummary" style="white-space: pre-wrap">-</div>
-                <div class="small text-muted-poly mt-2" id="aiScore"></div>
-            </div>
-            <div class="col-lg-6">
-                <div class="fw-semibold mb-1">Tanya AI</div>
-                <div id="chatLog" class="small mb-2" style="max-height: 260px; overflow-y: auto"></div>
-                <form class="d-flex gap-2" onsubmit="askAi(event)">
-                    <input class="form-control form-control-sm bg-dark text-white border-secondary-subtle" id="chatInput" maxlength="1000"
-                           placeholder="mis. berapa peluang max ≥ 30°C hari ini?" autocomplete="off">
-                    <button class="btn btn-sm btn-info" id="chatSend" type="submit"><i class="bi bi-send"></i></button>
-                </form>
-            </div>
-        </div>
-        <div class="small text-muted-poly mt-2">Model = peluang dari max/min terukur HKO + proyeksi per jam + error historis. AI (Gemini) hanya
-            bayangan: dicatat dan dinilai akurasinya (Brier) terhadap model &amp; pasar, tidak menentukan pembelian. Edge = campuran model &amp; pasar − (ask + fee).</div>
     </div>
 
-    <!-- 2. INSIGHT -->
-    <div class="poly-card p-4 mb-4">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-            <h5 class="fw-bold mb-0"><i class="bi bi-megaphone me-2 text-info"></i>Insight siap posting</h5>
-            <div class="d-flex gap-2 flex-wrap align-items-center small">
-                <label class="text-muted-poly" for="maxThreshold">High ≥</label>
-                <input type="number" class="form-control form-control-sm bg-dark text-white border-secondary-subtle" style="width: 72px" id="maxThreshold" onchange="loadClimate()">
-                <label class="text-muted-poly" for="minThreshold">Low</label>
-                <input type="number" class="form-control form-control-sm bg-dark text-white border-secondary-subtle" style="width: 72px" id="minThreshold" onchange="loadClimate()">
-                <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="monthSelect" onchange="loadClimate()" aria-label="Bulan"></select>
-                <select class="form-select form-select-sm bg-dark text-white border-secondary-subtle w-auto" id="yearsSelect" onchange="loadClimate()" aria-label="Rentang tahun">
-                    <option value="5">5 tahun</option><option value="10" selected>10 tahun</option><option value="20">20 tahun</option><option value="30">30 tahun</option>
-                </select>
-            </div>
-        </div>
-        <textarea class="form-control insight mb-2" id="insightText" rows="4" placeholder="Memuat..."></textarea>
-        <div class="d-flex gap-2 align-items-center">
-            <button class="btn btn-sm btn-primary" onclick="copyInsight()"><i class="bi bi-clipboard"></i> Salin</button>
-            <span class="small text-muted-poly" id="copyStatus"></span>
-        </div>
-        <div class="small text-muted-poly mt-2">Ambang default = bracket perkiraan max & min hari ini. "Low" di atas median bulan ini dihitung sebagai malam hangat
-            (min ≥ ambang), di bawahnya sebagai malam dingin (min ≤ ambang). Teks bisa diedit sebelum disalin.</div>
-    </div>
-
-    <!-- 3. KLIMATOLOGI -->
-    <div class="poly-card p-4 mb-4">
-        <h5 class="fw-bold mb-3"><i class="bi bi-calendar3 me-2 text-success"></i><span id="climateTitle">Klimatologi</span></h5>
-        <div class="row g-2 mb-4" id="climateTiles"></div>
-        <div class="row g-4 mb-4">
-            <div class="col-lg-6">
-                <div class="fw-semibold mb-2">Sebaran suhu tertinggi harian <span class="text-muted-poly small" id="distMaxLabel"></span></div>
-                <div id="distMax" class="d-grid gap-1"></div>
-            </div>
-            <div class="col-lg-6">
-                <div class="fw-semibold mb-2">Sebaran suhu terendah harian <span class="text-muted-poly small" id="distMinLabel"></span></div>
-                <div id="distMin" class="d-grid gap-1"></div>
-            </div>
-        </div>
-        <div class="fw-semibold mb-1">Per tahun</div>
-        <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
-            <thead><tr class="text-muted-poly"><th>Tahun</th><th class="text-end">Max bulan</th><th class="text-end">Rata² max</th>
-                <th class="text-end">Min bulan</th><th class="text-end">Rata² min</th><th id="hitMaxHead">Hari high ≥</th><th id="hitMinHead">Hari low</th></tr></thead>
-            <tbody id="yearRows"></tbody></table></div>
-        <div class="small text-muted-poly mt-2" id="climateSource"></div>
-    </div>
-
-    <!-- 4. PER JAM -->
-    <div class="poly-card p-4 mb-4">
-        <h5 class="fw-bold mb-3"><i class="bi bi-table me-2 text-warning"></i>Per jam hari ini (expected vs real + 6 jam ke depan)</h5>
-        <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0">
-            <thead class="sticky-top"><tr class="text-muted-poly"><th>Jam</th><th class="text-end">Expected</th><th class="text-end">Perubahan</th><th class="text-end">Real</th></tr></thead>
-            <tbody id="hourlyRows"></tbody></table></div>
-    </div>
-    <div class="small text-muted-poly text-center">Informasi, bukan saran finansial.</div>
+    <div class="small dim text-center mt-4">Informasi, bukan saran finansial.</div>
 </div>
 
 <script>
     const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    let liveData = null;
-    let climateData = null;
+    let liveData = null, climateData = null, botData = null, hourlyData = null;
     let thresholdsTouched = false;
 
     function esc(v) {
@@ -186,53 +327,120 @@
     }
     function num(v, d = 1) { return v === null || v === undefined ? '-' : Number(v).toFixed(d); }
     function cents(v) { return v === null || v === undefined ? '-' : (v * 100).toFixed(v < 0.1 ? 1 : 0) + '¢'; }
+    const pct = v => v === null || v === undefined ? '-' : Math.round(v * 100) + '%';
     function bracketNumber(label) { const m = String(label || '').match(/-?\d+/); return m ? parseInt(m[0], 10) : null; }
-    function tile(label, value, sub = '', cls = '') {
-        return `<div class="col-6 col-md-3"><div class="tile"><div class="label">${label}</div>
-            <div class="value ${cls}">${value}</div>${sub ? `<div class="small text-muted-poly">${sub}</div>` : ''}</div></div>`;
+    const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
+                    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* abaikan */ } } };
+
+    // --- TABS ---
+    let tab = store.get('hkTab', 'overview');
+    function setTab(t) {
+        tab = t; store.set('hkTab', t);
+        document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+        document.querySelectorAll('.tab-pane-x').forEach(p => p.classList.toggle('active', p.id === 'tab-' + t));
+        if (t === 'hourly') renderHourlyChart();
     }
 
+    // --- GRAFIK ---
+    function lineChart(series, { height = 70, labels = false } = {}) {
+        // series: [{ values: [number|null], dash, color }]; semua sepanjang sumbu x yang sama
+        const all = series.flatMap(s => s.values).filter(v => v !== null && v !== undefined);
+        if (!all.length) return '<div class="small dim mono pt-4">belum ada data</div>';
+        const n = Math.max(...series.map(s => s.values.length));
+        const w = 300, pad = labels ? 14 : 4, min = Math.min(...all) - 0.2, max = Math.max(...all) + 0.2, span = max - min || 1;
+        const x = i => n > 1 ? (i / (n - 1)) * w : w / 2;
+        const y = v => pad + (1 - (v - min) / span) * (height - 2 * pad);
+        const paths = series.map(s => {
+            let d = '', started = false;
+            s.values.forEach((v, i) => {
+                if (v === null || v === undefined) { started = false; return; }
+                d += `${started ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)} `; started = true;
+            });
+            return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" ${s.dash ? 'stroke-dasharray="4 3"' : ''} vector-effect="non-scaling-stroke"/>`;
+        }).join('');
+        const axis = labels ? `<text x="0" y="10" fill="var(--dim)" font-size="9" font-family="var(--mono)">${max.toFixed(1)}°</text>
+            <text x="0" y="${height - 2}" fill="var(--dim)" font-size="9" font-family="var(--mono)">${min.toFixed(1)}°</text>` : '';
+        return `<svg viewBox="0 0 ${w} ${height}" preserveAspectRatio="none" width="100%" height="${height}" aria-hidden="true">${axis}${paths}</svg>`;
+    }
+    function hourlySeries() {
+        const rows = (hourlyData && hourlyData.rows) || [];
+        return [
+            { values: rows.map(r => r.expected), color: 'var(--live)', dash: true, width: 1.5 },
+            { values: rows.map(r => r.real), color: 'var(--text)' },
+        ];
+    }
+    function renderSpark() {
+        document.getElementById('hdrSpark').innerHTML = lineChart(hourlySeries(), { height: 70 });
+        const rows = (hourlyData && hourlyData.rows) || [];
+        const ahead = rows.filter(r => r.future && r.expected !== null);
+        document.getElementById('sparkNote').textContent = ahead.length
+            ? `proyeksi ${ahead[0].hour}–${ahead[ahead.length - 1].hour}: ${num(Math.min(...ahead.map(r => r.expected)))}–${num(Math.max(...ahead.map(r => r.expected)))}°C` : '';
+    }
+    function renderHourlyChart() {
+        const box = document.getElementById('hourlyChart');
+        if (box) box.innerHTML = lineChart(hourlySeries(), { height: 260, labels: true });
+    }
+
+    // --- HEADER & HARI INI ---
+    function renderChips() {
+        const chips = [];
+        if (liveData && liveData.available) {
+            chips.push(`<span class="chip on">● HKO ${new Date(liveData.observed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Hong_Kong' })} HKT</span>`);
+        } else chips.push('<span class="chip off">● HKO belum ada data</span>');
+        if (botData) {
+            const s = botData.strategies || [];
+            chips.push(s.length ? `<span class="chip on">bot ${esc(s.join(' · '))}</span>` : '<span class="chip warn">bot shadow</span>');
+            chips.push((botData.ai_problems || []).length ? '<span class="chip">AI nonaktif</span>' : '<span class="chip on">AI aktif</span>');
+        }
+        document.getElementById('hdrChips').innerHTML = chips.join('');
+    }
+    function renderLive() {
+        const d = liveData;
+        const box = document.getElementById('liveTiles');
+        renderChips();
+        if (!d || !d.available) { box.innerHTML = '<div class="small muted">Data HKO belum tersedia.</div>'; return; }
+        document.getElementById('liveObserved').textContent = new Date(d.observed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Hong_Kong' }) + ' HKT';
+        const rate = d.rate === null || d.rate === undefined ? '' : `${d.rate > 0 ? '+' : ''}${num(d.rate)}°C/jam`;
+        const row = (k, v, s, cls = '') => `<div class="kv"><div class="k">${k}</div><div class="v"><div class="big ${cls}">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div></div>`;
+        box.innerHTML = row('Sekarang', num(d.temp) + '°', rate)
+            + row('Max hari ini', num(d.max) + '°', d.final_ok ? 'kemungkinan final' : 'belum final', 'hot')
+            + row('Min hari ini', num(d.min) + '°', 'bisa turun s.d. 23:59', 'cold');
+        const off = [];
+        if (d.official_max !== null && d.official_max !== undefined) off.push(`max ±${d.official_max}°C`);
+        if (d.official_min !== null && d.official_min !== undefined) off.push(`min ±${d.official_min}°C`);
+        const official = document.getElementById('liveOfficial');
+        official.innerHTML = '<b>Prakiraan resmi HKO:</b> ' + (off.length ? off.join(' · ') + '. ' : '') + esc(d.official_text || '-');
+        official.title = d.official_text || '';
+        renderEstimates();
+        renderMarkets();
+    }
+    function renderEstimates() {
+        const a = botData && botData.analysis;
+        const fmt = (m, fallback) => m ? `${num(m.mu)}°<span class="small muted"> ±${num(m.sigma)}</span>` : (fallback === null || fallback === undefined ? '-' : num(fallback) + '°');
+        document.getElementById('estMax').innerHTML = fmt(a && a.max, liveData && liveData.estimate);
+        document.getElementById('estMin').innerHTML = fmt(a && a.min, liveData && liveData.min_estimate);
+    }
+
+    // --- MARKET (harga + historis) ---
     function historicalShare(label, dist) {
         if (!dist) return null;
         const n = bracketNumber(label);
         if (n === null) return null;
         const lower = /below|lower/i.test(label), higher = /higher|above/i.test(label);
-        return dist.filter(d => lower ? d.bracket <= n : higher ? d.bracket >= n : d.bracket === n)
-                   .reduce((a, d) => a + d.share, 0);
+        return dist.filter(d => lower ? d.bracket <= n : higher ? d.bracket >= n : d.bracket === n).reduce((a, d) => a + d.share, 0);
     }
     function marketRows(rows, dist) {
-        if (!rows || !rows.length) return '<tr><td colspan="4" class="text-muted-poly">Market hari ini belum tersedia.</td></tr>';
+        if (!rows || !rows.length) return '<tr><td colspan="4" class="muted">Market hari ini belum tersedia.</td></tr>';
         const sorted = [...rows].sort((a, b) => (bracketNumber(a.bracket) ?? 0) - (bracketNumber(b.bracket) ?? 0)
             || (/below|lower/i.test(a.bracket) ? -1 : /higher|above/i.test(a.bracket) ? 1 : 0));
         const top = Math.max(...rows.map(r => r.price || 0));
         return sorted.map(r => {
             const share = historicalShare(r.bracket, dist);
-            return `<tr class="${r.price === top ? 'fw-semibold' : ''}"><td>${esc(r.bracket)}</td>
+            return `<tr class="${r.price === top ? 'top-row' : ''}"><td>${esc(r.bracket)}</td>
                 <td class="text-end">${cents(r.price)}</td>
-                <td class="text-end text-muted-poly">${cents(r.bid)} / ${cents(r.ask)}</td>
+                <td class="text-end muted">${cents(r.bid)} / ${cents(r.ask)}</td>
                 <td class="text-end">${share === null ? '-' : (share * 100).toFixed(share < 0.01 && share > 0 ? 1 : 0) + '%'}</td></tr>`;
         }).join('');
-    }
-
-    function renderLive() {
-        const d = liveData;
-        const tiles = document.getElementById('liveTiles');
-        if (!d || !d.available) {
-            tiles.innerHTML = '<div class="col-12 small text-muted-poly">Data HKO belum tersedia.</div>';
-            return;
-        }
-        document.getElementById('liveObserved').textContent = 'HKO ' + new Date(d.observed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Hong_Kong' }) + ' HKT';
-        const rate = d.rate === null || d.rate === undefined ? '' : `${d.rate > 0 ? '+' : ''}${num(d.rate)}°/jam`;
-        tiles.innerHTML = tile('Sekarang', num(d.temp) + '°C', rate)
-            + tile('Max hari ini', num(d.max) + '°C', d.final_ok ? 'kemungkinan final' : 'belum final', 'text-warning')
-            + tile('Min hari ini', num(d.min) + '°C', 'bisa turun s.d. 23:59', 'text-info')
-            + tile('Perkiraan max / min', `${num(d.estimate)} / ${num(d.min_estimate)}`, 'HKO + Open-Meteo terkoreksi');
-        const off = [];
-        if (d.official_max !== null && d.official_max !== undefined) off.push(`max ±${d.official_max}°C`);
-        if (d.official_min !== null && d.official_min !== undefined) off.push(`min ±${d.official_min}°C`);
-        document.getElementById('liveOfficial').innerHTML = (off.length ? `<b>Prakiraan resmi HKO:</b> ${off.join(' · ')}. ` : '')
-            + (d.official_text ? esc(d.official_text) : '');
-        renderMarkets();
     }
     function renderMarkets() {
         if (!liveData || !liveData.available) return;
@@ -241,16 +449,20 @@
         document.getElementById('marketMin').innerHTML = marketRows(liveData.min_market, around && around.min.distribution);
     }
 
+    // --- IKLIM ---
     function bars(dist, cls, highlight) {
-        if (!dist || !dist.length) return '<div class="small text-muted-poly">Tidak ada data.</div>';
+        if (!dist || !dist.length) return '<div class="small muted">Tidak ada data.</div>';
         const maxShare = Math.max(...dist.map(d => d.share));
         return dist.map(d => `<div class="bar-row ${d.bracket === highlight ? 'today' : ''}">
             <span>${d.bracket}°C</span>
             <div class="bar-track"><div class="bar-fill ${cls}" style="width:${(d.share / maxShare * 100).toFixed(1)}%"></div></div>
             <span class="text-end">${(d.share * 100).toFixed(d.share < 0.01 ? 1 : 0)}%</span>
-            <span class="text-end text-muted-poly">${d.count} hr</span></div>`).join('');
+            <span class="text-end muted">${d.count} hr</span></div>`).join('');
     }
-
+    function climateTile(label, value, sub, cls = '') {
+        return `<div class="col-6 col-md-3"><div class="tcard"><div class="label">${label}</div>
+            <div class="big ${cls} mt-1" style="font-size: 1.25rem">${value}</div>${sub ? `<div class="small muted mono mt-1">${sub}</div>` : ''}</div></div>`;
+    }
     function renderClimate() {
         const c = climateData;
         if (!c) return;
@@ -264,31 +476,32 @@
         document.getElementById('climateTitle').textContent = `Klimatologi ${monthId} · HKO`;
         const s = c.summary, r = c.records, a = c.around_today;
         document.getElementById('climateTiles').innerHTML =
-            tile(`Rata² max ${monthId}`, num(s.avg_max) + '°C', `${s.dist_years} · 10% hari ≥ ${num(s.p90_max)}°C`, 'text-warning')
-            + tile(`Rata² min ${monthId}`, num(s.avg_min) + '°C', `${s.dist_years} · 10% hari ≤ ${num(s.p10_min)}°C`, 'text-info')
-            + tile(`Sekitar tgl ${a.day} (±${a.window_days} hr)`, `${num(a.max.median)} / ${num(a.min.median)}`,
-                   `median max / min · max ${num(a.max.p10)}–${num(a.max.p90)}°C`)
-            + tile('Rekor sejak 1884', `${num(r.max && r.max.value)} / ${num(r.min && r.min.value)}`,
-                   `${r.max ? r.max.date : '-'} · ${r.min ? r.min.date : '-'}`);
+            climateTile(`Rata² max ${monthId}`, num(s.avg_max) + '°C', `${s.dist_years} · 10% hari ≥ ${num(s.p90_max)}°C`, 'hot')
+            + climateTile(`Rata² min ${monthId}`, num(s.avg_min) + '°C', `${s.dist_years} · 10% hari ≤ ${num(s.p10_min)}°C`, 'cold')
+            + climateTile(`Sekitar tgl ${a.day} (±${a.window_days} hr)`, `${num(a.max.median)} / ${num(a.min.median)}`,
+                          `median max/min · max ${num(a.max.p10)}–${num(a.max.p90)}°C`)
+            + climateTile('Rekor sejak 1884', `${num(r.max && r.max.value)} / ${num(r.min && r.min.value)}`,
+                          `${r.max ? r.max.date : '-'} · ${r.min ? r.min.date : '-'}`);
         const todayMax = liveData && liveData.available ? Math.floor(liveData.max + 1e-9) : null;
         const todayMin = liveData && liveData.available ? Math.floor(liveData.min + 1e-9) : null;
         document.getElementById('distMaxLabel').textContent = `(${monthId}, ${s.dist_years})`;
         document.getElementById('distMinLabel').textContent = `(${monthId}, ${s.dist_years})`;
-        document.getElementById('distMax').innerHTML = bars(c.distribution.max, 'hot', c.month === new Date().getMonth() + 1 ? todayMax : null);
-        document.getElementById('distMin').innerHTML = bars(c.distribution.min, 'cold', c.month === new Date().getMonth() + 1 ? todayMin : null);
+        const isThisMonth = c.month === new Date().getMonth() + 1;
+        document.getElementById('distMax').innerHTML = bars(c.distribution.max, 'hot', isThisMonth ? todayMax : null);
+        document.getElementById('distMin').innerHTML = bars(c.distribution.min, 'cold', isThisMonth ? todayMin : null);
         document.getElementById('hitMaxHead').textContent = t.max !== null ? `Hari high ≥ ${t.max}°C` : 'Hari high ≥';
         document.getElementById('hitMinHead').textContent = t.min !== null ? `Hari low ${t.min_warm ? '≥' : '≤'} ${t.min}°C` : 'Hari low';
         const rows = [...c.rows].reverse().map(y => `<tr>
-            <td>${y.year}${y.provisional ? ' <span class="badge bg-secondary">sementara</span>' : ''}</td>
-            <td class="text-end">${num(y.max)} <span class="text-muted-poly">(${y.max_date.slice(8)})</span></td>
+            <td>${y.year}${y.provisional ? ' <span class="pill">sementara</span>' : ''}</td>
+            <td class="text-end">${num(y.max)} <span class="muted">(${y.max_date.slice(8)})</span></td>
             <td class="text-end">${num(y.avg_max)}</td>
-            <td class="text-end">${num(y.min)} <span class="text-muted-poly">(${y.min_date.slice(8)})</span></td>
+            <td class="text-end">${num(y.min)} <span class="muted">(${y.min_date.slice(8)})</span></td>
             <td class="text-end">${num(y.avg_min)}</td>
-            <td>${(y.max_hit_days || []).length ? `<span class="hit">${y.max_hit_days.length}×</span> <span class="text-muted-poly">tgl ${y.max_hit_days.join(', ')}</span>` : '<span class="text-muted-poly">-</span>'}</td>
-            <td>${(y.min_hit_days || []).length ? `<span class="hit-cold">${y.min_hit_days.length}×</span> <span class="text-muted-poly">tgl ${y.min_hit_days.join(', ')}</span>` : '<span class="text-muted-poly">-</span>'}</td></tr>`);
+            <td>${(y.max_hit_days || []).length ? `<span class="hit">${y.max_hit_days.length}×</span> <span class="muted">tgl ${y.max_hit_days.join(', ')}</span>` : '<span class="muted">-</span>'}</td>
+            <td>${(y.min_hit_days || []).length ? `<span class="hit-cold">${y.min_hit_days.length}×</span> <span class="muted">tgl ${y.min_hit_days.join(', ')}</span>` : '<span class="muted">-</span>'}</td></tr>`);
         if (c.current) {
-            rows.unshift(`<tr class="table-active"><td>${c.current.year} <span class="badge bg-info text-dark">sejauh ini · ${c.current.days} hr</span></td>
-                <td class="text-end">${num(c.current.max)}</td><td></td><td class="text-end">${num(c.current.min)}</td><td></td><td colspan="2" class="text-muted-poly small">
+            rows.unshift(`<tr class="top-row"><td>${c.current.year} <span class="pill">sejauh ini · ${c.current.days} hr</span></td>
+                <td class="text-end">${num(c.current.max)}</td><td></td><td class="text-end">${num(c.current.min)}</td><td></td><td colspan="2" class="muted small">
                 ${c.current.provisional_days ? `${c.current.provisional_days} hari dari bacaan real-time (sementara)` : ''}</td></tr>`);
         }
         document.getElementById('yearRows').innerHTML = rows.join('');
@@ -296,6 +509,101 @@
         renderMarkets();
     }
 
+    // --- PER JAM ---
+    function renderHourly() {
+        const body = document.getElementById('hourlyRows');
+        const rows = (hourlyData && hourlyData.rows) || [];
+        body.innerHTML = rows.map(r => `<tr class="${r.future ? 'top-row' : ''}">
+            <td>${esc(r.hour)}${r.next_day ? ' +1' : ''}${r.future ? ' <span class="pill">proyeksi</span>' : ''}</td><td class="text-end">${num(r.expected)}</td>
+            <td class="text-end ${r.delta > 0 ? 'hot' : r.delta < 0 ? 'cold' : ''}">${r.delta === null ? '-' : (r.delta > 0 ? '+' : '') + num(r.delta)}</td>
+            <td class="text-end fw-semibold">${num(r.real)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Belum ada data.</td></tr>';
+        renderSpark();
+        if (tab === 'hourly') renderHourlyChart();
+    }
+
+    // --- BOT HK & AI ---
+    function botRows(d, ai) {
+        if (!d) return '<tr><td colspan="6" class="muted">Tidak ada data.</td></tr>';
+        const aiProbs = (ai && ai.probs) || {};
+        const top = Math.max(...d.brackets.map(b => b.model));
+        const minEdge = (botData && botData.min_edge) || 0.08;
+        return d.brackets.map(b => {
+            const fee = b.ask === null || b.ask === undefined ? null : 0.07 * b.ask * (1 - b.ask);
+            const edge = b.ask === null || b.ask === undefined ? null : b.prob - b.ask - fee;
+            const cls = edge === null ? '' : (edge >= minEdge ? 'up fw-semibold' : edge < 0 ? 'down' : '');
+            return `<tr class="${b.model === top ? 'top-row' : ''}"><td>${esc(b.bracket)}</td><td class="text-end">${pct(b.model)}</td>
+                <td class="text-end">${aiProbs[b.bracket] === undefined ? '-' : pct(aiProbs[b.bracket])}</td>
+                <td class="text-end">${pct(b.market_prob)}</td><td class="text-end">${b.ask === null || b.ask === undefined ? '-' : (b.ask * 100).toFixed(1) + '¢'}</td>
+                <td class="text-end ${cls}">${edge === null ? '-' : (edge > 0 ? '+' : '') + (edge * 100).toFixed(1) + '¢'}</td></tr>`;
+        }).join('');
+    }
+    function botInfo(d) {
+        return d ? `terukur ${d.observed.toFixed(1)}° · model ${d.mu.toFixed(1)}±${d.sigma.toFixed(1)}° · ${d.source}${d.final ? ' · final' : ''}` : '';
+    }
+    function renderScore(score) {
+        const names = { ai: 'AI', model: 'Model', market: 'Pasar' };
+        const items = Object.entries(score || {}).sort((a, b) => a[1].brier - b[1].brier);
+        return items.length ? 'Akurasi (Brier, kecil = baik) — ' + items.map(([k, v]) => `${names[k] || k} ${v.brier.toFixed(2)} · tepat ${pct(v.top_hit)}`).join(' | ')
+            + ` · ${Math.max(...items.map(([, v]) => v.days))} hari` : 'Akurasi: belum ada hari yang selesai dinilai.';
+    }
+    async function loadBot() {
+        try {
+            const res = await fetch('/api/hk/bot');
+            if (!res.ok) throw new Error('Gagal');
+            botData = await res.json();
+            const a = botData.analysis || {}, ai = botData.ai || {};
+            document.getElementById('botMax').innerHTML = botRows(a.max, ai.max && ai.max.ai);
+            document.getElementById('botMin').innerHTML = botRows(a.min, ai.min && ai.min.ai);
+            document.getElementById('botMaxInfo').textContent = botInfo(a.max);
+            document.getElementById('botMinInfo').textContent = botInfo(a.min);
+            document.getElementById('botStrategies').textContent = (botData.strategies || []).length ? 'aktif: ' + botData.strategies.join(', ') : 'nonaktif (sinyal bayangan)';
+            const latest = (ai.max && ai.max.ai) || (ai.min && ai.min.ai);
+            document.getElementById('aiSummary').textContent = (botData.ai_problems || []).length ? 'AI belum aktif: ' + botData.ai_problems.join('; ')
+                : latest ? (latest.summary || '-') : 'Belum ada pandangan AI hari ini. Klik "Ringkasan AI".';
+            document.getElementById('aiTime').textContent = latest ? new Date(latest.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '';
+            document.getElementById('aiScore').textContent = renderScore(botData.score);
+            renderEstimates();
+            renderChips();
+        } catch (e) {
+            document.getElementById('botMax').innerHTML = '<tr><td colspan="6" class="muted">Gagal memuat bot HK.</td></tr>';
+        }
+    }
+    async function loadSummary(refresh) {
+        const btn = document.getElementById('summaryBtn');
+        btn.disabled = true;
+        setTab('overview');
+        document.getElementById('aiSummary').textContent = 'AI sedang merangkum…';
+        try {
+            const res = await fetch('/api/hk/summary' + (refresh ? '?refresh=true' : ''), { method: 'POST' });
+            const d = await res.json();
+            if (!res.ok) throw new Error(d.detail || 'Gagal');
+            await loadBot();  // tabel AI & skor terbaru; lalu tampilkan ringkasan lengkap (alasan & risiko)
+            document.getElementById('aiSummary').textContent = d.view
+                ? d.view.ringkasan + '\n' + (d.view.alasan || []).map(x => '• ' + x).join('\n') + ((d.view.risiko || []).length ? '\n⚠️ ' + d.view.risiko.join('; ') : '')
+                : 'AI tidak tersedia: ' + (d.error || '-');
+        } catch (e) { document.getElementById('aiSummary').textContent = 'Gagal membuat ringkasan: ' + e.message; }
+        finally { btn.disabled = false; }
+    }
+    async function askAi(ev) {
+        ev.preventDefault();
+        const input = document.getElementById('chatInput');
+        const q = input.value.trim();
+        if (!q) return;
+        const log = document.getElementById('chatLog');
+        const btn = document.getElementById('chatSend');
+        log.insertAdjacentHTML('beforeend', `<div class="chat-q mb-1">› ${esc(q)}</div><div class="chat-a mb-3 muted" data-pending>AI sedang menjawab…</div>`);
+        input.value = ''; btn.disabled = true;
+        log.scrollTop = log.scrollHeight;
+        const pending = log.querySelector('[data-pending]');
+        try {
+            const res = await fetch('/api/hk/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) });
+            const d = await res.json();
+            pending.outerHTML = `<div class="chat-a mb-3">${esc(res.ok ? d.answer : (d.detail || 'Gagal'))}</div>`;
+        } catch (e) { pending.outerHTML = '<div class="chat-a mb-3 down">Gagal menghubungi server.</div>'; }
+        finally { btn.disabled = false; log.scrollTop = log.scrollHeight; }
+    }
+
+    // --- MUAT DATA ---
     async function loadLive() {
         try {
             const res = await fetch('/api/hk/live');
@@ -322,17 +630,11 @@
         }
     }
     async function loadHourly() {
-        const body = document.getElementById('hourlyRows');
         try {
             const res = await fetch('/api/hk/hourly');
-            const data = await res.json();
-            body.innerHTML = (data.rows || []).map(r => `<tr class="${r.future ? 'table-info text-dark' : ''}">
-                <td>${esc(r.hour)}${r.next_day ? ' +1' : ''}${r.future ? ' · proyeksi' : ''}</td><td class="text-end">${num(r.expected)}</td>
-                <td class="text-end">${r.delta === null ? '-' : (r.delta > 0 ? '+' : '') + num(r.delta)}</td>
-                <td class="text-end fw-semibold">${num(r.real)}</td></tr>`).join('') || '<tr><td colspan="4" class="text-muted-poly">Belum ada data.</td></tr>';
-        } catch (e) {
-            body.innerHTML = '<tr><td colspan="4" class="text-muted-poly">Gagal memuat tabel per jam.</td></tr>';
-        }
+            hourlyData = await res.json();
+        } catch (e) { hourlyData = null; }
+        renderHourly();
     }
     async function copyInsight() {
         const text = document.getElementById('insightText').value;
@@ -340,83 +642,6 @@
         try { await navigator.clipboard.writeText(text); status.textContent = 'Tersalin ✓'; }
         catch (e) { document.getElementById('insightText').select(); status.textContent = 'Tekan Ctrl/Cmd+C untuk menyalin'; }
         setTimeout(() => { status.textContent = ''; }, 2500);
-    }
-    // --- BOT HK & AI ---
-    const pct = v => v === null || v === undefined ? '-' : Math.round(v * 100) + '%';
-    function botRows(d, ai) {
-        if (!d) return '<tr><td colspan="6" class="text-muted-poly">Tidak ada data.</td></tr>';
-        const aiProbs = (ai && ai.probs) || {};
-        const top = Math.max(...d.brackets.map(b => b.model));
-        return d.brackets.map(b => {
-            const fee = b.ask === null || b.ask === undefined ? null : 0.07 * b.ask * (1 - b.ask);
-            const edge = b.ask === null || b.ask === undefined ? null : b.prob - b.ask - fee;
-            const cls = edge === null ? '' : (edge >= 0.08 ? 'text-success fw-semibold' : edge < 0 ? 'text-danger' : '');
-            return `<tr${b.model === top ? ' class="table-active"' : ''}><td>${esc(b.bracket)}</td><td class="text-end">${pct(b.model)}</td>
-                <td class="text-end">${aiProbs[b.bracket] === undefined ? '-' : pct(aiProbs[b.bracket])}</td>
-                <td class="text-end">${pct(b.market_prob)}</td><td class="text-end">${b.ask === null || b.ask === undefined ? '-' : (b.ask * 100).toFixed(1) + '¢'}</td>
-                <td class="text-end ${cls}">${edge === null ? '-' : (edge > 0 ? '+' : '') + (edge * 100).toFixed(1) + '¢'}</td></tr>`;
-        }).join('');
-    }
-    function botInfo(d) {
-        if (!d) return '';
-        return `terukur ${d.observed.toFixed(1)}°C · model ${d.mu.toFixed(1)}±${d.sigma.toFixed(1)}°C · ${esc(d.source)}${d.final ? ' · final' : ''}`;
-    }
-    function renderScore(score) {
-        const names = { ai: 'AI', model: 'Model', market: 'Pasar' };
-        const items = Object.entries(score || {}).sort((a, b) => a[1].brier - b[1].brier);
-        return items.length ? 'Akurasi (Brier, kecil = baik): ' + items.map(([k, v]) => `${names[k] || k} ${v.brier.toFixed(2)} · tepat ${pct(v.top_hit)} (${v.days} hari)`).join(' | ')
-            : 'Akurasi: belum ada hari yang selesai dinilai.';
-    }
-    async function loadBot() {
-        try {
-            const res = await fetch('/api/hk/bot');
-            if (!res.ok) throw new Error('Gagal');
-            const d = await res.json();
-            const a = d.analysis || {};
-            const ai = d.ai || {};
-            document.getElementById('botMax').innerHTML = botRows(a.max, ai.max && ai.max.ai);
-            document.getElementById('botMin').innerHTML = botRows(a.min, ai.min && ai.min.ai);
-            document.getElementById('botMaxInfo').textContent = botInfo(a.max);
-            document.getElementById('botMinInfo').textContent = botInfo(a.min);
-            document.getElementById('botStrategies').textContent = (d.strategies || []).length ? 'aktif: ' + d.strategies.join(', ') : 'strategi HK nonaktif (shadow)';
-            const latest = (ai.max && ai.max.ai) || (ai.min && ai.min.ai);
-            document.getElementById('aiSummary').textContent = (d.ai_problems || []).length ? 'AI belum aktif: ' + d.ai_problems.join('; ')
-                : latest ? `${latest.summary || '-'}\n(${new Date(latest.created_at).toLocaleTimeString('id-ID')})` : 'Belum ada pandangan AI hari ini. Klik "Ringkasan sekarang".';
-            document.getElementById('aiScore').textContent = renderScore(d.score);
-        } catch (e) {
-            document.getElementById('botMax').innerHTML = '<tr><td colspan="6" class="text-muted-poly">Gagal memuat bot HK.</td></tr>';
-        }
-    }
-    async function loadSummary(refresh) {
-        const btn = document.getElementById('summaryBtn');
-        btn.disabled = true;
-        try {
-            const res = await fetch('/api/hk/summary' + (refresh ? '?refresh=true' : ''), { method: 'POST' });
-            const d = await res.json();
-            if (!res.ok) throw new Error(d.detail || 'Gagal');
-            document.getElementById('aiSummary').textContent = d.view ? d.view.ringkasan + '\n' + (d.view.alasan || []).map(x => '• ' + x).join('\n')
-                + ((d.view.risiko || []).length ? '\n⚠️ ' + d.view.risiko.join('; ') : '') : ('AI tidak tersedia: ' + (d.error || '-'));
-            loadBot();
-        } catch (e) { document.getElementById('aiSummary').textContent = 'Gagal membuat ringkasan: ' + e.message; }
-        finally { btn.disabled = false; }
-    }
-    async function askAi(ev) {
-        ev.preventDefault();
-        const input = document.getElementById('chatInput');
-        const q = input.value.trim();
-        if (!q) return;
-        const log = document.getElementById('chatLog');
-        const btn = document.getElementById('chatSend');
-        log.insertAdjacentHTML('beforeend', `<div class="mb-1"><b>Kamu:</b> ${esc(q)}</div><div class="mb-2 text-muted-poly" data-pending>AI sedang menjawab…</div>`);
-        input.value = ''; btn.disabled = true;
-        log.scrollTop = log.scrollHeight;
-        const pending = log.querySelector('[data-pending]');
-        try {
-            const res = await fetch('/api/hk/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) });
-            const d = await res.json();
-            pending.outerHTML = `<div class="mb-2" style="white-space: pre-wrap"><b>AI:</b> ${esc(res.ok ? d.answer : (d.detail || 'Gagal'))}</div>`;
-        } catch (e) { pending.outerHTML = '<div class="mb-2 text-danger">Gagal menghubungi server.</div>'; }
-        finally { btn.disabled = false; log.scrollTop = log.scrollHeight; }
     }
     async function loadAll() {
         loadBot();
@@ -428,6 +653,7 @@
         const sel = document.getElementById('monthSelect');
         const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
         sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}" ${i === now.getMonth() ? 'selected' : ''}>${m}</option>`).join('');
+        setTab(tab);
         loadAll();
         setInterval(() => { loadLive(); loadHourly(); loadBot(); }, 5 * 60 * 1000);
     })();
