@@ -23,6 +23,7 @@ from app.market_collector.collector import (
 from app.paper_trading.recommendation_alerts import run_recommendation_alerts
 from app.paper_trading.hko_alerts import run_hko_alerts
 from app.paper_trading.hko_hourly import run_hourly_forecasts
+from app.paper_trading.hk_ai import run_hk_ai
 from app.paper_trading.insider import run_insider_scan
 from app.paper_trading.live_trader import run_live_tracking
 from app.paper_trading.recommendation_results import run_recommendation_tracking
@@ -110,6 +111,7 @@ def main():
             run_wallet_polling()
             run_insider_scan()
             run_autotrade_tick(include_weather=True)
+            run_hk_ai()
             run_live_tracking()
             run_signal_tracking()
             prune_market_snapshots()

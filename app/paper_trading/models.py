@@ -624,3 +624,23 @@ class AutotradeSignal(Base):
         Index("idx_autotrade_signals_strategy_created", "strategy", "created_at"),
         Index("idx_autotrade_signals_pending", "outcome", "created_at"),
     )
+
+
+class HkForecastView(Base):
+    """
+    Pandangan peluang per bracket untuk suhu max/min Hong Kong satu hari (HKT), dari tiga sumber yang
+    dicatat bersamaan: 'ai' (Gemini, bayangan), 'model' (bot HK), 'market' (harga Polymarket). Setelah hari
+    itu selesai, ketiganya dinilai (Brier) untuk melihat sumber mana yang paling akurat.
+    """
+    __tablename__ = "hk_forecast_views"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    local_date: Mapped[str] = mapped_column(String(10), nullable=False)       # YYYY-MM-DD (HKT)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)             # max / min
+    source: Mapped[str] = mapped_column(String(10), nullable=False)           # ai / model / market
+    probs: Mapped[str] = mapped_column(Text, nullable=False)                  # JSON {bracket: peluang}
+    point: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)  # perkiraan titik °C
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (Index("idx_hk_forecast_views_date", "local_date", "kind", "source"),)

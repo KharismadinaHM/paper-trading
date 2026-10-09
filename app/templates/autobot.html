@@ -90,6 +90,7 @@
         .coin.btc { background: #f7931a; color: #fff; }
         .coin.eth { background: #627eea; color: #fff; }
         .coin.wx { background: #0ea5e9; color: #fff; }
+        .coin.hk { background: #de2910; color: #fff; font-size: .62rem; font-weight: 800; }
         .series-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--card-2); border: 1px solid var(--line);
                       border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
 
@@ -236,7 +237,7 @@
             <button data-tab="settings" onclick="setTab('settings')">Pengaturan</button>
         </div>
         <select class="form-select form-select-sm w-auto ms-3" id="calStrategy" onchange="onStrategyChange()" aria-label="Strategi">
-            <option value="">Semua seri</option><option value="btc_all">BTC (semua)</option><option value="eth_all">ETH (semua)</option>
+            <option value="">Semua seri</option><option value="btc_all">BTC (semua)</option><option value="eth_all">ETH (semua)</option><option value="hk_all">Hong Kong (max & min)</option>
         </select>
     </div>
 
@@ -353,10 +354,11 @@
 
     const SERIES_LABEL = { btc: 'BTC 1 jam', btc15: 'BTC 15 menit', btc5: 'BTC 5 menit', eth: 'ETH 1 jam', eth15: 'ETH 15 menit',
                            maker_btc: 'BTC 1 jam · maker', maker_btc15: 'BTC 15 menit · maker', maker_btc5: 'BTC 5 menit · maker',
-                           maker_eth: 'ETH 1 jam · maker', maker_eth15: 'ETH 15 menit · maker', weather: 'Cuaca', weather_post: 'Cuaca · pasca puncak' };
+                           maker_eth: 'ETH 1 jam · maker', maker_eth15: 'ETH 15 menit · maker', weather: 'Cuaca', weather_post: 'Cuaca · pasca puncak',
+                           hk_max: 'Hong Kong · max', hk_min: 'Hong Kong · min' };
     const LIVE_SERIES_LABEL = { btc: '🟠 BTC 1 jam', btc15: '🟠 BTC 15 menit', btc5: '🟠 BTC 5 menit', eth: '🔷 ETH 1 jam', eth15: '🔷 ETH 15 menit' };
-    const coinOf = name => String(name).includes('eth') ? 'eth' : String(name).includes('btc') ? 'btc' : 'wx';
-    const coinIcon = name => { const c = coinOf(name); return `<span class="coin ${c}">${c === 'btc' ? '<i class="bi bi-currency-bitcoin"></i>' : c === 'eth' ? 'Ξ' : '<i class="bi bi-cloud-sun"></i>'}</span>`; };
+    const coinOf = name => String(name).startsWith('hk') ? 'hk' : String(name).includes('eth') ? 'eth' : String(name).includes('btc') ? 'btc' : 'wx';
+    const coinIcon = name => { const c = coinOf(name); return `<span class="coin ${c}">${c === 'btc' ? '<i class="bi bi-currency-bitcoin"></i>' : c === 'eth' ? 'Ξ' : c === 'hk' ? 'HK' : '<i class="bi bi-cloud-sun"></i>'}</span>`; };
 
     // --- STATE ---
     const ui = Object.assign({ source: 'paper', period: 'all', tab: 'overview', calMode: 'grid' }, store.get('autobotUi', {}));

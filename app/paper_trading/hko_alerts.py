@@ -181,6 +181,7 @@ def _today_market(now: datetime, kind: str = "highest") -> List[Dict[str, Any]]:
         parsed = parse_temperature_market(m["market_name"], _as_datetime(m.get("end_date")), now)
         if parsed and parsed.kind == kind and parsed.local_date == today and resolve_city(parsed.city) == CITY:
             markets.append({"bracket": bracket_label(m["market_name"]), "yes_token_id": m.get("yes_token_id"),
+                            "market_id": m.get("market_id"), "market_name": m.get("market_name"),
                             "price_yes": float(m["price_yes"]) if m.get("price_yes") is not None else None})
     books = fetch_order_books(m["yes_token_id"] for m in markets)
     for m in markets:

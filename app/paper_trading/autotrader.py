@@ -41,6 +41,7 @@ STRATEGY_VERSIONS = {
     "maker_btc15": "auto_maker_btc15_v1", "maker_btc5": "auto_maker_btc5_v1",
     "eth": "auto_eth_v1", "eth15": "auto_eth15_v1", "maker_eth": "auto_maker_eth_v1", "maker_eth15": "auto_maker_eth15_v1",
     "weather": "auto_weather_v1", "weather_post": "auto_weather_post_v1",
+    "hk_max": "auto_hk_max_v1", "hk_min": "auto_hk_min_v1",
 }
 BINANCE = "https://data-api.binance.vision"
 ET = ZoneInfo("America/New_York")
@@ -115,6 +116,10 @@ EDITABLE_CONFIG: Dict[str, Tuple[str, float, float, str]] = {
     "MAKER_MARGIN": ("float", 0.01, 0.3, "Maker: harga limit = P − margin"),
     "MAKER_MIN_EDGE": ("float", 0, 0.3, "Maker: edge minimum"),
     "WEATHER_REQUIRE_AGREEMENT": ("bool", 0, 1, "Cuaca: wajib sepakat dengan favorit pasar"),
+    "HK_MIN_EDGE": ("float", 0, 0.5, "Hong Kong: edge minimum (0–1)"),
+    "HK_MODEL_WEIGHT": ("float", 0, 1, "Hong Kong: bobot model vs harga pasar (0 = ikut pasar, 1 = model penuh)"),
+    "HK_START_HOUR": ("float", 0, 23, "Hong Kong: jam HKT paling awal boleh membeli"),
+    "HK_MIN_PRICE": ("float", 0, 0.9, "Hong Kong: harga beli minimum (0–1)"),
     "STRATEGIES": ("strategies", 0, 0, "Strategi aktif"),
 }
 _config_cache: Dict[str, Any] = {"at": 0.0, "values": {}}
@@ -342,7 +347,7 @@ def execute(decision: Dict[str, Any], now: Optional[datetime] = None) -> Optiona
         notify_rejection(decision, reason, now)
         return None
     size = Decimal(str(decision["size"]))
-    if not decision["strategy"].startswith("weather"):
+    if not decision["strategy"].startswith(("weather", "hk_")):
         # Market BTC tidak dikumpulkan collector: segarkan snapshot agar tidak ditolak sebagai stale
         try:
             from app.market_collector.collector import sync_markets_by_condition_ids
@@ -381,6 +386,8 @@ def strategy_header(strategy: str) -> str:
         return label + (" · MAKER" if maker else "")
     if strategy == "weather_post":
         return "🌡 CUACA · PASCA PUNCAK"
+    if strategy in ("hk_max", "hk_min"):
+        return f"🇭🇰 HONG KONG · {'MAX' if strategy == 'hk_max' else 'MIN'}"
     if strategy.startswith("weather"):
         return "🌡 CUACA"
     return strategy.upper()
@@ -1026,6 +1033,8 @@ def _versions_for(strategy: Optional[str]) -> List[str]:
                 if (BTC_SERIES.get(name.replace("maker_", "")) or {}).get("asset") == asset]
     if strategy == "weather_all":
         return [v for k, v in STRATEGY_VERSIONS.items() if k.startswith("weather")]
+    if strategy == "hk_all":
+        return [v for k, v in STRATEGY_VERSIONS.items() if k.startswith("hk_")]
     raise ValueError(f"Strategi tidak dikenal: {strategy}")
 
 
@@ -1169,6 +1178,11 @@ def run_autotrade_tick(include_weather: bool = False) -> None:
                 weather_tick(phase="pre")
             if "weather_post" in strategies:
                 weather_tick(phase="post")
+            try:
+                from app.paper_trading.hk_bot import hk_tick
+                hk_tick(strategies=strategies)  # strategi HK nonaktif tetap dicatat sebagai sinyal bayangan
+            except Exception as err:
+                logger.error("Bot Hong Kong gagal: %s", err, exc_info=True)
         maybe_send_daily_report()
     except Exception as err:
         logger.error("Auto trader gagal: %s", err, exc_info=True)

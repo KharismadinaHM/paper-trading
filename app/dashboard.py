@@ -377,6 +377,56 @@ def hk_live_api():
     return data
 
 
+def _json_safe(value):
+    """inf/-inf (bracket terbuka) tidak valid di JSON: jadikan None."""
+    import math as _math
+    if isinstance(value, float) and (_math.isinf(value) or _math.isnan(value)):
+        return None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+@app.get("/api/hk/bot", dependencies=[Depends(require_auth)])
+def hk_bot_api():
+    """Bot HK: distribusi model max/min per bracket vs pasar, pandangan AI terbaru, dan skor akurasi."""
+    from app.paper_trading import hk_ai, hk_bot
+    from app.paper_trading.autotrader import enabled_strategies
+    analysis = hk_bot.analyze()
+    try:
+        score = hk_ai.scorecard()
+    except Exception:
+        score = {}
+    return _json_safe({"analysis": analysis, "ai": hk_ai.latest_views(), "score": score,
+                       "ai_problems": hk_ai.ai_problems(), "positions": hk_bot.positions_today(),
+                       "strategies": [s for s in ("hk_max", "hk_min") if s in enabled_strategies()]})
+
+
+class HkAskRequest(BaseModel):
+    question: str
+
+
+@app.post("/api/hk/ask", dependencies=[Depends(require_auth)])
+def hk_ask_api(req: HkAskRequest):
+    """Tanya AI (Gemini) tentang market Hong Kong hari ini, dengan konteks data terkini."""
+    from app.paper_trading.hk_ai import ask
+    question = (req.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Pertanyaan kosong")
+    return {"answer": ask(question[:1000])}
+
+
+@app.post("/api/hk/summary", dependencies=[Depends(require_auth)])
+def hk_summary_api(refresh: bool = False):
+    """Ringkasan kejadian saat ini (sama dengan /rangkum di Telegram)."""
+    from app.paper_trading.hk_ai import build_summary
+    report = build_summary(use_cache=not refresh)
+    return _json_safe({"text": report["text"], "view": report.get("view"), "error": report.get("error"),
+                       "score": report.get("score"), "created_at": report.get("created_at")})
+
+
 @app.get("/api/hk/climate", dependencies=[Depends(require_auth)])
 def hk_climate_api(month: Optional[int] = None, years: int = 10, max_threshold: Optional[int] = None,
                    min_threshold: Optional[int] = None):

@@ -151,7 +151,7 @@ class Settings(BaseSettings):
     AUTOTRADE_ENABLED: bool = False            # status awal; bisa diubah lewat /startbot /stopbot
     # btc15 & maker_btc15 nonaktif: backtest 14 hari (1.344 market) negatif di semua aturan; sinyalnya tetap
     # dicatat (shadow) untuk riset.
-    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc"
+    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc,hk_max,hk_min"
     AUTOTRADE_ORDER_USD: Decimal = Decimal("5.00")
     AUTOTRADE_MAX_DAILY_USD: Decimal = Decimal("50.00")   # total pembelian per hari (WIB)
     AUTOTRADE_MAX_DAILY_LOSS: Decimal = Decimal("20.00")  # stop hari itu jika rugi terealisasi ≥ ini
@@ -184,6 +184,20 @@ class Settings(BaseSettings):
     AUTOTRADE_WEATHER_SIGMA_C: float = 0.6     # ketidakpastian dasar perkiraan suhu (°C) + 0.3/jam ke puncak
     AUTOTRADE_WEATHER_POST_HOURS: float = 3.0  # weather_post: dari awal jam puncak s/d akhir puncak + N jam
     AUTOTRADE_REPORT_HOUR: int = 21            # jam WIB laporan harian
+    # Bot Hong Kong (hk_max / hk_min): peluang per bracket dari max/min terukur HKO + proyeksi per jam
+    # (Open-Meteo + bias HKO) + error historis proyeksi. Lihat docs/HK_BOT.md.
+    AUTOTRADE_HK_MIN_EDGE: float = 0.08
+    AUTOTRADE_HK_MODEL_WEIGHT: float = 0.6     # peluang = pasar + bobot × (model − pasar); dikalibrasi ulang dari data
+    AUTOTRADE_HK_START_HOUR: float = 9         # jam HKT paling awal bot HK boleh membeli
+    AUTOTRADE_HK_MIN_PRICE: float = 0.05
+    AUTOTRADE_HK_OFFICIAL_WEIGHT: float = 0.5  # bobot angka prakiraan resmi HKO (bila disebut) dalam rata-rata
+    # --- AI Hong Kong (Gemini): pandangan bayangan + ringkasan terjadwal + /tanya. Tidak menentukan pembelian. ---
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    HK_AI_ENABLED: bool = True
+    HK_AI_REPORT_HOURS: str = "0,3,6,9,12,15,18,21"  # jam laporan ringkasan otomatis
+    HK_AI_REPORT_TZ: str = "Asia/Jakarta"            # zona jam laporan di atas
+    HK_AI_ASK_PER_HOUR: int = 20                     # batas /tanya per jam (kendali biaya)
     TELEGRAM_AUTOTRADE_CHAT_ID: Optional[str] = None  # chat/grup terpisah untuk notif auto trade
     # --- Trading UANG ASLI (Polymarket CLOB). Mati secara default; lihat docs/LIVE_TRADING.md ---
     LIVE_TRADING: bool = False

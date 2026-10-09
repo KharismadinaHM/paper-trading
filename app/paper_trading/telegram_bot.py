@@ -72,6 +72,8 @@ def build_help_message() -> str:
         "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"
         "🔄 `/berbalik` - Riwayat waspada berbalik: favorit ≥90¢, warning, benar berbalik atau tidak (`/berbalik 7`)\n"
         "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan) · `/hk iklim` (klimatologi bulan ini + insight)\n"
+        "🧠 `/rangkum` - Ringkasan Hong Kong saat ini: bacaan HKO, model bot HK, pandangan AI (Gemini), posisi & akurasi (`/rangkum baru` paksa segar). Otomatis tiap jam 00·03·06·09·12·15·18·21\n"
+        "💬 `/tanya <pertanyaan>` - Tanya AI tentang market Hong Kong hari ini (mis. `/tanya peluang max 30°C?`)\n"
         "🌡️ `/suhu` - Suhu terkini di stasiun resolusi (NOAA/HKO) kota top volume (`/suhu london` untuk 1 kota)\n"
         "🔥 `/volume` - 7 kota dengan volume market cuaca terbesar (`/volume 10` untuk 10 kota)\n"
         "🏓 `/ping` - Tes respon server bot\n"
@@ -539,6 +541,13 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
                 return "Format tanggal: `/hk jam 2026-09-30`"
             return format_hourly(day)
         return build_hk_command_message()
+    elif cmd in ("/rangkum", "/ringkas", "/hkai"):
+        from app.paper_trading.hk_ai import build_summary
+        return build_summary(use_cache=not (args and args[0].lower() in ("baru", "segar", "refresh")))["text"]
+    elif cmd in ("/tanya", "/ask"):
+        from app.paper_trading.hk_ai import ask
+        from app.paper_trading.wallet_bot import md
+        return "🤖 " + md(ask(" ".join(args)))
     elif cmd in ("/suhu", "/temp"):
         return build_current_temp_message(" ".join(args) or None)
     elif cmd in ("/stats", "/statistik"):  # /statistik = nama lama

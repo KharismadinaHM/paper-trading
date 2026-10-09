@@ -74,6 +74,51 @@
             konteks iklim, bukan peluang hari ini (cuaca hari ini jauh lebih menentukan).</div>
     </div>
 
+    <!-- 1b. BOT HK & AI -->
+    <div class="poly-card p-4 mb-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <h5 class="fw-bold mb-0"><i class="bi bi-robot me-2 text-info"></i>Bot HK &amp; AI <span class="badge bg-dark border border-secondary-subtle text-muted-poly ms-1">paper</span></h5>
+            <div class="d-flex gap-2 align-items-center">
+                <span class="small text-muted-poly" id="botStrategies"></span>
+                <button class="btn btn-sm btn-outline-info" id="summaryBtn" onclick="loadSummary(true)"><i class="bi bi-stars"></i> Ringkasan sekarang</button>
+            </div>
+        </div>
+        <div class="row g-3 mb-3">
+            <div class="col-lg-6">
+                <div class="fw-semibold mb-1">Suhu tertinggi <span class="small text-muted-poly" id="botMaxInfo"></span></div>
+                <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
+                    <thead><tr class="text-muted-poly"><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
+                        <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end" title="Peluang campuran model+pasar − (ask + fee)">Edge</th></tr></thead>
+                    <tbody id="botMax"><tr><td colspan="6" class="text-muted-poly">Memuat…</td></tr></tbody></table></div>
+            </div>
+            <div class="col-lg-6">
+                <div class="fw-semibold mb-1">Suhu terendah <span class="small text-muted-poly" id="botMinInfo"></span></div>
+                <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
+                    <thead><tr class="text-muted-poly"><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
+                        <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end">Edge</th></tr></thead>
+                    <tbody id="botMin"><tr><td colspan="6" class="text-muted-poly">Memuat…</td></tr></tbody></table></div>
+            </div>
+        </div>
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="fw-semibold mb-1">Pandangan AI terbaru</div>
+                <div class="small" id="aiSummary" style="white-space: pre-wrap">-</div>
+                <div class="small text-muted-poly mt-2" id="aiScore"></div>
+            </div>
+            <div class="col-lg-6">
+                <div class="fw-semibold mb-1">Tanya AI</div>
+                <div id="chatLog" class="small mb-2" style="max-height: 260px; overflow-y: auto"></div>
+                <form class="d-flex gap-2" onsubmit="askAi(event)">
+                    <input class="form-control form-control-sm bg-dark text-white border-secondary-subtle" id="chatInput" maxlength="1000"
+                           placeholder="mis. berapa peluang max ≥ 30°C hari ini?" autocomplete="off">
+                    <button class="btn btn-sm btn-info" id="chatSend" type="submit"><i class="bi bi-send"></i></button>
+                </form>
+            </div>
+        </div>
+        <div class="small text-muted-poly mt-2">Model = peluang dari max/min terukur HKO + proyeksi per jam + error historis. AI (Gemini) hanya
+            bayangan: dicatat dan dinilai akurasinya (Brier) terhadap model &amp; pasar, tidak menentukan pembelian. Edge = campuran model &amp; pasar − (ask + fee).</div>
+    </div>
+
     <!-- 2. INSIGHT -->
     <div class="poly-card p-4 mb-4">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -296,7 +341,85 @@
         catch (e) { document.getElementById('insightText').select(); status.textContent = 'Tekan Ctrl/Cmd+C untuk menyalin'; }
         setTimeout(() => { status.textContent = ''; }, 2500);
     }
+    // --- BOT HK & AI ---
+    const pct = v => v === null || v === undefined ? '-' : Math.round(v * 100) + '%';
+    function botRows(d, ai) {
+        if (!d) return '<tr><td colspan="6" class="text-muted-poly">Tidak ada data.</td></tr>';
+        const aiProbs = (ai && ai.probs) || {};
+        const top = Math.max(...d.brackets.map(b => b.model));
+        return d.brackets.map(b => {
+            const fee = b.ask === null || b.ask === undefined ? null : 0.07 * b.ask * (1 - b.ask);
+            const edge = b.ask === null || b.ask === undefined ? null : b.prob - b.ask - fee;
+            const cls = edge === null ? '' : (edge >= 0.08 ? 'text-success fw-semibold' : edge < 0 ? 'text-danger' : '');
+            return `<tr${b.model === top ? ' class="table-active"' : ''}><td>${esc(b.bracket)}</td><td class="text-end">${pct(b.model)}</td>
+                <td class="text-end">${aiProbs[b.bracket] === undefined ? '-' : pct(aiProbs[b.bracket])}</td>
+                <td class="text-end">${pct(b.market_prob)}</td><td class="text-end">${b.ask === null || b.ask === undefined ? '-' : (b.ask * 100).toFixed(1) + '¢'}</td>
+                <td class="text-end ${cls}">${edge === null ? '-' : (edge > 0 ? '+' : '') + (edge * 100).toFixed(1) + '¢'}</td></tr>`;
+        }).join('');
+    }
+    function botInfo(d) {
+        if (!d) return '';
+        return `terukur ${d.observed.toFixed(1)}°C · model ${d.mu.toFixed(1)}±${d.sigma.toFixed(1)}°C · ${esc(d.source)}${d.final ? ' · final' : ''}`;
+    }
+    function renderScore(score) {
+        const names = { ai: 'AI', model: 'Model', market: 'Pasar' };
+        const items = Object.entries(score || {}).sort((a, b) => a[1].brier - b[1].brier);
+        return items.length ? 'Akurasi (Brier, kecil = baik): ' + items.map(([k, v]) => `${names[k] || k} ${v.brier.toFixed(2)} · tepat ${pct(v.top_hit)} (${v.days} hari)`).join(' | ')
+            : 'Akurasi: belum ada hari yang selesai dinilai.';
+    }
+    async function loadBot() {
+        try {
+            const res = await fetch('/api/hk/bot');
+            if (!res.ok) throw new Error('Gagal');
+            const d = await res.json();
+            const a = d.analysis || {};
+            const ai = d.ai || {};
+            document.getElementById('botMax').innerHTML = botRows(a.max, ai.max && ai.max.ai);
+            document.getElementById('botMin').innerHTML = botRows(a.min, ai.min && ai.min.ai);
+            document.getElementById('botMaxInfo').textContent = botInfo(a.max);
+            document.getElementById('botMinInfo').textContent = botInfo(a.min);
+            document.getElementById('botStrategies').textContent = (d.strategies || []).length ? 'aktif: ' + d.strategies.join(', ') : 'strategi HK nonaktif (shadow)';
+            const latest = (ai.max && ai.max.ai) || (ai.min && ai.min.ai);
+            document.getElementById('aiSummary').textContent = (d.ai_problems || []).length ? 'AI belum aktif: ' + d.ai_problems.join('; ')
+                : latest ? `${latest.summary || '-'}\n(${new Date(latest.created_at).toLocaleTimeString('id-ID')})` : 'Belum ada pandangan AI hari ini. Klik "Ringkasan sekarang".';
+            document.getElementById('aiScore').textContent = renderScore(d.score);
+        } catch (e) {
+            document.getElementById('botMax').innerHTML = '<tr><td colspan="6" class="text-muted-poly">Gagal memuat bot HK.</td></tr>';
+        }
+    }
+    async function loadSummary(refresh) {
+        const btn = document.getElementById('summaryBtn');
+        btn.disabled = true;
+        try {
+            const res = await fetch('/api/hk/summary' + (refresh ? '?refresh=true' : ''), { method: 'POST' });
+            const d = await res.json();
+            if (!res.ok) throw new Error(d.detail || 'Gagal');
+            document.getElementById('aiSummary').textContent = d.view ? d.view.ringkasan + '\n' + (d.view.alasan || []).map(x => '• ' + x).join('\n')
+                + ((d.view.risiko || []).length ? '\n⚠️ ' + d.view.risiko.join('; ') : '') : ('AI tidak tersedia: ' + (d.error || '-'));
+            loadBot();
+        } catch (e) { document.getElementById('aiSummary').textContent = 'Gagal membuat ringkasan: ' + e.message; }
+        finally { btn.disabled = false; }
+    }
+    async function askAi(ev) {
+        ev.preventDefault();
+        const input = document.getElementById('chatInput');
+        const q = input.value.trim();
+        if (!q) return;
+        const log = document.getElementById('chatLog');
+        const btn = document.getElementById('chatSend');
+        log.insertAdjacentHTML('beforeend', `<div class="mb-1"><b>Kamu:</b> ${esc(q)}</div><div class="mb-2 text-muted-poly" data-pending>AI sedang menjawab…</div>`);
+        input.value = ''; btn.disabled = true;
+        log.scrollTop = log.scrollHeight;
+        const pending = log.querySelector('[data-pending]');
+        try {
+            const res = await fetch('/api/hk/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) });
+            const d = await res.json();
+            pending.outerHTML = `<div class="mb-2" style="white-space: pre-wrap"><b>AI:</b> ${esc(res.ok ? d.answer : (d.detail || 'Gagal'))}</div>`;
+        } catch (e) { pending.outerHTML = '<div class="mb-2 text-danger">Gagal menghubungi server.</div>'; }
+        finally { btn.disabled = false; log.scrollTop = log.scrollHeight; }
+    }
     async function loadAll() {
+        loadBot();
         await loadLive();
         await loadClimate();
         loadHourly();
@@ -306,7 +429,7 @@
         const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
         sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}" ${i === now.getMonth() ? 'selected' : ''}>${m}</option>`).join('');
         loadAll();
-        setInterval(() => { loadLive(); loadHourly(); }, 5 * 60 * 1000);
+        setInterval(() => { loadLive(); loadHourly(); loadBot(); }, 5 * 60 * 1000);
     })();
 </script>
 </body>
