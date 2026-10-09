@@ -170,14 +170,14 @@ def bracket_for(value: float, labels: List[str]) -> Optional[str]:
     return None
 
 
-def _today_market(now: datetime, kind: str = "highest") -> List[Dict[str, Any]]:
-    """Bracket market '<kind> temperature in Hong Kong' hari ini + harga ask order book."""
+def _today_market(now: datetime, kind: str = "highest", day: Optional["date"] = None) -> List[Dict[str, Any]]:
+    """Bracket market '<kind> temperature in Hong Kong' hari ini (atau `day`) + harga ask order book."""
     from app.paper_service import get_market_snapshots
     from app.paper_trading.cities import resolve_city
     from app.paper_trading.live_market_data import fetch_order_books
     from app.paper_trading.weather_peaks import _as_datetime, bracket_label, parse_temperature_market
 
-    today = now.astimezone(HKT).date()
+    today = day or now.astimezone(HKT).date()
     markets = []
     for m in get_market_snapshots(now=now, include_resolved=False):
         parsed = parse_temperature_market(m["market_name"], _as_datetime(m.get("end_date")), now)

@@ -1276,7 +1276,10 @@ def trade_history(limit: int = 20, strategy: Optional[str] = None, days: Optiona
     db = get_db_session()
     try:
         q = db.query(AutotradeDecision).filter(AutotradeDecision.status == "filled")
-        if strategy:
+        if strategy and strategy.endswith("_all"):
+            names = {v: k for k, v in STRATEGY_VERSIONS.items()}
+            q = q.filter(AutotradeDecision.strategy.in_([names[v] for v in _versions_for(strategy)]))
+        elif strategy:
             q = q.filter(AutotradeDecision.strategy == strategy)
         if days:
             q = q.filter(AutotradeDecision.created_at >= now - timedelta(days=days))

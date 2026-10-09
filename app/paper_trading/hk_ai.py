@@ -101,7 +101,8 @@ Pengetahuan karakteristik suhu Hong Kong:
 
 
 def context(now: Optional[datetime] = None, analysis: Optional[Dict[str, Any]] = None,
-            status: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            status: Optional[Dict[str, Any]] = None, tomorrow: Optional[Dict[str, Any]] = None,
+            forecast: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Konteks ringkas untuk AI dan laporan: bacaan, tren, prakiraan resmi, model, pasar, posisi."""
     from app.paper_trading import hk_bot
     from app.paper_trading.hko_alerts import hko_status, readings_today
@@ -124,7 +125,7 @@ def context(now: Optional[datetime] = None, analysis: Optional[Dict[str, Any]] =
     def compact(d: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not d:
             return None
-        return {"terukur": d["observed"], "model_mu": d["mu"], "model_sigma": d["sigma"], "sumber": d["source"],
+        return {"terukur": d.get("observed"), "model_mu": d["mu"], "model_sigma": d["sigma"], "sumber": d["source"],
                 "final": d.get("final"),
                 "bracket": [{"bracket": r["bracket"], "model": r["model"], "pasar": r.get("market_prob"),
                              "ask": r.get("ask")} for r in d["brackets"]]}
@@ -133,6 +134,16 @@ def context(now: Optional[datetime] = None, analysis: Optional[Dict[str, Any]] =
         positions = hk_bot.positions_today(now)
     except Exception:
         positions = []
+    if forecast is None:
+        from app.paper_trading.hk_forecast import forecast_payload
+        forecast = forecast_payload(now)
+    if tomorrow is None:
+        try:
+            tomorrow = hk_bot.analyze_tomorrow(now, hours=hk_hours_48(now), fnd=forecast.get("nine_day"))
+        except Exception as err:
+            logger.warning("Model HK besok gagal: %s", err)
+            tomorrow = None
+    cuaca = forecast.get("now") or {}
     return {
         "waktu_hkt": f"{local:%Y-%m-%d %H:%M} ({calendar_name(local)})",
         "bacaan_terakhir": {"jam": status["observed_at"].strftime("%H:%M"), "suhu": status["temp"],
@@ -145,7 +156,19 @@ def context(now: Optional[datetime] = None, analysis: Optional[Dict[str, Any]] =
         "peringatan_sangat_panas": official.get("very_hot_warning"),
         "model_bot": {"max": compact((analysis or {}).get("max")), "min": compact((analysis or {}).get("min"))},
         "posisi_paper_hk": positions,
+        "cuaca_sekarang_hko": {k: cuaca.get(k) for k in ("text", "humidity", "rain_max_mm", "uv", "warnings")} if cuaca else None,
+        "per_jam_12_jam": [f"{h['hour']} {h['temp']:.1f}°C {h['text']} hujan {h.get('rain_prob')}% RH {h.get('humidity')}%"
+                           for h in (forecast.get("hours") or [])[:12]],
+        "prakiraan_9_hari_hko": [{k: d.get(k) for k in ("date", "max", "min", "weather", "psr")}
+                                 for d in ((forecast.get("nine_day") or {}).get("days") or [])[:3]],
+        "model_bot_besok": {"tanggal": (tomorrow or {}).get("day"), "max": compact((tomorrow or {}).get("max")),
+                            "min": compact((tomorrow or {}).get("min"))} if tomorrow else None,
     }
+
+
+def hk_hours_48(now: datetime) -> List[Dict[str, Any]]:
+    from app.paper_trading.hk_forecast import hourly_outlook
+    return hourly_outlook(now, hours=48)
 
 
 def calendar_name(local: datetime) -> str:
@@ -173,14 +196,21 @@ def ai_view(now: Optional[datetime] = None, ctx: Optional[Dict[str, Any]] = None
     ctx = ctx or context(now)
     labels = {k: [b["bracket"] for b in ((ctx.get("model_bot") or {}).get(k) or {}).get("bracket", [])]
               for k in ("max", "min")}
+    tomorrow = ctx.get("model_bot_besok") or {}
+    labels_tomorrow = {k: [b["bracket"] for b in (tomorrow.get(k) or {}).get("bracket", [])] for k in ("max", "min")}
     prompt = (
         "Konteks data saat ini (JSON):\n" + json.dumps(ctx, ensure_ascii=False, default=str) + "\n\n"
-        "Tugas: perkirakan suhu MAX dan MIN resmi HKO hari ini (hari kalender HKT). Beri peluang untuk SETIAP "
+        "Tugas:\n1. Perkirakan suhu MAX dan MIN resmi HKO HARI INI (hari kalender HKT). Beri peluang untuk SETIAP "
         "bracket berikut (jumlah = 1):\n"
         f"max: {labels['max']}\nmin: {labels['min']}\n"
+        "2. Perkirakan juga MAX dan MIN BESOK "
+        f"({tomorrow.get('tanggal') or '-'}) dengan peluang per bracket: max: {labels_tomorrow['max']} · min: {labels_tomorrow['min']}\n"
+        "3. Prediksi suhu HKO dan kondisi cuaca untuk 6 jam ke depan (per jam).\n"
         "Bandingkan dengan model bot dan harga pasar; jelaskan bila kamu berbeda pendapat.\n"
         'Balas JSON saja: {"max": {"perkiraan": angka, "peluang": {"<bracket>": angka}}, '
         '"min": {"perkiraan": angka, "peluang": {"<bracket>": angka}}, '
+        '"besok": {"max": {"perkiraan": angka, "peluang": {...}}, "min": {"perkiraan": angka, "peluang": {...}}}, '
+        '"per_jam": [{"jam": "HH:MM", "suhu": angka, "cuaca": "singkat"}], '
         '"ringkasan": "2-3 kalimat kondisi saat ini", "alasan": ["..."], "risiko": ["..."]}'
     )
     raw = gemini(prompt, SYSTEM + _knowledge(), json_mode=True)
@@ -191,48 +221,76 @@ def ai_view(now: Optional[datetime] = None, ctx: Optional[Dict[str, Any]] = None
     out: Dict[str, Any] = {"ringkasan": str(data.get("ringkasan") or "")[:600],
                            "alasan": [str(x)[:200] for x in (data.get("alasan") or [])][:4],
                            "risiko": [str(x)[:200] for x in (data.get("risiko") or [])][:3]}
-    for k in ("max", "min"):
-        part = data.get(k) or {}
+    def parse(part: Dict[str, Any], names: List[str]) -> Dict[str, Any]:
         try:
             point = float(part.get("perkiraan"))
         except (TypeError, ValueError):
             point = None
-        out[k] = {"point": point, "probs": _normalize(part.get("peluang") or {}, labels[k])}
+        return {"point": point, "probs": _normalize(part.get("peluang") or {}, names)}
+
+    for k in ("max", "min"):
+        out[k] = parse(data.get(k) or {}, labels[k])
+    besok = data.get("besok") or {}
+    out["besok"] = {k: parse(besok.get(k) or {}, labels_tomorrow[k]) for k in ("max", "min")}
+    hourly = []
+    for h in data.get("per_jam") or []:
+        try:
+            hourly.append({"jam": str(h.get("jam"))[:5], "suhu": round(float(h.get("suhu")), 1),
+                           "cuaca": str(h.get("cuaca") or "")[:60]})
+        except (TypeError, ValueError, AttributeError):
+            continue
+    out["per_jam"] = hourly[:8]
     return out
 
 
 # --- Pencatatan & penilaian -------------------------------------------------------------
 
-def record_views(now: datetime, analysis: Dict[str, Any], view: Optional[Dict[str, Any]]) -> None:
-    """Simpan peluang model, pasar, dan AI (bila ada) untuk dinilai setelah hari selesai."""
+def record_views(now: datetime, analysis: Dict[str, Any], view: Optional[Dict[str, Any]],
+                 tomorrow: Optional[Dict[str, Any]] = None) -> None:
+    """Simpan peluang model, pasar, dan AI (bila ada) — hari ini & besok — untuk dinilai setelah harinya selesai."""
     from app.paper_trading.models import HkForecastView
 
-    local_date = now.astimezone(HKT).date().isoformat()
+    today = now.astimezone(HKT).date()
     db = get_db_session()
     try:
-        for k in ("max", "min"):
-            d = analysis.get(k)
-            if not d:
-                continue
-            labels = [b["bracket"] for b in d["brackets"] if b.get("market_prob") is not None]
-            if not labels:
-                continue  # tanpa market hari ini tidak ada yang bisa dinilai
-            sources = {
-                "model": ({b["bracket"]: b["model"] for b in d["brackets"] if b["bracket"] in labels}, d["mu"]),
-                "market": ({b["bracket"]: b["market_prob"] for b in d["brackets"] if b["bracket"] in labels}, None),
-            }
-            if view and view.get(k, {}).get("probs"):
-                sources["ai"] = (view[k]["probs"], view[k].get("point"))
-            for source, (probs, point) in sources.items():
-                db.add(HkForecastView(created_at=now, local_date=local_date, kind=k, source=source,
-                                      probs=json.dumps(probs), point=Decimal(str(round(point, 2))) if point is not None else None,
-                                      summary=(view or {}).get("ringkasan") if source == "ai" else None))
+        if view and view.get("per_jam"):
+            db.add(HkForecastView(created_at=now, local_date=today.isoformat(), kind="hourly", source="ai",
+                                  probs=json.dumps(view["per_jam"]), summary=view.get("ringkasan")))
+        targets = [(today.isoformat(), analysis, view)]
+        if tomorrow and tomorrow.get("day"):
+            targets.append((tomorrow["day"], tomorrow, (view or {}).get("besok")))
+        for local_date, dist, ai_part in targets:
+            _record_day(db, now, local_date, dist, ai_part, (view or {}).get("ringkasan") if dist is analysis else None)
         db.commit()
     except Exception as err:
         db.rollback()
         logger.warning("Gagal menyimpan pandangan HK: %s", err)
     finally:
         db.close()
+
+
+def _record_day(db, now: datetime, local_date: str, analysis: Dict[str, Any], view: Optional[Dict[str, Any]],
+                summary: Optional[str]) -> None:
+    """Peluang model/pasar/AI satu hari (max & min) — hanya bracket yang ada market-nya (bisa dinilai)."""
+    from app.paper_trading.models import HkForecastView
+
+    for k in ("max", "min"):
+        d = analysis.get(k)
+        if not d:
+            continue
+        labels = [b["bracket"] for b in d["brackets"] if b.get("market_prob") is not None]
+        if not labels:
+            continue  # tanpa market hari ini tidak ada yang bisa dinilai
+        sources = {
+            "model": ({b["bracket"]: b["model"] for b in d["brackets"] if b["bracket"] in labels}, d["mu"]),
+            "market": ({b["bracket"]: b["market_prob"] for b in d["brackets"] if b["bracket"] in labels}, None),
+        }
+        if view and view.get(k, {}).get("probs"):
+            sources["ai"] = (view[k]["probs"], view[k].get("point"))
+        for source, (probs, point) in sources.items():
+            db.add(HkForecastView(created_at=now, local_date=local_date, kind=k, source=source,
+                                  probs=json.dumps(probs), point=Decimal(str(round(point, 2))) if point is not None else None,
+                                  summary=summary if source == "ai" else None))
 
 
 def actual_extremes(day: date) -> Optional[Dict[str, float]]:
@@ -266,7 +324,8 @@ def scorecard(days: int = SCORE_DAYS, now: Optional[datetime] = None) -> Dict[st
     db = get_db_session()
     try:
         views = (db.query(HkForecastView).filter(HkForecastView.local_date >= first,
-                                                 HkForecastView.local_date < today.isoformat()).all())
+                                                 HkForecastView.local_date < today.isoformat(),
+                                                 HkForecastView.kind.in_(("max", "min"))).all())
     finally:
         db.close()
     actual_cache: Dict[str, Optional[Dict[str, float]]] = {}
@@ -316,8 +375,16 @@ def build_summary(now: Optional[datetime] = None, use_cache: bool = True, record
     status = hko_status(now=now)
     if not status:
         return {"text": "🇭🇰 Belum ada bacaan HKO hari ini.", "analysis": None, "view": None, "error": None}
+    from app.paper_trading.hk_forecast import forecast_payload
+
     analysis = hk_bot.analyze(now, status=status)
-    ctx = context(now, analysis=analysis, status=status)
+    forecast = forecast_payload(now)
+    try:
+        tomorrow = hk_bot.analyze_tomorrow(now, hours=hk_hours_48(now), fnd=forecast.get("nine_day"))
+    except Exception as err:
+        logger.warning("Model HK besok gagal: %s", err)
+        tomorrow = None
+    ctx = context(now, analysis=analysis, status=status, tomorrow=tomorrow, forecast=forecast)
     view, error = None, None
     try:
         view = ai_view(now, ctx)
@@ -325,14 +392,15 @@ def build_summary(now: Optional[datetime] = None, use_cache: bool = True, record
         error = str(err)
         logger.warning("Pandangan AI HK gagal: %s", err)
     if record and analysis:
-        record_views(now, analysis, view)
+        record_views(now, analysis, view, tomorrow)
     try:
         score = scorecard(now=now)
     except Exception as err:
         logger.warning("Gagal menghitung skor HK: %s", err)
         score = {}
-    text = format_summary(now, status, analysis, view, error, ctx.get("posisi_paper_hk") or [], score)
-    report = {"text": text, "analysis": analysis, "view": view, "error": error, "score": score,
+    text = format_summary(now, status, analysis, view, error, ctx.get("posisi_paper_hk") or [], score,
+                          forecast=forecast, tomorrow=tomorrow)
+    report = {"text": text, "analysis": analysis, "view": view, "error": error, "score": score, "tomorrow": tomorrow,
               "created_at": now.isoformat()}
     _summary_cache.update(at=time.monotonic(), report=report)
     return report
@@ -340,7 +408,8 @@ def build_summary(now: Optional[datetime] = None, use_cache: bool = True, record
 
 def format_summary(now: datetime, status: Dict[str, Any], analysis: Optional[Dict[str, Any]],
                    view: Optional[Dict[str, Any]], error: Optional[str], positions: List[Dict[str, Any]],
-                   score: Dict[str, Any]) -> str:
+                   score: Dict[str, Any], forecast: Optional[Dict[str, Any]] = None,
+                   tomorrow: Optional[Dict[str, Any]] = None) -> str:
     """Pesan Telegram (Markdown v1, teks dinamis di-escape)."""
     from app.paper_trading.hk_bot import format_analysis_lines
 
@@ -352,6 +421,14 @@ def format_summary(now: datetime, status: Dict[str, Any], analysis: Optional[Dic
     lines = [f"🇭🇰 *RINGKASAN HONG KONG* · {local:%H:%M} {_md(tz_label)} ({hkt:%H:%M} HKT)",
              f"Suhu {status['temp']:.1f}°C ({status['observed_at']:%H:%M}) · max sejauh ini {status['max']:.1f} · "
              f"min {status['min']:.1f}" + (f" · tren {rate:+.1f}°C/jam" if rate is not None else "")]
+    cuaca = (forecast or {}).get("now") or {}
+    if cuaca:
+        lines.append(f"{cuaca.get('icon', '')} {_md(cuaca.get('text', '-'))} · RH {cuaca.get('humidity', '-')}%"
+                     + (f" · hujan {cuaca['rain_max_mm']} mm" if cuaca.get("rain_max_mm") else "")
+                     + (f" · ⚠️ {_md('; '.join(cuaca['warnings'])[:120])}" if cuaca.get("warnings") else ""))
+    hours = ((forecast or {}).get("hours") or [])[:6:2]
+    if hours:
+        lines.append("Jam depan: " + " · ".join(f"{h['hour']} {h['icon']} {h['temp']:.1f}°" for h in hours))
     official = (status.get("official") or {}).get("text")
     if official:
         lines.append(f"📋 HKO: {_md(official[:220])}{'…' if len(official) > 220 else ''}")
@@ -369,12 +446,27 @@ def format_summary(now: datetime, status: Dict[str, Any], analysis: Optional[Dic
             if part.get("probs"):
                 point = f" ~{part['point']:.1f}°C" if part.get("point") is not None else ""
                 lines.append(f"{title}{point}: {_md(_probs_line(part['probs']))}")
+        if view.get("per_jam"):
+            lines.append("Per jam: " + _md(" · ".join(f"{h['jam']} {h['suhu']:.1f}° {h['cuaca']}" for h in view["per_jam"][:6])))
+        besok = view.get("besok") or {}
+        if any((besok.get(k) or {}).get("probs") for k in ("max", "min")):
+            parts = []
+            for k, title in (("max", "max"), ("min", "min")):
+                part = besok.get(k) or {}
+                if part.get("probs"):
+                    parts.append(f"{title} {_md(_probs_line(part['probs'], top=2))}")
+            lines.append("Besok: " + " · ".join(parts))
         for reason in view.get("alasan") or []:
             lines.append(f"• {_md(reason)}")
         if view.get("risiko"):
             lines.append("⚠️ " + _md("; ".join(view["risiko"])))
     else:
         lines.append(f"🤖 AI tidak tersedia: {_md(error or '-')}")
+    if tomorrow and (tomorrow.get("max") or tomorrow.get("min")):
+        mx, mn = tomorrow.get("max") or {}, tomorrow.get("min") or {}
+        lines.append(f"📅 Model besok ({tomorrow['day'][5:]}): "
+                     + (f"max {mx['mu']:.1f}±{mx['sigma']:.1f}°" if mx else "")
+                     + (f" · min {mn['mu']:.1f}±{mn['sigma']:.1f}°" if mn else ""))
     if positions:
         lines.append("")
         lines.append("💼 *Posisi paper HK*")
@@ -468,12 +560,12 @@ def ask(question: str, now: Optional[datetime] = None) -> str:
     return answer[:MAX_REPLY_CHARS]
 
 
-def latest_views(now: Optional[datetime] = None) -> Dict[str, Any]:
-    """Pandangan terbaru tiap sumber untuk hari ini (dashboard)."""
+def latest_views(now: Optional[datetime] = None, day: Optional[str] = None) -> Dict[str, Any]:
+    """Pandangan terbaru tiap sumber untuk satu hari HKT (default hari ini) — max, min, dan AI per jam."""
     from app.paper_trading.models import HkForecastView
 
     now = now or datetime.now(timezone.utc)
-    day = now.astimezone(HKT).date().isoformat()
+    day = day or now.astimezone(HKT).date().isoformat()
     db = get_db_session()
     try:
         rows = (db.query(HkForecastView).filter(HkForecastView.local_date == day)

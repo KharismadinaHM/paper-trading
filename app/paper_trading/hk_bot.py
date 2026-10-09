@@ -214,24 +214,81 @@ def analyze(now: Optional[datetime] = None, status: Optional[Dict[str, Any]] = N
                            "official": (status.get("official") or {}).get("text")}
     for kind, market_key in (("highest", "market"), ("lowest", "min_market")):
         est = estimate(kind, now, status, projection)
-        rows = []
-        for m in status.get(market_key) or []:
-            b = _bracket_key(m.get("bracket") or "")
-            if b is None:
-                continue
-            model = bracket_prob(b, kind, est["observed"], est["mu"], est["sigma"])
-            market = _market_prob(m)
-            blended = model if market is None else min(max(market + weight * (model - market), 0.0), 1.0)
-            rows.append({**m, "lo": b[0], "hi": b[1], "model": round(model, 4),
-                         "market_prob": round(market, 4) if market is not None else None, "prob": round(blended, 4)})
-        if not rows:  # tanpa market: bracket bulat di sekitar mu (untuk tampilan & AI)
-            center = math.floor(est["mu"])
-            for x in range(center - 3, center + 4):
-                p = bracket_prob((x, x), kind, est["observed"], est["mu"], est["sigma"])
-                rows.append({"bracket": f"{x}°C", "lo": x, "hi": x, "model": round(p, 4), "market_prob": None,
-                             "prob": round(p, 4)})
-        rows.sort(key=lambda r: (r["lo"] if r["lo"] != -math.inf else -999))
-        out[KIND_LABEL[kind]] = {**est, "brackets": rows}
+        out[KIND_LABEL[kind]] = {**est, "brackets": _bracket_rows(status.get(market_key) or [], kind, est, weight)}
+    return out
+
+
+def _bracket_rows(markets: List[Dict[str, Any]], kind: str, est: Dict[str, Any], weight: float) -> List[Dict[str, Any]]:
+    """Peluang model, pasar, dan campuran per bracket; tanpa market: bracket bulat di sekitar mu."""
+    rows = []
+    for m in markets:
+        b = _bracket_key(m.get("bracket") or "")
+        if b is None:
+            continue
+        model = bracket_prob(b, kind, est["observed"], est["mu"], est["sigma"])
+        market = _market_prob(m)
+        blended = model if market is None else min(max(market + weight * (model - market), 0.0), 1.0)
+        rows.append({**m, "lo": b[0], "hi": b[1], "model": round(model, 4),
+                     "market_prob": round(market, 4) if market is not None else None, "prob": round(blended, 4)})
+    if not rows:  # tanpa market: bracket bulat di sekitar mu, ujung terbuka (untuk tampilan & AI)
+        center = math.floor(est["mu"])
+        for x in range(center - 3, center + 4):
+            lo = -math.inf if x == center - 3 else x
+            hi = math.inf if x == center + 3 else x
+            label = f"{x}°C or below" if lo == -math.inf else (f"{x}°C or higher" if hi == math.inf else f"{x}°C")
+            p = bracket_prob((lo, hi), kind, est["observed"], est["mu"], est["sigma"])
+            rows.append({"bracket": label, "lo": lo, "hi": hi, "model": round(p, 4), "market_prob": None,
+                         "prob": round(p, 4)})
+    rows.sort(key=lambda r: (r["lo"] if r["lo"] != -math.inf else -999))
+    return rows
+
+
+SIGMA_TOMORROW_FLOOR = 1.2   # °C — besok belum ada angka terukur; prakiraan sehari ke depan meleset ±1°C wajar
+
+
+def analyze_tomorrow(now: Optional[datetime] = None, hours: Optional[List[Dict[str, Any]]] = None,
+                     fnd: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Distribusi model untuk max & min BESOK (HKT): puncak/lembah per jam besok (Open-Meteo + bias HKO meluruh)
+    dirata-rata dengan prakiraan 9 hari resmi HKO; ketidakpastian = error proyeksi 6 jam, min. SIGMA_TOMORROW_FLOOR. Tanpa angka terukur.
+    Untuk tampilan dan AI — bot tidak membeli market besok.
+    """
+    from app.paper_trading.hk_calibration import model_weight
+    from app.paper_trading.hk_forecast import hourly_outlook, nine_day
+    from app.paper_trading.hko_alerts import _today_market
+
+    now = now or datetime.now(timezone.utc)
+    day = today_hkt(now) + timedelta(days=1)
+    hours = hourly_outlook(now, hours=48) if hours is None else hours
+    fnd = nine_day() if fnd is None else fnd
+    official = next((d for d in fnd.get("days") or [] if d["date"] == day.isoformat()), None)
+    tomorrow = [h for h in hours if h["date"] == day.isoformat()]
+    weight = model_weight()
+    w_off = float(settings.AUTOTRADE_HK_OFFICIAL_WEIGHT)
+    out: Dict[str, Any] = {"day": day.isoformat(), "model_weight": weight, "official": official,
+                           "projection": [{"at": h["hour"], "value": h["temp"]} for h in tomorrow]}
+    for kind in ("highest", "lowest"):
+        label = KIND_LABEL[kind]
+        hint = (official or {}).get("max" if kind == "highest" else "min")
+        if tomorrow:
+            pick = max if kind == "highest" else min
+            peak = pick(tomorrow, key=lambda h: h["temp"])
+            value, lead = peak["temp"], (datetime.fromisoformat(peak["at"]) - now).total_seconds() / 3600
+            source = f"proyeksi {'puncak' if kind == 'highest' else 'lembah'} besok {peak['hour']}"
+        elif hint is not None:
+            value, lead, source = float(hint), 30.0, "prakiraan 9 hari HKO"
+        else:
+            continue
+        mu = (1 - w_off) * value + w_off * float(hint) if hint is not None and tomorrow else value
+        est = {"kind": kind, "observed": None, "mu": round(mu, 2), "mu_raw": round(mu, 2), "bias": 0.0,
+               "sigma": round(max(sigma_for(6, now), SIGMA_TOMORROW_FLOOR), 2), "lead": round(lead, 2),
+               "projected": round(value, 2), "official_hint": hint, "final": False, "source": source}
+        try:
+            markets = _today_market(now, kind, day=day)
+        except Exception as err:
+            logger.warning("Gagal mengambil market HK besok: %s", err)
+            markets = []
+        out[label] = {**est, "brackets": _bracket_rows(markets, kind, est, weight)}
     return out
 
 

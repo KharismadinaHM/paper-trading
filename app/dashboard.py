@@ -390,16 +390,21 @@ def _json_safe(value):
 
 
 @app.get("/api/hk/bot", dependencies=[Depends(require_auth)])
-def hk_bot_api():
-    """Bot HK: distribusi model max/min per bracket vs pasar, pandangan AI terbaru, dan skor akurasi."""
+def hk_bot_api(day: str = "today"):
+    """Bot HK: distribusi model max/min per bracket vs pasar (hari ini atau besok), pandangan AI terbaru, skor."""
     from app.paper_trading import hk_ai, hk_bot
     from app.paper_trading.autotrader import cfg, enabled_strategies
-    analysis = hk_bot.analyze()
+    if day not in ("today", "tomorrow"):
+        raise HTTPException(status_code=400, detail="day: today atau tomorrow")
+    analysis = hk_bot.analyze() if day == "today" else hk_bot.analyze_tomorrow()
     try:
         score = hk_ai.scorecard()
     except Exception:
         score = {}
-    return _json_safe({"analysis": analysis, "ai": hk_ai.latest_views(), "score": score,
+    views_day = (analysis or {}).get("day") if day == "tomorrow" else None
+    return _json_safe({"day": day, "date": (analysis or {}).get("day") or hk_bot.today_hkt().isoformat(),
+                       "analysis": analysis, "ai": hk_ai.latest_views(day=views_day),
+                       "ai_hourly": (hk_ai.latest_views().get("hourly") or {}).get("ai"), "score": score,
                        "ai_problems": hk_ai.ai_problems(), "positions": hk_bot.positions_today(),
                        "strategies": [s for s in ("hk_max", "hk_min") if s in enabled_strategies()],
                        "min_edge": float(cfg("HK_MIN_EDGE"))})
@@ -432,6 +437,28 @@ def hk_calibration_reset_api():
     from app.paper_trading.hk_calibration import reset
     reset()
     return _hk_calibration_payload({})
+
+
+@app.get("/api/hk/forecast", dependencies=[Depends(require_auth)])
+def hk_forecast_api():
+    """Cuaca terkini HKO, prakiraan per jam 24 jam (suhu terkoreksi HKO, kondisi, hujan), dan 9 hari HKO."""
+    from app.paper_trading.hk_forecast import forecast_payload
+    return forecast_payload()
+
+
+@app.get("/api/hk/trades", dependencies=[Depends(require_auth)])
+def hk_trades_api(period: str = "all", limit: int = 100):
+    """Riwayat trade auto bot HK (max & min) dengan hasil menang/kalah + statistik."""
+    from app.paper_trading.autobot_overview import overview
+    from app.paper_trading.autotrader import trade_history
+    stats = _calendar_call(overview, source="paper", period=period, strategy="hk_all")
+    rows = trade_history(limit=max(1, min(limit, 300)), strategy="hk_all")
+    for r in rows:
+        r["created_at"] = r["created_at"].isoformat()
+        if r.get("closed_at") is not None:
+            r["closed_at"] = (r["closed_at"] if r["closed_at"].tzinfo else r["closed_at"].replace(tzinfo=timezone.utc)).isoformat()
+    open_rows = [r for r in rows if r["status"] == "OPEN"]
+    return _json_safe({"stats": stats, "history": rows, "open": len(open_rows)})
 
 
 class HkAskRequest(BaseModel):
