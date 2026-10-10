@@ -42,6 +42,7 @@ STRATEGY_VERSIONS = {
     "eth": "auto_eth_v1", "eth15": "auto_eth15_v1", "maker_eth": "auto_maker_eth_v1", "maker_eth15": "auto_maker_eth15_v1",
     "weather": "auto_weather_v1", "weather_post": "auto_weather_post_v1",
     "hk_max": "auto_hk_max_v1", "hk_min": "auto_hk_min_v1",
+    "hk_max_no": "auto_hk_max_no_v1", "hk_min_no": "auto_hk_min_no_v1",
 }
 BINANCE = "https://data-api.binance.vision"
 ET = ZoneInfo("America/New_York")
@@ -122,6 +123,9 @@ EDITABLE_CONFIG: Dict[str, Tuple[str, float, float, str]] = {
     "HK_LEAD_HOURS": ("float", 0, 24, "Hong Kong: masuk hanya bila puncak/titik terendah tinggal ≤ jam ini (0 = sesudahnya)"),
     "HK_MIN_PRICE": ("float", 0, 0.9, "Hong Kong: harga beli minimum (0–1)"),
     "HK_AUTO_CALIBRATE": ("bool", 0, 1, "Hong Kong: kalibrasi otomatis harian (bias & bobot model)"),
+    "HK_NO_MAX_PROB": ("float", 0, 0.2, "Hong Kong NO: beli NO hanya bila peluang model YES ≤ (0–1)"),
+    "HK_NO_MIN_EDGE": ("float", 0, 0.5, "Hong Kong NO: edge minimum (0–1)"),
+    "HK_NO_MAX_PRICE": ("float", 0.5, 0.995, "Hong Kong NO: harga NO maksimum (0–1)"),
     "STRATEGIES": ("strategies", 0, 0, "Strategi aktif"),
 }
 _config_cache: Dict[str, Any] = {"at": 0.0, "values": {}}
@@ -388,8 +392,9 @@ def strategy_header(strategy: str) -> str:
         return label + (" · MAKER" if maker else "")
     if strategy == "weather_post":
         return "🌡 CUACA · PASCA PUNCAK"
-    if strategy in ("hk_max", "hk_min"):
-        return f"🇭🇰 HONG KONG · {'MAX' if strategy == 'hk_max' else 'MIN'}"
+    if strategy.startswith("hk_"):
+        return (f"🇭🇰 HONG KONG · {'MAX' if strategy.startswith('hk_max') else 'MIN'}"
+                + (" · NO" if strategy.endswith("_no") else ""))
     if strategy.startswith("weather"):
         return "🌡 CUACA"
     return strategy.upper()
@@ -439,6 +444,28 @@ def _book_side(token: str, usd: float) -> Optional[Dict[str, float]]:
     # Simulasi slippage: eksekusi nyata kalah cepat dari bot lain / harga bergeser saat order dikirim
     slippage = float(cfg("SLIPPAGE") or 0)
     price = min(0.99, fill["price"] + slippage)
+    return {"price": price, "fee": taker_fee(price, rate), "spread": spread, "shares": fill["shares"],
+            "book_price": fill["price"], "slippage": round(price - fill["price"], 4)}
+
+
+def _book_no_side(yes_token: str, usd: float) -> Optional[Dict[str, float]]:
+    """
+    Harga membeli NO senilai `usd` dari order book YES: membeli NO di harga X = mengisi bid YES di 1 − X
+    (order book Polymarket untuk dua sisi market biner saling bercermin). Slippage & fee taker seperti _book_side.
+    """
+    from app.paper_trading.live_market_data import FRESH_BOOK_TTL, fetch_fee_rate, fetch_order_books, vwap_for_usd
+
+    book = fetch_order_books([yes_token], ttl=FRESH_BOOK_TTL).get(str(yes_token))
+    if not book or book.get("bid") is None:
+        return None
+    no_asks = [(round(1 - p, 6), size) for p, size in (book.get("bids") or []) if 0 < p < 1]
+    fill = vwap_for_usd(no_asks, usd)
+    if fill is None:
+        return None
+    spread = (book["ask"] - book["bid"]) if book.get("ask") is not None else None
+    rate = fetch_fee_rate(yes_token)
+    slippage = float(cfg("SLIPPAGE") or 0)
+    price = min(0.995, fill["price"] + slippage)
     return {"price": price, "fee": taker_fee(price, rate), "spread": spread, "shares": fill["shares"],
             "book_price": fill["price"], "slippage": round(price - fill["price"], 4)}
 

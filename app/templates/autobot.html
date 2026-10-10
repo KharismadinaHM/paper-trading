@@ -355,7 +355,7 @@
     const SERIES_LABEL = { btc: 'BTC 1 jam', btc15: 'BTC 15 menit', btc5: 'BTC 5 menit', eth: 'ETH 1 jam', eth15: 'ETH 15 menit',
                            maker_btc: 'BTC 1 jam · maker', maker_btc15: 'BTC 15 menit · maker', maker_btc5: 'BTC 5 menit · maker',
                            maker_eth: 'ETH 1 jam · maker', maker_eth15: 'ETH 15 menit · maker', weather: 'Cuaca', weather_post: 'Cuaca · pasca puncak',
-                           hk_max: 'Hong Kong · max', hk_min: 'Hong Kong · min' };
+                           hk_max: 'Hong Kong · max', hk_min: 'Hong Kong · min', hk_max_no: 'Hong Kong · max NO', hk_min_no: 'Hong Kong · min NO' };
     const LIVE_SERIES_LABEL = { btc: '🟠 BTC 1 jam', btc15: '🟠 BTC 15 menit', btc5: '🟠 BTC 5 menit', eth: '🔷 ETH 1 jam', eth15: '🔷 ETH 15 menit' };
     const coinOf = name => String(name).startsWith('hk') ? 'hk' : String(name).includes('eth') ? 'eth' : String(name).includes('btc') ? 'btc' : 'wx';
     const coinIcon = name => { const c = coinOf(name); return `<span class="coin ${c}">${c === 'btc' ? '<i class="bi bi-currency-bitcoin"></i>' : c === 'eth' ? 'Ξ' : c === 'hk' ? 'HK' : '<i class="bi bi-cloud-sun"></i>'}</span>`; };

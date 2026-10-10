@@ -229,15 +229,16 @@
                     </div>
                     <div class="table-responsive mb-4"><table class="table table-dark table-sm mb-0 align-middle">
                         <thead><tr><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
-                            <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end" title="Peluang campuran model+pasar − (ask + fee)">Edge</th></tr></thead>
-                        <tbody id="botMax"><tr><td colspan="6" class="muted">Memuat…</td></tr></tbody></table></div>
+                            <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end" title="Peluang campuran model+pasar − (ask + fee)">Edge</th>
+                            <th class="text-end" title="Beli NO: hanya bracket mustahil (angka terukur) atau peluang model YES ≤ 3%">Edge NO</th></tr></thead>
+                        <tbody id="botMax"><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody></table></div>
                     <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-1">
                         <div class="label cold">Suhu terendah</div><div class="small muted mono" id="botMinInfo"></div>
                     </div>
                     <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
                         <thead><tr><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
-                            <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end">Edge</th></tr></thead>
-                        <tbody id="botMin"><tr><td colspan="6" class="muted">Memuat…</td></tr></tbody></table></div>
+                            <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end">Edge</th><th class="text-end">Edge NO</th></tr></thead>
+                        <tbody id="botMin"><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody></table></div>
                     <div class="small dim mt-3" id="botNote">Model = max/min terukur HKO + proyeksi per jam + error historis. Edge = campuran model &amp; pasar − (ask + fee);
                         hijau = memenuhi ambang beli. AI (Gemini) hanya bayangan: dinilai akurasinya, tidak menentukan pembelian.</div>
                 </div>
@@ -670,8 +671,12 @@
     }
 
     // --- BOT HK & AI ---
+    function impossible(d, b) {
+        if (d.observed === null || d.observed === undefined) return false;
+        return d.kind === 'highest' ? (b.hi !== null && d.observed >= b.hi + 1) : (b.lo !== null && d.observed < b.lo);
+    }
     function botRows(d, ai) {
-        if (!d) return '<tr><td colspan="6" class="muted">Tidak ada data.</td></tr>';
+        if (!d) return '<tr><td colspan="7" class="muted">Tidak ada data.</td></tr>';
         const aiProbs = (ai && ai.probs) || {};
         const top = Math.max(...d.brackets.map(b => b.model));
         const minEdge = (botData && botData.min_edge) || 0.08;
@@ -682,8 +687,20 @@
             return `<tr class="${b.model === top ? 'top-row' : ''}"><td>${esc(b.bracket)}</td><td class="text-end">${pct(b.model)}</td>
                 <td class="text-end">${aiProbs[b.bracket] === undefined ? '-' : pct(aiProbs[b.bracket])}</td>
                 <td class="text-end">${pct(b.market_prob)}</td><td class="text-end">${b.ask === null || b.ask === undefined ? '-' : (b.ask * 100).toFixed(1) + '¢'}</td>
-                <td class="text-end ${cls}">${edge === null ? '-' : (edge > 0 ? '+' : '') + (edge * 100).toFixed(1) + '¢'}</td></tr>`;
+                <td class="text-end ${cls}">${edge === null ? '-' : (edge > 0 ? '+' : '') + (edge * 100).toFixed(1) + '¢'}</td>
+                <td class="text-end">${noEdge(d, b)}</td></tr>`;
         }).join('');
+    }
+    function noEdge(d, b) {
+        // NO hanya untuk bracket yang (hampir) mustahil: terukur sudah melewatinya, atau peluang model YES ≤ ambang
+        const maxProb = (botData && botData.no_max_prob) || 0.03, minEdge = (botData && botData.no_min_edge) || 0.03;
+        if (b.bid === null || b.bid === undefined) return '<span class="dim">-</span>';
+        const imp = impossible(d, b);
+        if (!imp && b.model > maxProb) return '<span class="dim">-</span>';
+        const price = 1 - b.bid, fee = 0.07 * price * (1 - price);
+        const e = (imp ? 1 : 1 - b.prob) - price - fee;
+        const cls = e >= minEdge ? 'up fw-semibold' : e < 0 ? 'down' : '';
+        return `<span class="${cls}" title="${imp ? 'mustahil oleh angka terukur' : 'peluang model YES ' + (b.model * 100).toFixed(1) + '%'} · NO ${(price * 100).toFixed(1)}¢">${(e > 0 ? '+' : '') + (e * 100).toFixed(1)}¢${imp ? ' ✓' : ''}</span>`;
     }
     function botInfo(d) {
         if (!d) return '';

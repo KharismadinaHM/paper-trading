@@ -126,7 +126,8 @@ def test_strategy_registered_in_autotrader():
     from app.paper_trading import autotrader as at
     assert at.STRATEGY_VERSIONS["hk_max"] == "auto_hk_max_v1" and "hk_min" in at.get_config()["STRATEGIES"]["options"]
     assert at.strategy_header("hk_min") == "🇭🇰 HONG KONG · MIN"
-    assert at._versions_for("hk_all") == ["auto_hk_max_v1", "auto_hk_min_v1"]
+    assert at._versions_for("hk_all") == ["auto_hk_max_v1", "auto_hk_min_v1", "auto_hk_max_no_v1", "auto_hk_min_no_v1"]
+    assert at.strategy_header("hk_max_no") == "🇭🇰 HONG KONG · MAX · NO"
     assert at.cfg("HK_MIN_EDGE") == pytest.approx(0.08)
 
 

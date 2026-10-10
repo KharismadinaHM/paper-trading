@@ -29,6 +29,7 @@ from app.paper_trading.hko_alerts import HKT, STATION, _aware
 logger = get_logger("hk_bot")
 
 HK_STRATEGIES = {"hk_max": "highest", "hk_min": "lowest"}
+HK_NO_STRATEGIES = {"hk_max_no": "highest", "hk_min_no": "lowest"}  # beli NO bracket yang (hampir) mustahil
 KIND_LABEL = {"highest": "max", "lowest": "min"}
 SIGMA_FLOOR = 0.3          # °C — batas bawah ketidakpastian sebelum hari dianggap final
 SIGMA_FINAL = 0.15         # °C — setelah max dianggap final (sisa hari praktis tak menambah)
@@ -526,8 +527,88 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
     }
 
 
+def impossible_by_observation(kind: str, bracket: Tuple[float, float], observed: Optional[float]) -> bool:
+    """YES pasti kalah karena angka terukur hari ini: max sudah ≥ batas atas bracket, atau min sudah < batas bawah."""
+    if observed is None:
+        return False
+    lo, hi = bracket
+    if kind == "highest":
+        return hi != math.inf and observed >= hi + 1
+    return lo != -math.inf and observed < lo
+
+
+def evaluate_no(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Keputusan beli NO: hanya bracket yang mustahil oleh angka terukur, atau yang peluang model YES-nya ≤ HK_NO_MAX_PROB.
+    Edge NO = (1 − peluang YES campuran) − (harga NO + fee); untuk bracket mustahil peluang NO = 100%.
+    None bila tidak ada bracket yang memenuhi syarat "hampir mustahil".
+    """
+    from app.paper_trading.autotrader import _book_no_side, already_decided, cfg
+
+    kind = HK_NO_STRATEGIES[strategy]
+    dist = analysis[KIND_LABEL[kind]]
+    local = now.astimezone(HKT)
+    key = f"{strategy}|{local.date().isoformat()}"
+    max_prob = float(cfg("HK_NO_MAX_PROB"))
+    est_fee = lambda p: settings.AUTOTRADE_FEE_RATE * p * (1 - p)  # noqa: E731
+    candidates = []
+    for r in dist["brackets"]:
+        if not r.get("yes_token_id") or r.get("bid") is None:
+            continue
+        impossible = impossible_by_observation(kind, (r["lo"], r["hi"]), dist.get("observed"))
+        if not impossible and r["model"] > max_prob:
+            continue
+        p_no = 1.0 if impossible else 1 - r["prob"]
+        no_price = 1 - r["bid"]
+        candidates.append((p_no - no_price - est_fee(no_price), impossible, p_no, r))
+    if not candidates:
+        return None
+    _, impossible, p_no, target = max(candidates, key=lambda c: c[0])
+    usd = float(cfg("ORDER_USD"))
+    book = _book_no_side(target["yes_token_id"], usd)
+    price = book["price"] if book else 1 - target["bid"]
+    fee = book["fee"] if book else est_fee(price)
+    edge = p_no - (price + fee)
+    lead = dist.get("lead") or 0.0
+    if local.hour + local.minute / 60 < float(cfg("HK_START_HOUR")):
+        reason = f"sebelum jam {float(cfg('HK_START_HOUR')):g}:00 HKT"
+    elif not impossible and lead > float(cfg("HK_LEAD_HOURS")):
+        reason = f"{'puncak' if kind == 'highest' else 'titik terendah'} masih ±{lead:.1f} jam lagi"
+    elif already_decided(key):
+        reason = "sudah trade NO hari ini"
+    elif not book:
+        reason = "order book tidak tersedia"
+    elif price > float(cfg("HK_NO_MAX_PRICE")):
+        reason = f"harga NO di atas {float(cfg('HK_NO_MAX_PRICE')) * 100:.1f}¢"
+    elif book.get("spread") is not None and book["spread"] > float(cfg("MAX_SPREAD")):
+        reason = "spread terlalu lebar"
+    elif edge < float(cfg("HK_NO_MIN_EDGE")):
+        reason = f"edge NO < {float(cfg('HK_NO_MIN_EDGE')) * 100:.0f}¢"
+    else:
+        reason = None
+    label = KIND_LABEL[kind]
+    why = (f"mustahil: {label} terukur {dist['observed']:.1f}°C" if impossible
+           else f"peluang model YES {target['model'] * 100:.1f}% (≤ {max_prob * 100:.0f}%)")
+    detail = (f"NO {target['bracket']} · {why} · model {dist['mu']:.1f}±{dist['sigma']:.1f}°C · pasar YES "
+              + (f"{target['market_prob'] * 100:.0f}%" if target.get("market_prob") is not None else "-"))
+    return {
+        "key": key, "strategy": strategy, "market_id": target["market_id"],
+        "title": f"🇭🇰 Hong Kong {label} {local.date().isoformat()} · NO {target['bracket']}",
+        "label": f"Hong Kong {kind} {local.date().isoformat()} · NO {target['bracket']}",
+        "side": "NO", "outcome": "NO", "prob": p_no, "price": price, "fee": fee, "edge": edge,
+        "size": usd, "detail": detail, "skip_reason": reason,
+        "features": {
+            "kind": kind, "bracket": target["bracket"], "side": "NO", "impossible": impossible,
+            "observed": dist["observed"], "mu": dist["mu"], "sigma": dist["sigma"], "lead": lead,
+            "model_yes": target["model"], "market_yes": target.get("market_prob"), "prob_no": p_no,
+            "hour_hkt": round(local.hour + local.minute / 60, 2),
+            "book_spread": book.get("spread") if book else None, "slippage": book.get("slippage") if book else None,
+        },
+    }
+
+
 def hk_tick(now: Optional[datetime] = None, strategies: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    """Satu siklus: evaluasi hk_max & hk_min, catat sinyal (juga yang nonaktif, sebagai shadow), eksekusi."""
+    """Satu siklus: evaluasi hk_max, hk_min (YES) & hk_max_no, hk_min_no (NO); catat sinyal (juga yang nonaktif), eksekusi."""
     from app.paper_trading.autotrader import enabled_strategies, execute, log_signal
 
     now = now or datetime.now(timezone.utc)
@@ -537,9 +618,9 @@ def hk_tick(now: Optional[datetime] = None, strategies: Optional[List[str]] = No
         return []
     made = []
     bucket = int(now.timestamp() // (SIGNAL_BUCKET_MINUTES * 60))
-    for strategy in HK_STRATEGIES:
+    for strategy in [*HK_STRATEGIES, *HK_NO_STRATEGIES]:
         try:
-            decision = evaluate(strategy, now, analysis)
+            decision = (evaluate if strategy in HK_STRATEGIES else evaluate_no)(strategy, now, analysis)
         except Exception as err:
             logger.warning("Gagal mengevaluasi %s: %s", strategy, err)
             continue

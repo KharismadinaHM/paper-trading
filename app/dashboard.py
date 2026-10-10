@@ -406,8 +406,9 @@ def hk_bot_api(day: str = "today"):
                        "analysis": analysis, "ai": hk_ai.latest_views(day=views_day),
                        "ai_hourly": (hk_ai.latest_views().get("hourly") or {}).get("ai"), "score": score,
                        "ai_problems": hk_ai.ai_problems(), "positions": hk_bot.positions_today(),
-                       "strategies": [s for s in ("hk_max", "hk_min") if s in enabled_strategies()],
-                       "min_edge": float(cfg("HK_MIN_EDGE"))})
+                       "strategies": [s for s in ("hk_max", "hk_min", "hk_max_no", "hk_min_no") if s in enabled_strategies()],
+                       "min_edge": float(cfg("HK_MIN_EDGE")), "no_max_prob": float(cfg("HK_NO_MAX_PROB")),
+                       "no_min_edge": float(cfg("HK_NO_MIN_EDGE"))})
 
 
 def _hk_calibration_payload(cal=None):

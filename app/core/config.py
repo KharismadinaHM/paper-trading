@@ -151,7 +151,7 @@ class Settings(BaseSettings):
     AUTOTRADE_ENABLED: bool = False            # status awal; bisa diubah lewat /startbot /stopbot
     # btc15 & maker_btc15 nonaktif: backtest 14 hari (1.344 market) negatif di semua aturan; sinyalnya tetap
     # dicatat (shadow) untuk riset.
-    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc,hk_max,hk_min"
+    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc,hk_max,hk_min,hk_max_no,hk_min_no"
     AUTOTRADE_ORDER_USD: Decimal = Decimal("5.00")
     AUTOTRADE_MAX_DAILY_USD: Decimal = Decimal("50.00")   # total pembelian per hari (WIB)
     AUTOTRADE_MAX_DAILY_LOSS: Decimal = Decimal("20.00")  # stop hari itu jika rugi terealisasi ≥ ini
@@ -193,6 +193,11 @@ class Settings(BaseSettings):
     # sebelum puncak = model berbeda pendapat dengan pasar saat ketidakpastian terbesar.
     AUTOTRADE_HK_MIN_PRICE: float = 0.15
     AUTOTRADE_HK_LEAD_HOURS: float = 2.0       # masuk hanya ≤ 2 jam sebelum puncak/titik terendah (atau sesudahnya)
+    # Sisi NO (hk_max_no / hk_min_no): beli NO bracket yang (hampir) mustahil. Untung kecil per trade, rugi penuh bila
+    # salah — maka hanya bila peluang model YES ≤ 3% (atau sudah mustahil oleh angka terukur) dan edge ≥ 3¢.
+    AUTOTRADE_HK_NO_MAX_PROB: float = 0.03
+    AUTOTRADE_HK_NO_MIN_EDGE: float = 0.03
+    AUTOTRADE_HK_NO_MAX_PRICE: float = 0.97
     AUTOTRADE_HK_OFFICIAL_WEIGHT: float = 0.5  # bobot angka prakiraan resmi HKO (bila disebut) dalam rata-rata
     AUTOTRADE_HK_AUTO_CALIBRATE: bool = True   # kalibrasi harian bias & bobot model (hk_calibration.py)
     # Hujan diperkirakan ±2 jam (nowcast radar HKO / peringatan hujan & petir / sedang hujan): sisa kenaikan max

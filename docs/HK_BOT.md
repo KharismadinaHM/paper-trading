@@ -34,6 +34,15 @@ Aturan masuk: hanya bila puncak (max) / titik terendah (min) tinggal ≤ `HK_LEA
 (nilai terukur bertahan di ≥ 50% skenario), dan harga ≥ `HK_MIN_PRICE` (15¢). 10 Okt bot membeli bracket 6.7¢ jam 09:04
 (model 23% vs pasar 5%) dan kalah — kedua aturan ini akan menolaknya.
 
+## Sisi NO (hk_max_no / hk_min_no)
+
+Bot membeli NO hanya pada bracket yang **mustahil** oleh angka terukur hari ini (max sudah melewati bracket itu, atau
+min sudah di bawahnya) atau yang peluang model YES-nya ≤ `HK_NO_MAX_PROB` (3%). Edge NO = (1 − peluang YES campuran)
+− (harga NO + fee) ≥ `HK_NO_MIN_EDGE` (3¢); harga NO ≤ `HK_NO_MAX_PRICE` (97¢). Harga NO dihitung dari bid YES
+(order book dua sisi bercermin). Bracket mustahil boleh dibeli kapan saja (setelah `HK_START_HOUR`); yang "hampir
+mustahil" mengikuti aturan ≤ 2 jam sebelum puncak. Satu trade NO per jenis per hari. Untung kecil per trade, rugi
+penuh bila salah — makanya syaratnya ketat.
+
 ## Ensemble, nowcast hujan, dan rezim cuaca
 
 - **Ensemble 5 model** (ECMWF, GFS, ICON, JMA, CMA lewat Open-Meteo), masing-masing dikoreksi bacaan HKO terakhir.

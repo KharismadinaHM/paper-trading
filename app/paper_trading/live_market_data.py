@@ -74,6 +74,7 @@ def _summarize_book(book: Dict[str, Any]) -> Dict[str, Optional[float]]:
         # Nilai ($) bid dalam 3¢ dari bid terbaik: seberapa besar posisi bisa dijual tanpa slip jauh
         "bid_depth_usd": round(sum(p * q for p, q in bids if p >= best_bid[0] - 0.03 - 1e-9), 2) if best_bid else 0.0,
         "asks": sorted(asks)[:30],  # level ask termurah dulu, untuk VWAP sesuai ukuran order
+        "bids": sorted(bids, reverse=True)[:30],  # level bid tertinggi dulu (= ask sisi NO di 1 − harga)
     }
 
 
