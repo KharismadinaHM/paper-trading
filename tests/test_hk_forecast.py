@@ -232,3 +232,30 @@ def test_forecast_api_has_nowcast_and_ensemble(wx):
     data = TestClient(app).get("/api/hk/forecast").json()
     assert data["rain"]["expected"] and data["regime"]["name"] == "hujan" and len(data["ensemble"]) == 5
     assert data["nowcast"]["steps"][0]["near_mm"] == 0.5
+
+
+def test_hk_side_groups_and_trades_api():
+    from decimal import Decimal
+    from app.paper_trading import autotrader as at
+    from app.paper_trading.models import AutotradeDecision
+    assert at._versions_for("hk_yes") == ["auto_hk_max_v1", "auto_hk_min_v1"]
+    assert at._versions_for("hk_no") == ["auto_hk_max_no_v1", "auto_hk_min_no_v1"]
+    db = get_db_session()
+    for i, strat in enumerate(("hk_max", "hk_max_no", "hk_min_no")):
+        db.add(AutotradeDecision(decision_key=f"{strat}|d", strategy=strat, market_id=f"0x{i}", label=f"HK · {strat}",
+                                 side="NO" if strat.endswith("_no") else "YES", model_prob=Decimal("0.9"), price=Decimal("0.9"),
+                                 fee=Decimal("0"), edge=Decimal("0.05"), size_usd=Decimal("1"), status="filled",
+                                 local_day="2026-10-10", created_at=NOW))
+    db.commit()
+    db.close()
+    assert {r["strategy"] for r in at.trade_history(strategy="hk_no")} == {"hk_max_no", "hk_min_no"}
+    assert {r["strategy"] for r in at.trade_history(strategy="hk_yes")} == {"hk_max"}
+    from fastapi.testclient import TestClient
+    from app.dashboard import app
+    client = TestClient(app)
+    data = client.get("/api/hk/trades", params={"side": "no"}).json()
+    assert data["side"] == "no" and len(data["history"]) == 2 and set(data["by_side"]) == {"yes", "no"}
+    assert client.get("/api/hk/trades", params={"side": "maybe"}).status_code == 400
+    assert client.get("/api/autotrade/calendar", params={"strategy": "hk_no"}).status_code == 200
+    html = client.get("/hk").text
+    assert 'id="histSide"' in html and 'id="calSide"' in html and 'id="histSides"' in html

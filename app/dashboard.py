@@ -448,18 +448,25 @@ def hk_forecast_api():
 
 
 @app.get("/api/hk/trades", dependencies=[Depends(require_auth)])
-def hk_trades_api(period: str = "all", limit: int = 100):
-    """Riwayat trade auto bot HK (max & min) dengan hasil menang/kalah + statistik."""
+def hk_trades_api(period: str = "all", limit: int = 100, side: str = "all"):
+    """Riwayat trade auto bot HK (max & min) dengan hasil menang/kalah + statistik; side = all | yes | no."""
     from app.paper_trading.autobot_overview import overview
     from app.paper_trading.autotrader import trade_history
-    stats = _calendar_call(overview, source="paper", period=period, strategy="hk_all")
-    rows = trade_history(limit=max(1, min(limit, 300)), strategy="hk_all")
+    if side not in ("all", "yes", "no"):
+        raise HTTPException(status_code=400, detail="side: all, yes, atau no")
+    group = {"all": "hk_all", "yes": "hk_yes", "no": "hk_no"}[side]
+    stats = _calendar_call(overview, source="paper", period=period, strategy=group)
+    rows = trade_history(limit=max(1, min(limit, 300)), strategy=group)
     for r in rows:
         r["created_at"] = r["created_at"].isoformat()
         if r.get("closed_at") is not None:
             r["closed_at"] = (r["closed_at"] if r["closed_at"].tzinfo else r["closed_at"].replace(tzinfo=timezone.utc)).isoformat()
     open_rows = [r for r in rows if r["status"] == "OPEN"]
-    return _json_safe({"stats": stats, "history": rows, "open": len(open_rows)})
+    by_side = {}
+    for key, grp in (("yes", "hk_yes"), ("no", "hk_no")):
+        st = _calendar_call(overview, source="paper", period=period, strategy=grp)
+        by_side[key] = {k: st.get(k) for k in ("trades", "wins", "losses", "win_rate", "pnl", "roi")}
+    return _json_safe({"side": side, "stats": stats, "by_side": by_side, "history": rows, "open": len(open_rows)})
 
 
 class HkAskRequest(BaseModel):

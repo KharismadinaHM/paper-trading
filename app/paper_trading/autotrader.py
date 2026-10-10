@@ -1064,6 +1064,9 @@ def _versions_for(strategy: Optional[str]) -> List[str]:
         return [v for k, v in STRATEGY_VERSIONS.items() if k.startswith("weather")]
     if strategy == "hk_all":
         return [v for k, v in STRATEGY_VERSIONS.items() if k.startswith("hk_")]
+    if strategy in ("hk_yes", "hk_no"):  # bot HK: sisi YES (hk_max, hk_min) atau sisi NO (hk_max_no, hk_min_no)
+        return [v for k, v in STRATEGY_VERSIONS.items()
+                if k.startswith("hk_") and k.endswith("_no") == (strategy == "hk_no")]
     raise ValueError(f"Strategi tidak dikenal: {strategy}")
 
 
@@ -1304,7 +1307,7 @@ def trade_history(limit: int = 20, strategy: Optional[str] = None, days: Optiona
     db = get_db_session()
     try:
         q = db.query(AutotradeDecision).filter(AutotradeDecision.status == "filled")
-        if strategy and strategy.endswith("_all"):
+        if strategy and strategy not in STRATEGY_VERSIONS:  # grup: btc_all, eth_all, hk_all, hk_yes, hk_no
             names = {v: k for k, v in STRATEGY_VERSIONS.items()}
             q = q.filter(AutotradeDecision.strategy.in_([names[v] for v in _versions_for(strategy)]))
         elif strategy:

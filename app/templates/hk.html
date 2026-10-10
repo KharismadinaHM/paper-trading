@@ -281,6 +281,11 @@
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                 <div class="section-title"><i class="bi bi-calendar3 me-1"></i>Kalender PnL · bot HK <span class="chip ms-1">paper</span></div>
                 <div class="d-flex align-items-center gap-2">
+                    <div class="seg sm" id="calSide">
+                        <button data-side="all" onclick="setCalSide('all')">SEMUA</button>
+                        <button data-side="yes" onclick="setCalSide('yes')">YES</button>
+                        <button data-side="no" onclick="setCalSide('no')">NO</button>
+                    </div>
                     <button class="icon-btn border-0" onclick="shiftCal(-1)" aria-label="Sebelumnya"><i class="bi bi-chevron-left"></i></button>
                     <span class="fw-semibold" id="calLabel" style="min-width: 140px; text-align: center">-</span>
                     <button class="icon-btn border-0" onclick="shiftCal(1)" aria-label="Berikutnya"><i class="bi bi-chevron-right"></i></button>
@@ -351,13 +356,21 @@
         <div class="card-x p-4">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                 <div class="section-title">Riwayat trade bot HK <span class="chip ms-1">paper</span></div>
+                <div class="d-flex gap-2 flex-wrap">
+                <div class="seg sm" id="histSide">
+                    <button data-side="all" onclick="setHistSide('all')">SEMUA</button>
+                    <button data-side="yes" onclick="setHistSide('yes')">YES</button>
+                    <button data-side="no" onclick="setHistSide('no')">NO</button>
+                </div>
                 <div class="seg sm" id="histPeriod">
                     <button data-period="1w" onclick="loadTrades('1w')">1W</button>
                     <button data-period="1m" onclick="loadTrades('1m')">1M</button>
                     <button data-period="all" onclick="loadTrades('all')">ALL</button>
                 </div>
+                </div>
             </div>
             <div class="row g-2 mb-3" id="histStats"></div>
+            <div class="row g-2 mb-3" id="histSides"></div>
             <div class="row g-2 mb-3" id="histKinds"></div>
             <div class="seg mb-2" id="histFilter">
                 <button data-f="" onclick="setHistFilter('')">Semua</button>
@@ -863,10 +876,18 @@
         if (cal.month > 12) { cal.month = 1; cal.year++; }
         cal.selected = null; loadCalendar();
     }
+    const SIDE_GROUP = { all: 'hk_all', yes: 'hk_yes', no: 'hk_no' };
+    let calSide = store.get('hkCalSide', 'all');
+    function setCalSide(side) {
+        calSide = side; store.set('hkCalSide', side); cal.selected = null;
+        document.querySelectorAll('#calSide button').forEach(b => b.classList.toggle('active', b.dataset.side === side));
+        loadCalendar();
+    }
     async function loadCalendar() {
+        document.querySelectorAll('#calSide button').forEach(b => b.classList.toggle('active', b.dataset.side === calSide));
         document.getElementById('calLabel').textContent = `${MONTHS[cal.month - 1]} ${cal.year}`;
         try {
-            const res = await fetch(`/api/autotrade/calendar?month=${cal.year}-${pad(cal.month)}&strategy=hk_all&source=paper`);
+            const res = await fetch(`/api/autotrade/calendar?month=${cal.year}-${pad(cal.month)}&strategy=${SIDE_GROUP[calSide]}&source=paper`);
             const data = await res.json();
             const t = data.totals || {};
             const m = (k, v, cls = '') => `<div><div class="m-k">${k}</div><div class="m-v ${cls}">${v}</div></div>`;
@@ -900,7 +921,7 @@
         const box = document.getElementById('calTrades');
         box.innerHTML = '<div class="small muted">Memuat…</div>';
         try {
-            const res = await fetch(`/api/autotrade/calendar/trades?date=${key}&strategy=hk_all&source=paper`);
+            const res = await fetch(`/api/autotrade/calendar/trades?date=${key}&strategy=${SIDE_GROUP[calSide]}&source=paper`);
             const trades = (await res.json()).trades || [];
             const total = trades.reduce((a, t) => a + t.pnl, 0);
             box.innerHTML = `<div class="tcard"><div class="d-flex justify-content-between mb-2"><b>${new Date(key + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</b>
@@ -914,16 +935,22 @@
     }
 
     // --- RIWAYAT TRADE HK ---
-    let tradesData = null, histFilter = '';
+    let tradesData = null, histFilter = '', histSide = store.get('hkHistSide', 'all'), histPeriod = 'all';
+    function setHistSide(side) {
+        histSide = side; store.set('hkHistSide', side);
+        loadTrades(histPeriod);
+    }
     function setHistFilter(f) {
         histFilter = f;
         document.querySelectorAll('#histFilter button').forEach(b => b.classList.toggle('active', b.dataset.f === f));
         renderHistory();
     }
-    async function loadTrades(period = 'all') {
+    async function loadTrades(period = histPeriod) {
+        histPeriod = period;
         document.querySelectorAll('#histPeriod button').forEach(b => b.classList.toggle('active', b.dataset.period === period));
+        document.querySelectorAll('#histSide button').forEach(b => b.classList.toggle('active', b.dataset.side === histSide));
         try {
-            const res = await fetch('/api/hk/trades?period=' + period);
+            const res = await fetch(`/api/hk/trades?period=${period}&side=${histSide}`);
             tradesData = await res.json();
         } catch (e) { tradesData = null; }
         renderHistory();
@@ -936,7 +963,16 @@
         document.getElementById('histStats').innerHTML = tile('Trade selesai', s.trades || 0) + tile('Menang', `<span class="up">${s.wins || 0}</span>`)
             + tile('Kalah', `<span class="down">${s.losses || 0}</span>`) + tile('Win rate', pct(s.win_rate)) + tile('PnL', money(s.pnl || 0), pnlCls(s.pnl))
             + tile('ROI', s.roi === null || s.roi === undefined ? '-' : (s.roi * 100).toFixed(1) + '%', pnlCls(s.roi)) + tile('Terbuka', d.open || 0);
-        const names = { hk_max: 'Max (suhu tertinggi)', hk_min: 'Min (suhu terendah)' };
+        const sideCard = (label, x, active) => `<div class="col-md-6"><div class="tcard" style="${active ? 'border-color: var(--line-2)' : ''}">
+            <div class="d-flex justify-content-between align-items-center"><div class="label">${label}</div>
+            <div class="mono fw-semibold ${pnlCls((x || {}).pnl || 0)}">${money((x || {}).pnl || 0)}</div></div>
+            <div class="d-flex justify-content-between mt-1"><span class="big" style="font-size: 1.15rem">WR ${pct((x || {}).win_rate)}</span>
+            <span class="small mono muted">${(x || {}).trades || 0} trade · <span class="up">${(x || {}).wins || 0}W</span> <span class="down">${(x || {}).losses || 0}L</span>
+            ${(x || {}).roi !== null && (x || {}).roi !== undefined ? ' · ROI ' + (x.roi * 100).toFixed(1) + '%' : ''}</span></div></div></div>`;
+        const bs = d.by_side || {};
+        document.getElementById('histSides').innerHTML = sideCard('Sisi YES (hk_max · hk_min)', bs.yes, histSide === 'yes')
+            + sideCard('Sisi NO (hk_max_no · hk_min_no)', bs.no, histSide === 'no');
+        const names = { hk_max: 'Max YES (suhu tertinggi)', hk_min: 'Min YES (suhu terendah)', hk_max_no: 'Max NO', hk_min_no: 'Min NO' };
         const best = s.best ? `<div class="col-md-6"><div class="tcard"><div class="label">Trade terbaik</div><div class="small mt-1">${esc(s.best.market)}</div><div class="mono up fw-semibold">${money(s.best.pnl)}</div></div></div>` : '';
         const worst = s.worst ? `<div class="col-md-6"><div class="tcard"><div class="label">Trade terburuk</div><div class="small mt-1">${esc(s.worst.market)}</div><div class="mono down fw-semibold">${money(s.worst.pnl)}</div></div></div>` : '';
         document.getElementById('histKinds').innerHTML = (s.series || []).map(x => `<div class="col-md-6"><div class="tcard d-flex justify-content-between align-items-center">
@@ -952,7 +988,7 @@
             <td class="text-end">${(r.price * 100).toFixed(1)}¢</td><td class="text-end">${pct(r.prob)}</td>
             <td class="text-end">${(r.edge * 100).toFixed(1)}¢</td><td class="text-end">$${Number(r.size).toFixed(2)}</td>
             <td class="text-end fw-semibold ${pnlCls(r.pnl || 0)}">${r.pnl === null || r.pnl === undefined ? '-' : money(r.pnl)}</td></tr>`).join('')
-            || '<tr><td colspan="8" class="muted">Belum ada trade HK. Centang hk_max / hk_min di Auto Bot → Pengaturan agar bot mulai membeli.</td></tr>';
+            || '<tr><td colspan="8" class="muted">Belum ada trade HK di pilihan ini. Centang hk_max / hk_min (YES) dan hk_max_no / hk_min_no (NO) di Auto Bot → Pengaturan agar bot mulai membeli.</td></tr>';
     }
 
     async function loadSummary(refresh) {

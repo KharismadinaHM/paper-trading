@@ -237,7 +237,7 @@
             <button data-tab="settings" onclick="setTab('settings')">Pengaturan</button>
         </div>
         <select class="form-select form-select-sm w-auto ms-3" id="calStrategy" onchange="onStrategyChange()" aria-label="Strategi">
-            <option value="">Semua seri</option><option value="btc_all">BTC (semua)</option><option value="eth_all">ETH (semua)</option><option value="hk_all">Hong Kong (max & min)</option>
+            <option value="">Semua seri</option><option value="btc_all">BTC (semua)</option><option value="eth_all">ETH (semua)</option><option value="hk_all">Hong Kong (semua)</option><option value="hk_yes">Hong Kong · YES</option><option value="hk_no">Hong Kong · NO</option>
         </select>
     </div>
 
@@ -358,6 +358,12 @@
                            hk_max: 'Hong Kong · max', hk_min: 'Hong Kong · min', hk_max_no: 'Hong Kong · max NO', hk_min_no: 'Hong Kong · min NO' };
     const LIVE_SERIES_LABEL = { btc: '🟠 BTC 1 jam', btc15: '🟠 BTC 15 menit', btc5: '🟠 BTC 5 menit', eth: '🔷 ETH 1 jam', eth15: '🔷 ETH 15 menit' };
     const coinOf = name => String(name).startsWith('hk') ? 'hk' : String(name).includes('eth') ? 'eth' : String(name).includes('btc') ? 'btc' : 'wx';
+    function matchStrategy(filter, name) {
+        if (!filter || name === filter) return true;
+        if (filter === 'hk_yes') return name.startsWith('hk_') && !name.endsWith('_no');
+        if (filter === 'hk_no') return name.startsWith('hk_') && name.endsWith('_no');
+        return filter.endsWith('_all') && coinOf(name) === filter.split('_')[0];
+    }
     const coinIcon = name => { const c = coinOf(name); return `<span class="coin ${c}">${c === 'btc' ? '<i class="bi bi-currency-bitcoin"></i>' : c === 'eth' ? 'Ξ' : c === 'hk' ? 'HK' : '<i class="bi bi-cloud-sun"></i>'}</span>`; };
 
     // --- STATE ---
@@ -753,7 +759,7 @@
     }
     function paperHistoryHtml(s) {
         const filter = document.getElementById('calStrategy').value;
-        const match = name => !filter || name === filter || (filter.endsWith('_all') && coinOf(name) === filter.split('_')[0]);
+        const match = name => matchStrategy(filter, name);
         const stats = Object.entries(s.stats || {}).filter(([name, st]) => match(name) && (!name.startsWith('weather') || st.trades || (s.strategies || []).includes(name)))
             .map(([name, st]) => `<tr><td><div class="d-flex align-items-center gap-2">${coinIcon(name)}<span>${escapeHtml(SERIES_LABEL[name] || name)}</span></div></td>
                 <td class="text-end mono">${safeNumber(st.trades)}</td><td class="text-end mono">${safeNumber(st.settled)}</td>
@@ -936,7 +942,7 @@
     }
     function liveHistoryHtml(s) {
         const filter = document.getElementById('calStrategy').value;
-        const match = name => !filter || name === filter || (filter.endsWith('_all') && coinOf(name) === filter.split('_')[0]);
+        const match = name => matchStrategy(filter, name);
         const t = s.today || {}, tot = s.totals || {};
         const pill = o => o.status === 'filled'
             ? ({ WIN: '<span class="pill w">WIN</span>', LOSS: '<span class="pill l">LOSS</span>', VOID: '<span class="pill n">VOID</span>' }[o.result] || '<span class="pill n">OPEN</span>')
