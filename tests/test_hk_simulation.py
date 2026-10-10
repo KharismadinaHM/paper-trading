@@ -137,7 +137,9 @@ def test_no_near_impossible_needs_low_model_prob_and_timing(no_book):
 
 
 def test_no_rejects_expensive_or_thin_edge(no_book):
-    analysis = {"max": {"kind": "highest", "observed": 30.4, "mu": 31.2, "sigma": 0.6, "lead": 0.5, "brackets": no_rows()}}
+    rows = no_rows()
+    rows[0]["bid"] = 0.01
+    analysis = {"max": {"kind": "highest", "observed": 30.4, "mu": 31.2, "sigma": 0.6, "lead": 0.5, "brackets": rows}}
     no_book["t29"] = 0.01                                            # NO 99¢: untung terlalu tipis, pilih 33°C
     assert hk_bot.evaluate_no("hk_max_no", NOW, analysis)["features"]["bracket"] == "33°C or higher"
     analysis["max"]["brackets"] = [r for r in no_rows() if r["bracket"] == "29°C"]
