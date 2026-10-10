@@ -691,6 +691,7 @@
         if (d.observed !== null && d.observed !== undefined) parts.push(`terukur ${d.observed.toFixed(1)}°`);
         parts.push(`model ${d.mu.toFixed(1)}±${d.sigma.toFixed(1)}°${Math.abs(d.bias || 0) >= 0.05 ? ` (bias ${d.bias > 0 ? '+' : ''}${d.bias.toFixed(1)})` : ''}`);
         if (d.official_hint !== null && d.official_hint !== undefined) parts.push(`HKO ${d.official_hint}°`);
+        if (d.sim) parts.push(`simulasi ${d.sim.n_sims} skenario · p10–p90 ${d.sim.p10}–${d.sim.p90}°${d.sim.n_clim ? ` · historis ${Math.round(d.sim.clim_weight * 100)}%` : ''}${d.lead !== undefined && d.lead !== null && d.observed !== null && d.observed !== undefined ? ` · ${d.lead > 0 ? 'puncak/lembah ±' + d.lead.toFixed(1) + ' jam lagi' : 'terukur kemungkinan bertahan'}` : ''}`);
         if (d.spread !== null && d.spread !== undefined) parts.push(`ensemble ${Object.keys(d.ensemble || {}).length} model ±${d.spread.toFixed(1)}`);
         if ((d.rain || []).length) parts.push('🌧 ' + d.rain.join('; '));
         if (d.regime) parts.push('rezim ' + d.regime);
@@ -722,7 +723,7 @@
             document.getElementById('botMinInfo').textContent = botInfo(a.min);
             document.getElementById('botDate').textContent = (botDay === 'today' ? 'hari ini · ' : 'besok · ') + (botData.date || '');
             document.getElementById('botNote').textContent = botDay === 'today'
-                ? 'Model = max/min terukur HKO + proyeksi per jam + error historis. Edge = campuran model & pasar − (ask + fee); hijau = memenuhi ambang beli. AI (Gemini) hanya bayangan.'
+                ? 'Model = simulasi ±1.000 skenario: 122 anggota ensemble + 5 model dikoreksi bacaan HKO, noise error historis, kejutan hujan (nowcast), prakiraan resmi HKO, kalibrasi, dan klimatologi 30 tahun. Edge = campuran model & pasar − (ask + fee); hijau = memenuhi ambang beli. Bot masuk hanya ≤ 2 jam sebelum puncak/titik terendah. AI (Gemini) hanya bayangan.'
                 : 'Besok = puncak/lembah per jam besok (Open-Meteo dikoreksi HKO) dirata-rata dengan prakiraan 9 hari HKO; ketidakpastian ≥ 1°C. Untuk pantauan — bot hanya membeli market hari ini.';
             document.getElementById('botStrategies').textContent = (botData.strategies || []).length ? 'aktif: ' + botData.strategies.join(', ') : 'nonaktif (sinyal bayangan)';
             const latest = (ai.max && ai.max.ai) || (ai.min && ai.min.ai);

@@ -119,6 +119,7 @@ EDITABLE_CONFIG: Dict[str, Tuple[str, float, float, str]] = {
     "HK_MIN_EDGE": ("float", 0, 0.5, "Hong Kong: edge minimum (0–1)"),
     "HK_MODEL_WEIGHT": ("float", 0, 1, "Hong Kong: bobot model vs harga pasar (0 = ikut pasar, 1 = model penuh)"),
     "HK_START_HOUR": ("float", 0, 23, "Hong Kong: jam HKT paling awal boleh membeli"),
+    "HK_LEAD_HOURS": ("float", 0, 24, "Hong Kong: masuk hanya bila puncak/titik terendah tinggal ≤ jam ini (0 = sesudahnya)"),
     "HK_MIN_PRICE": ("float", 0, 0.9, "Hong Kong: harga beli minimum (0–1)"),
     "HK_AUTO_CALIBRATE": ("bool", 0, 1, "Hong Kong: kalibrasi otomatis harian (bias & bobot model)"),
     "STRATEGIES": ("strategies", 0, 0, "Strategi aktif"),

@@ -21,6 +21,19 @@ Sinyal dicatat tiap 30 menit (juga bila strategi dimatikan) untuk dinilai dengan
 `knowledge/hk_karakteristik.md` (pola harian, faktor musiman) dipakai sebagai pengetahuan AI dan kerangka pengecekan;
 angka peluang tetap dari data.
 
+## Simulasi Monte Carlo (sumber utama peluang)
+
+`hk_simulation.py` menjalankan ±1.000 skenario suhu per jam untuk sisa hari (dan besok):
+122 anggota ensemble Open-Meteo (ECMWF ENS, GFS ENS, ICON EPS — suhu & hujan konsisten secara fisika) + 5 model
+deterministik, masing-masing dikoreksi bacaan HKO terakhir; noise AR(1) sebesar error historis proyeksi; kejutan hujan
+(nowcast/peringatan) yang memudar perlahan; geser sebagian ke prakiraan resmi HKO; bias kalibrasi; dan porsi kecil
+klimatologi 30 tahun (±3 hari, digeser anomali 5 hari terakhir) yang menyusut saat puncak mendekat. Peluang bracket =
+proporsi skenario; bracket yang sudah mustahil tetap 0.
+
+Aturan masuk: hanya bila puncak (max) / titik terendah (min) tinggal ≤ `HK_LEAD_HOURS` (2 jam) atau sudah lewat
+(nilai terukur bertahan di ≥ 50% skenario), dan harga ≥ `HK_MIN_PRICE` (15¢). 10 Okt bot membeli bracket 6.7¢ jam 09:04
+(model 23% vs pasar 5%) dan kalah — kedua aturan ini akan menolaknya.
+
 ## Ensemble, nowcast hujan, dan rezim cuaca
 
 - **Ensemble 5 model** (ECMWF, GFS, ICON, JMA, CMA lewat Open-Meteo), masing-masing dikoreksi bacaan HKO terakhir.
@@ -65,7 +78,7 @@ Isi di `.env` server (langsung di server, jangan dikirim lewat chat), lalu rebui
 
 ```
 GEMINI_API_KEY=...        # dari Google AI Studio
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
 ```
 
 Tanpa key, bot HK tetap berjalan dan ringkasan terkirim dengan bagian model saja.

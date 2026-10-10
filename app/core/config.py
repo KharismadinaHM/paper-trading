@@ -189,7 +189,10 @@ class Settings(BaseSettings):
     AUTOTRADE_HK_MIN_EDGE: float = 0.08
     AUTOTRADE_HK_MODEL_WEIGHT: float = 0.6     # peluang = pasar + bobot × (model − pasar); dikalibrasi ulang dari data
     AUTOTRADE_HK_START_HOUR: float = 9         # jam HKT paling awal bot HK boleh membeli
-    AUTOTRADE_HK_MIN_PRICE: float = 0.05
+    # Harga min 15¢: 10 Okt bot membeli bracket 6.7¢ jam 09:04 (model 23% vs pasar 5%) dan kalah — tiket murah jauh
+    # sebelum puncak = model berbeda pendapat dengan pasar saat ketidakpastian terbesar.
+    AUTOTRADE_HK_MIN_PRICE: float = 0.15
+    AUTOTRADE_HK_LEAD_HOURS: float = 2.0       # masuk hanya ≤ 2 jam sebelum puncak/titik terendah (atau sesudahnya)
     AUTOTRADE_HK_OFFICIAL_WEIGHT: float = 0.5  # bobot angka prakiraan resmi HKO (bila disebut) dalam rata-rata
     AUTOTRADE_HK_AUTO_CALIBRATE: bool = True   # kalibrasi harian bias & bobot model (hk_calibration.py)
     # Hujan diperkirakan ±2 jam (nowcast radar HKO / peringatan hujan & petir / sedang hujan): sisa kenaikan max
@@ -198,7 +201,7 @@ class Settings(BaseSettings):
     AUTOTRADE_HK_RAIN_MIN_DROP: float = 1.0
     # --- AI Hong Kong (Gemini): pandangan bayangan + ringkasan terjadwal + /tanya. Tidak menentukan pembelian. ---
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.8-flash"
     HK_AI_ENABLED: bool = True
     HK_AI_REPORT_HOURS: str = "0,3,6,9,12,15,18,21"  # jam laporan ringkasan otomatis
     HK_AI_REPORT_TZ: str = "Asia/Jakarta"            # zona jam laporan di atas

@@ -179,6 +179,8 @@ def context(now: Optional[datetime] = None, analysis: Optional[Dict[str, Any]] =
         return {"terukur": d.get("observed"), "model_mu": d["mu"], "model_sigma": d["sigma"], "sumber": d["source"],
                 "ensemble_per_model": d.get("ensemble"), "sebaran_ensemble": d.get("spread"),
                 "koreksi_hujan": d.get("rain") or None, "rezim": d.get("regime"),
+                "simulasi": {k: (d.get("sim") or {}).get(k) for k in ("n_sims", "p10", "p50", "p90", "p_observed_holds", "lead_extreme")}
+                if d.get("sim") else None,
                 "final": d.get("final"),
                 "bracket": [{"bracket": r["bracket"], "model": r["model"], "pasar": r.get("market_prob"),
                              "ask": r.get("ask")} for r in d["brackets"]]}

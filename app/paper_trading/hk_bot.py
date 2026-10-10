@@ -274,6 +274,50 @@ def _market_prob(m: Dict[str, Any]) -> Optional[float]:
     return m.get("price_yes")
 
 
+def _with_simulation(kind: str, now: datetime, est: Dict[str, Any], status: Optional[Dict[str, Any]], day_offset: int,
+                     weather: Dict[str, Any], hint: Optional[float] = None) -> Tuple[Dict[str, Any], Optional[List[float]]]:
+    """
+    Jalankan simulasi Monte Carlo (hk_simulation) dan jadikan sumber utama peluang: mu/sigma = rata-rata/sebaran
+    simulasi. Estimasi biasa (proyeksi + ensemble + hujan + resmi) tetap disimpan sebagai pembanding & cadangan.
+    """
+    from app.paper_trading import hk_simulation as sim
+    from app.paper_trading.hk_calibration import bias_for
+
+    local = now.astimezone(HKT)
+    latest_at = status["observed_at"] if status and status.get("observed_at") else None
+    latest_temp = status.get("temp") if status else None
+    if latest_at is None:
+        from app.paper_trading.hko_hourly import _readings
+        db = get_db_session()
+        try:
+            readings = _readings(db, now - timedelta(hours=3), now + timedelta(minutes=1))
+        finally:
+            db.close()
+        if readings:
+            latest_at, latest_temp = readings[-1]
+    if day_offset == 0:
+        hint = est.get("official_hint")
+        bias = bias_for(KIND_LABEL[kind], local.hour + local.minute / 60, est.get("regime"))
+    else:
+        bias = 0.0
+    try:
+        result = sim.simulate(kind, now, est.get("observed"), latest_at, latest_temp, day_offset=day_offset,
+                              hint=hint, rain_expected=bool((weather.get("rain") or {}).get("expected")), bias=bias)
+    except Exception as err:
+        logger.warning("Simulasi HK gagal: %s", err)
+        result = None
+    if not result:
+        return est, None
+    samples = result.pop("samples")
+    sigma = max(result["std"], SIGMA_FINAL if est.get("final") else 0.2)
+    est = {**est, "normal_mu": est["mu"], "normal_sigma": est["sigma"], "mu": result["mean"], "mu_raw": result["mean_raw"],
+           "sigma": round(sigma, 2), "bias": result["bias"], "sim": result,
+           "lead": result["lead_extreme"] if day_offset == 0 else est["lead"],
+           "source": f"simulasi {result['n_sims']} skenario ({result['n_paths']} jalur model)"
+                     + (f" + {result['n_clim']} historis" if result["n_clim"] else "")}
+    return est, samples
+
+
 def analyze(now: Optional[datetime] = None, status: Optional[Dict[str, Any]] = None,
             projection: Optional[List[Tuple[datetime, float]]] = None) -> Optional[Dict[str, Any]]:
     """Distribusi model untuk max & min hari ini + harga market per bracket. None bila HKO belum ada data."""
@@ -297,29 +341,45 @@ def analyze(now: Optional[datetime] = None, status: Optional[Dict[str, Any]] = N
     out["rain"] = {k: (weather.get("rain") or {}).get(k) for k in ("expected", "reasons")}
     for kind, market_key in (("highest", "market"), ("lowest", "min_market")):
         est = estimate(kind, now, status, projection, weather)
-        out[KIND_LABEL[kind]] = {**est, "brackets": _bracket_rows(status.get(market_key) or [], kind, est, weight)}
+        est, samples = _with_simulation(kind, now, est, status, 0, weather)
+        out[KIND_LABEL[kind]] = {**est, "brackets": _bracket_rows(status.get(market_key) or [], kind, est, weight, samples)}
     return out
 
 
-def _bracket_rows(markets: List[Dict[str, Any]], kind: str, est: Dict[str, Any], weight: float) -> List[Dict[str, Any]]:
-    """Peluang model, pasar, dan campuran per bracket; tanpa market: bracket bulat di sekitar mu."""
+def _model_probs(brackets: List[Tuple[float, float]], kind: str, est: Dict[str, Any],
+                 samples: Optional[List[float]]) -> List[float]:
+    """Peluang per bracket: dari sampel simulasi bila ada (bracket mustahil tetap 0), selain itu distribusi normal."""
+    normal = [bracket_prob(b, kind, est["observed"], est["mu"], est["sigma"]) for b in brackets]
+    if not samples:
+        return normal
+    from app.paper_trading.hk_simulation import bracket_probs
+    sim = bracket_probs(samples, brackets)
+    sim = [p if n > 0 else 0.0 for p, n in zip(sim, normal)]  # sudah terukur: mustahil
+    total = sum(sim)
+    return [p / total for p in sim] if total > 0 else normal
+
+
+def _bracket_rows(markets: List[Dict[str, Any]], kind: str, est: Dict[str, Any], weight: float,
+                  samples: Optional[List[float]] = None) -> List[Dict[str, Any]]:
+    """Peluang model (simulasi), pasar, dan campuran per bracket; tanpa market: bracket bulat di sekitar mu."""
     rows = []
-    for m in markets:
-        b = _bracket_key(m.get("bracket") or "")
-        if b is None:
-            continue
-        model = bracket_prob(b, kind, est["observed"], est["mu"], est["sigma"])
+    parsed = [(m, _bracket_key(m.get("bracket") or "")) for m in markets]
+    parsed = [(m, b) for m, b in parsed if b is not None]
+    probs = _model_probs([b for _, b in parsed], kind, est, samples) if parsed else []
+    for (m, b), model in zip(parsed, probs):
         market = _market_prob(m)
         blended = model if market is None else min(max(market + weight * (model - market), 0.0), 1.0)
         rows.append({**m, "lo": b[0], "hi": b[1], "model": round(model, 4),
                      "market_prob": round(market, 4) if market is not None else None, "prob": round(blended, 4)})
     if not rows:  # tanpa market: bracket bulat di sekitar mu, ujung terbuka (untuk tampilan & AI)
         center = math.floor(est["mu"])
+        spec = []
         for x in range(center - 3, center + 4):
             lo = -math.inf if x == center - 3 else x
             hi = math.inf if x == center + 3 else x
             label = f"{x}°C or below" if lo == -math.inf else (f"{x}°C or higher" if hi == math.inf else f"{x}°C")
-            p = bracket_prob((lo, hi), kind, est["observed"], est["mu"], est["sigma"])
+            spec.append((label, lo, hi))
+        for (label, lo, hi), p in zip(spec, _model_probs([(lo, hi) for _, lo, hi in spec], kind, est, samples)):
             rows.append({"bracket": label, "lo": lo, "hi": hi, "model": round(p, 4), "market_prob": None,
                          "prob": round(p, 4)})
     rows.sort(key=lambda r: (r["lo"] if r["lo"] != -math.inf else -999))
@@ -383,7 +443,8 @@ def analyze_tomorrow(now: Optional[datetime] = None, hours: Optional[List[Dict[s
         except Exception as err:
             logger.warning("Gagal mengambil market HK besok: %s", err)
             markets = []
-        out[label] = {**est, "brackets": _bracket_rows(markets, kind, est, weight)}
+        est, samples = _with_simulation(kind, now, est, None, 1, weather, hint=hint)
+        out[label] = {**est, "brackets": _bracket_rows(markets, kind, est, weight, samples)}
     return out
 
 
@@ -407,8 +468,12 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
     price = book["price"] if book else target["ask"]
     fee = book["fee"] if book else est_fee(target["ask"])
     edge = target["prob"] - (price + fee)
+    lead = dist.get("lead") or 0.0
     if local.hour + local.minute / 60 < float(cfg("HK_START_HOUR")):
         reason = f"sebelum jam {float(cfg('HK_START_HOUR')):g}:00 HKT"
+    elif lead > float(cfg("HK_LEAD_HOURS")):
+        reason = (f"{'puncak' if kind == 'highest' else 'titik terendah'} masih ±{lead:.1f} jam lagi "
+                  f"(masuk ≤ {float(cfg('HK_LEAD_HOURS')):g} jam sebelumnya)")
     elif already_decided(key):
         reason = "sudah trade hari ini"
     elif not book:
@@ -424,13 +489,17 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
     else:
         reason = None
     label = KIND_LABEL[kind]
-    detail = (f"HKO {label} terukur {dist['observed']:.1f}°C · {dist['source']} {dist['projected']:.1f}°C · "
+    sim = dist.get("sim") or {}
+    basis = (f"simulasi {sim['n_sims']} skenario: median {sim['p50']:.1f}°C (p10–p90 {sim['p10']:.1f}–{sim['p90']:.1f})"
+             if sim else f"{dist['source']} {dist['projected']:.1f}°C")
+    detail = (f"HKO {label} terukur {dist['observed']:.1f}°C · {basis} · "
               f"model {dist['mu']:.1f}±{dist['sigma']:.1f}°C"
               + (f" (koreksi bias {dist['bias']:+.1f})" if abs(dist.get("bias") or 0) >= 0.05 else "")
               + (f" · sebaran ensemble ±{dist['spread']:.1f}" if dist.get("spread") is not None else "")
               + (f" · 🌧 {'; '.join(dist['rain'])}" if dist.get("rain") else "")
               + (f" · resmi HKO {dist['official_hint']:g}°C" if dist.get("official_hint") is not None else "")
               + (" · max dianggap final" if dist.get("final") else "")
+              + (f" · {label} saat ini bertahan {sim['p_observed_holds'] * 100:.0f}%" if sim else "")
               + f" · peluang model {target['model'] * 100:.0f}% vs pasar "
               + (f"{target['market_prob'] * 100:.0f}%" if target.get("market_prob") is not None else "-"))
     return {
@@ -442,14 +511,17 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
         "features": {
             "kind": kind, "bracket": target["bracket"], "observed": dist["observed"], "mu": dist["mu"],
             "mu_raw": dist.get("mu_raw", dist["mu"]), "bias": dist.get("bias", 0.0),
-            "regime": dist.get("regime"), "spread": dist.get("spread"), "n_models": len(dist.get("ensemble") or {}),
+            "regime": dist.get("regime"), "ens_spread": dist.get("spread"), "n_models": len(dist.get("ensemble") or {}),
             "rain_adjusted": dist.get("rain_adjusted"), "rain_reasons": dist.get("rain"),
             "cloud": ((analysis.get("regime") or {}).get("cloud")),
             "sigma": dist["sigma"], "lead": dist["lead"], "projected": dist["projected"],
             "official_hint": dist.get("official_hint"), "final": dist.get("final"), "model_raw": target["model"],
             "market_prob": target.get("market_prob"), "model_weight": analysis.get("model_weight"),
             "temp": analysis.get("temp"), "hour_hkt": round(local.hour + local.minute / 60, 2),
-            "spread": book.get("spread") if book else None, "slippage": book.get("slippage") if book else None,
+            "book_spread": book.get("spread") if book else None, "slippage": book.get("slippage") if book else None,
+            "sim_n": (dist.get("sim") or {}).get("n_sims"), "sim_paths": (dist.get("sim") or {}).get("n_paths"),
+            "sim_hold": (dist.get("sim") or {}).get("p_observed_holds"), "clim_weight": (dist.get("sim") or {}).get("clim_weight"),
+            "normal_mu": dist.get("normal_mu"),
         },
     }
 
