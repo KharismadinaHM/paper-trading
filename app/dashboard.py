@@ -2,6 +2,7 @@
 FastAPI Dashboard untuk Polymarket Paper Trading.
 Dijalankan via: uvicorn app.dashboard:app --reload atau python -m app.dashboard
 """
+import re
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ from app.paper_service import (
     get_market_suggestions,
     get_open_positions,
     get_performance,
+    get_recommendation_schedule,
     get_trade_history,
     reset_paper_account,
     search_market_snapshots,
@@ -149,6 +151,7 @@ def get_dashboard(request: Request, strategy: Optional[str] = None):
             "positions": positions,
             "trades": trades,
             "suggested_markets": suggested_markets,
+            "default_top_cities": settings.TELEGRAM_RECOMMENDATION_TOP_CITIES,
             "chart_labels": chart_labels,
             "chart_balances": chart_balances,
             "chart_equities": chart_equities,
@@ -188,21 +191,520 @@ def get_trades_api(limit: int = 50, strategy: Optional[str] = None):
 
 @app.get("/api/markets/suggestions", dependencies=[Depends(require_auth)])
 def get_market_suggestions_api(
-    max_hours_to_resolution: float = 6.0,
-    min_price: float = 0.70,
-    max_price: float = 0.75,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
 ):
     """
-    Endpoint query saran pasar (market suggestions) dari data Market Collector:
-    - Status market belum resolved (open/active).
-    - Waktu resolution mendekati sekarang (<= max_hours_to_resolution, default 6 jam).
-    - Harga YES atau NO berada di rentang [min_price, max_price] (default 0.70-0.75).
+    Rekomendasi market suhu berbasis jam puncak lokal tiap kota, dikelompokkan per event
+    (kota + highest/lowest + tanggal) dengan semua bracket-nya:
+    - Jam puncak = solar noon / matahari terbit + lag hasil riset data historis kota tersebut.
+    - Muncul pada jendela menjelang puncak (default 2–1 jam sebelum awal puncak), hanya untuk
+      market bertanggal hari itu di kota tersebut.
+    - Tanpa filter harga; min_price / max_price opsional.
     """
-    return get_market_suggestions(
-        max_hours_to_resolution=max_hours_to_resolution,
-        min_price=min_price,
-        max_price=max_price,
-    )
+    return get_market_suggestions(min_price=min_price, max_price=max_price)
+
+
+@app.get("/api/markets/suggestions/schedule", dependencies=[Depends(require_auth)])
+def get_recommendation_schedule_api(limit: int = 10):
+    """Jendela rekomendasi berikutnya per kota & jenis (highest/lowest)."""
+    return get_recommendation_schedule(limit=max(1, min(limit, 100)))
+
+
+@app.get("/api/weather/current", dependencies=[Depends(require_auth)])
+def get_current_weather_api(limit: int = 7, city: Optional[str] = None):
+    """
+    Cuaca terkini di stasiun resolusi market suhu (NOAA METAR / HKO): kota top volume (`limit`, maks 20)
+    atau hasil pencarian kota (`city`: nama, alias, atau sebagian nama), dengan kondisi, tren °/jam,
+    max/min hari ini, perkiraan & kesimpulan.
+    """
+    from app.paper_service import get_current_weather
+    return get_current_weather(limit=max(1, min(limit if not city else max(limit, 10), 20)), city=city or None)
+
+
+@app.get("/api/autotrade", dependencies=[Depends(require_auth)])
+def autotrade_status_api():
+    """Status auto paper trader: aktif/berhenti, pemakaian hari ini, aturan, hasil per strategi, keputusan terbaru."""
+    from app.paper_trading.autotrader import status_summary
+    return status_summary()
+
+
+@app.get("/api/hk/readings.csv", dependencies=[Depends(require_auth)])
+def hk_readings_csv_api(date: Optional[str] = None):
+    """Bacaan HKO tersimpan (per 10 menit) untuk satu hari HKT (default hari ini), sebagai CSV."""
+    from datetime import date as _date
+    from fastapi.responses import Response
+    from app.paper_trading.hko_alerts import readings_csv
+    try:
+        day = _date.fromisoformat(date) if date else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format tanggal: YYYY-MM-DD")
+    name = f"hko_{(day.isoformat() if day else 'today')}.csv"
+    return Response(content=readings_csv(day), media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={name}"})
+
+
+@app.get("/autobot", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+def autobot_page(request: Request):
+    """Page khusus auto paper trader: market BTC & ETH live, status, hasil, riwayat, aturan, riset."""
+    return templates.TemplateResponse(request=request, name="autobot.html", context={})
+
+
+def _calendar_call(fn, **kwargs):
+    try:
+        return fn(**kwargs)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err) or "Parameter tidak valid")
+
+
+@app.get("/api/autotrade/calendar", dependencies=[Depends(require_auth)])
+def autotrade_calendar_api(month: Optional[str] = None, year: Optional[int] = None, strategy: Optional[str] = None,
+                           source: str = "paper"):
+    """
+    Kalender PnL auto trader (zona WIB): `month=YYYY-MM` → per hari, `year=YYYY` → per bulan.
+    `source=paper` (waktu trade selesai) atau `live` (order uang asli, tanggal resolve).
+    `strategy`: nama strategi, btc_all, eth_all, weather_all, atau kosong = semua.
+    """
+    from app.paper_trading.autotrader import pnl_calendar, pnl_calendar_year
+    from app.paper_trading.live_trader import live_calendar, live_calendar_year
+    if source not in ("paper", "live"):
+        raise HTTPException(status_code=400, detail="source: paper atau live")
+    if year is not None:
+        fn = live_calendar_year if source == "live" else pnl_calendar_year
+        return _calendar_call(fn, year=year, strategy=strategy or None)
+    if month is not None and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Format bulan: YYYY-MM")
+    fn = live_calendar if source == "live" else pnl_calendar
+    return _calendar_call(fn, month=month, strategy=strategy or None)
+
+
+@app.get("/api/autotrade/overview", dependencies=[Depends(require_auth)])
+def autotrade_overview_api(source: str = "paper", period: str = "all", strategy: Optional[str] = None):
+    """Ringkasan profil Auto Bot: PnL, win rate, volume, fee, trade terbaik/terburuk, kurva PnL, per seri."""
+    from app.paper_trading.autobot_overview import overview
+    return _calendar_call(overview, source=source, period=period, strategy=strategy or None)
+
+
+@app.get("/api/autotrade/calendar/trades", dependencies=[Depends(require_auth)])
+def autotrade_calendar_trades_api(date: Optional[str] = None, month: Optional[str] = None,
+                                  strategy: Optional[str] = None, source: str = "paper"):
+    """Trade auto (paper) / order live yang selesai pada `date=YYYY-MM-DD` atau `month=YYYY-MM` (WIB), terbaru dulu."""
+    from app.paper_trading.autotrader import closed_trades
+    from app.paper_trading.live_trader import live_closed
+    if source not in ("paper", "live"):
+        raise HTTPException(status_code=400, detail="source: paper atau live")
+    if not date and not month:
+        raise HTTPException(status_code=400, detail="Isi date=YYYY-MM-DD atau month=YYYY-MM")
+    if date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(status_code=400, detail="Format tanggal: YYYY-MM-DD")
+    if month and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Format bulan: YYYY-MM")
+    fn = live_closed if source == "live" else closed_trades
+    return {"trades": _calendar_call(fn, day=date, month=month, strategy=strategy or None)}
+
+
+class LiveConfigRequest(BaseModel):
+    updates: dict
+
+
+@app.get("/api/live/config", dependencies=[Depends(require_auth)])
+def live_config_api():
+    from app.paper_trading.live_trader import get_live_config
+    return get_live_config()
+
+
+@app.put("/api/live/config", dependencies=[Depends(require_auth)])
+def live_config_update_api(req: LiveConfigRequest):
+    """Ubah pengaturan live (seri, nominal, batas, slippage, auto-claim). Nominal ≤ LIVE_MAX_ORDER_USD di .env."""
+    from app.paper_trading.live_trader import live_summary, set_live_config
+    try:
+        set_live_config(req.updates)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    return live_summary()
+
+
+@app.delete("/api/live/config", dependencies=[Depends(require_auth)])
+def live_config_reset_api():
+    from app.paper_trading.live_trader import live_summary, reset_live_config
+    reset_live_config()
+    return live_summary()
+
+
+@app.get("/api/live", dependencies=[Depends(require_auth)])
+def live_status_api():
+    """Status trading uang asli: aktif/jeda, aturan, pemakaian hari ini, total hasil, order terbaru (tanpa secret)."""
+    from app.paper_trading.live_trader import live_summary
+    return live_summary()
+
+
+@app.post("/api/live/{action}", dependencies=[Depends(require_auth)])
+def live_switch_api(action: str):
+    """Jeda (stop) / lanjutkan (start) trading uang asli. Tidak mengubah LIVE_TRADING di .env."""
+    from app.paper_trading.live_trader import live_summary, set_switch
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=404, detail="Aksi tidak dikenal")
+    set_switch(action == "start")
+    return live_summary()
+
+
+@app.get("/api/autotrade/verdict", dependencies=[Depends(require_auth)])
+def autotrade_verdict_api(days: Optional[int] = None):
+    """Verdict paper → live per seri crypto: jumlah trade, ROI, tanpa 5 menang terbesar, kedua paruh, z."""
+    from app.paper_trading.autotrade_verdict import verdict
+    return verdict(days if days and days > 0 else None)
+
+
+@app.get("/api/autotrade/markets", dependencies=[Depends(require_auth)])
+def autotrade_markets_api():
+    """Market crypto Up/Down yang sedang berjalan (BTC & ETH: 1 jam, 15 menit, 5 menit) + peluang model & edge."""
+    from app.paper_trading.autotrader import crypto_markets_overview
+    return {"markets": crypto_markets_overview()}
+
+
+@app.get("/hk", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+def hk_market_page(request: Request):
+    """Page khusus market Hong Kong: kondisi HKO hari ini, klimatologi bulan ini, insight siap posting."""
+    return templates.TemplateResponse(request=request, name="hk.html", context={})
+
+
+@app.get("/api/hk/live", dependencies=[Depends(require_auth)])
+def hk_live_api():
+    """Kondisi HK hari ini: bacaan HKO, perkiraan max/min, prakiraan resmi, harga bracket market."""
+    from app.paper_trading.hk_climate import live_summary
+    data = live_summary()
+    data.pop("_status", None)
+    return data
+
+
+def _json_safe(value):
+    """inf/-inf (bracket terbuka) tidak valid di JSON: jadikan None."""
+    import math as _math
+    if isinstance(value, float) and (_math.isinf(value) or _math.isnan(value)):
+        return None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+@app.get("/api/hk/bot", dependencies=[Depends(require_auth)])
+def hk_bot_api(day: str = "today"):
+    """Bot HK: distribusi model max/min per bracket vs pasar (hari ini atau besok), pandangan AI terbaru, skor."""
+    from app.paper_trading import hk_ai, hk_bot
+    from app.paper_trading.autotrader import cfg, enabled_strategies
+    if day not in ("today", "tomorrow"):
+        raise HTTPException(status_code=400, detail="day: today atau tomorrow")
+    analysis = hk_bot.analyze() if day == "today" else hk_bot.analyze_tomorrow()
+    try:
+        score = hk_ai.scorecard()
+    except Exception:
+        score = {}
+    views_day = (analysis or {}).get("day") if day == "tomorrow" else None
+    return _json_safe({"day": day, "date": (analysis or {}).get("day") or hk_bot.today_hkt().isoformat(),
+                       "analysis": analysis, "ai": hk_ai.latest_views(day=views_day),
+                       "ai_hourly": (hk_ai.latest_views().get("hourly") or {}).get("ai"), "score": score,
+                       "ai_problems": hk_ai.ai_problems(), "positions": hk_bot.positions_today(),
+                       "strategies": [s for s in ("hk_max", "hk_min", "hk_max_no", "hk_min_no") if s in enabled_strategies()],
+                       "min_edge": float(cfg("HK_MIN_EDGE")), "no_max_prob": float(cfg("HK_NO_MAX_PROB")),
+                       "no_min_edge": float(cfg("HK_NO_MIN_EDGE"))})
+
+
+def _hk_calibration_payload(cal=None):
+    from app.paper_trading import hk_calibration as hc
+    from app.paper_trading.autotrader import _config_overrides
+    return {"calibration": hc.current() if cal is None else cal, "enabled": hc.is_enabled(),
+            "buckets": [label for _, _, label in hc.BUCKETS], "min_days": hc.MIN_DAYS,
+            "weight_in_use": hc.model_weight(), "manual_weight": "HK_MODEL_WEIGHT" in _config_overrides()}
+
+
+@app.get("/api/hk/calibration", dependencies=[Depends(require_auth)])
+def hk_calibration_api():
+    """Kalibrasi otomatis bot HK: bias per kelompok jam (max/min), bobot model vs pasar, dan status."""
+    return _hk_calibration_payload()
+
+
+@app.post("/api/hk/calibration/run", dependencies=[Depends(require_auth)])
+def hk_calibration_run_api():
+    """Hitung ulang kalibrasi sekarang (melangkah dari nilai sebelumnya, dengan pengaman yang sama)."""
+    from app.paper_trading.hk_calibration import calibrate
+    return _hk_calibration_payload(calibrate())
+
+
+@app.delete("/api/hk/calibration", dependencies=[Depends(require_auth)])
+def hk_calibration_reset_api():
+    """Reset kalibrasi: bias 0, bobot model kembali ke default .env."""
+    from app.paper_trading.hk_calibration import reset
+    reset()
+    return _hk_calibration_payload({})
+
+
+@app.get("/api/hk/forecast", dependencies=[Depends(require_auth)])
+def hk_forecast_api():
+    """Cuaca terkini HKO, prakiraan per jam 24 jam (suhu terkoreksi HKO, kondisi, hujan), dan 9 hari HKO."""
+    from app.paper_trading.hk_forecast import forecast_payload
+    return forecast_payload()
+
+
+@app.get("/api/hk/trades", dependencies=[Depends(require_auth)])
+def hk_trades_api(period: str = "all", limit: int = 100, side: str = "all"):
+    """Riwayat trade auto bot HK (max & min) dengan hasil menang/kalah + statistik; side = all | yes | no."""
+    from app.paper_trading.autobot_overview import overview
+    from app.paper_trading.autotrader import trade_history
+    if side not in ("all", "yes", "no"):
+        raise HTTPException(status_code=400, detail="side: all, yes, atau no")
+    group = {"all": "hk_all", "yes": "hk_yes", "no": "hk_no"}[side]
+    stats = _calendar_call(overview, source="paper", period=period, strategy=group)
+    rows = trade_history(limit=max(1, min(limit, 300)), strategy=group)
+    for r in rows:
+        r["created_at"] = r["created_at"].isoformat()
+        if r.get("closed_at") is not None:
+            r["closed_at"] = (r["closed_at"] if r["closed_at"].tzinfo else r["closed_at"].replace(tzinfo=timezone.utc)).isoformat()
+    open_rows = [r for r in rows if r["status"] == "OPEN"]
+    by_side = {}
+    for key, grp in (("yes", "hk_yes"), ("no", "hk_no")):
+        st = _calendar_call(overview, source="paper", period=period, strategy=grp)
+        by_side[key] = {k: st.get(k) for k in ("trades", "wins", "losses", "win_rate", "pnl", "roi")}
+    return _json_safe({"side": side, "stats": stats, "by_side": by_side, "history": rows, "open": len(open_rows)})
+
+
+class HkAskRequest(BaseModel):
+    question: str
+
+
+@app.post("/api/hk/ask", dependencies=[Depends(require_auth)])
+def hk_ask_api(req: HkAskRequest):
+    """Tanya AI (Gemini) tentang market Hong Kong hari ini, dengan konteks data terkini."""
+    from app.paper_trading.hk_ai import ask
+    question = (req.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Pertanyaan kosong")
+    return {"answer": ask(question[:1000])}
+
+
+@app.post("/api/hk/summary", dependencies=[Depends(require_auth)])
+def hk_summary_api(refresh: bool = False):
+    """Ringkasan kejadian saat ini (sama dengan /rangkum di Telegram)."""
+    from app.paper_trading.hk_ai import build_summary
+    report = build_summary(use_cache=not refresh)
+    return _json_safe({"text": report["text"], "view": report.get("view"), "error": report.get("error"),
+                       "score": report.get("score"), "created_at": report.get("created_at")})
+
+
+@app.get("/api/hk/climate", dependencies=[Depends(require_auth)])
+def hk_climate_api(month: Optional[int] = None, years: int = 10, max_threshold: Optional[int] = None,
+                   min_threshold: Optional[int] = None):
+    """
+    Klimatologi HKO satu bulan (default bulan ini): per tahun, sebaran bracket, sekitar hari ini, rekor,
+    dan teks insight. Ambang default = bracket perkiraan max & min hari ini.
+    """
+    from app.paper_trading.hk_climate import default_thresholds, live_summary, month_report
+    if month is not None and not 1 <= month <= 12:
+        raise HTTPException(status_code=400, detail="month harus 1–12")
+    if max_threshold is None or min_threshold is None:
+        hi, lo = default_thresholds(live_summary().get("_status"))
+        max_threshold = hi if max_threshold is None else max_threshold
+        min_threshold = lo if min_threshold is None else min_threshold
+    return month_report(month=month, years=max(3, min(years, 30)), max_threshold=max_threshold,
+                        min_threshold=min_threshold)
+
+
+@app.get("/api/insider", dependencies=[Depends(require_auth)])
+def insider_api(hours: Optional[int] = None, limit: int = 30):
+    """Taruhan berpola insider wallet yang ditandai + ketepatan sinyal setelah market resolve."""
+    from app.paper_trading.insider import MAX_SCORE, insider_report
+    data = insider_report(hours=hours if hours and hours > 0 else None, limit=max(1, min(limit, 100)))
+    return {**data, "max_score": MAX_SCORE, "min_score": settings.INSIDER_MIN_SCORE}
+
+
+@app.get("/api/reversals", dependencies=[Depends(require_auth)])
+def reversals_api(days: Optional[int] = None, limit: int = 30):
+    """Waspada berbalik: favorit ≥90¢ yang dipantau (market volume besar & likuid), warning, konfirmasi, hasil."""
+    from app.paper_trading.reversal_watch import reversal_history
+    return reversal_history(days=days if days and days > 0 else None, limit=max(1, min(limit, 100)))
+
+
+@app.get("/api/hk/hourly", dependencies=[Depends(require_auth)])
+def hk_hourly_api(date: Optional[str] = None):
+    """Tabel per jam HKO: expected (prediksi ≥1 jam sebelumnya), perubahan, real; hari ini + 6 jam ke depan."""
+    from datetime import date as _date
+    from app.paper_trading.hko_hourly import hourly_json
+    try:
+        day = _date.fromisoformat(date) if date else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format tanggal: YYYY-MM-DD")
+    return hourly_json(day)
+
+
+@app.get("/api/autotrade/research", dependencies=[Depends(require_auth)])
+def autotrade_research_api(days: Optional[int] = None):
+    """Riset auto trader: kalibrasi, ROI per rentang edge/menit/kota, fill rate maker, saran ambang."""
+    from app.paper_trading.autotrade_research import research_report
+    return research_report(days=days if days and days > 0 else None)
+
+
+@app.get("/api/autotrade/signals.csv", dependencies=[Depends(require_auth)])
+def autotrade_signals_csv_api(days: Optional[int] = None):
+    """Semua sampel sinyal (ditrade & dilewati) + konteks + hasil, untuk dianalisis di spreadsheet."""
+    from fastapi.responses import Response
+    from app.paper_trading.autotrade_research import signals_csv
+    return Response(content=signals_csv(days=days if days and days > 0 else None), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=autotrade_signals.csv"})
+
+
+class AutotradeConfigRequest(BaseModel):
+    values: dict = Field(default_factory=dict, description="Nama aturan → nilai baru (null = kembali ke default .env)")
+
+
+@app.put("/api/autotrade/config", dependencies=[Depends(require_auth)])
+def autotrade_config_api(req: AutotradeConfigRequest):
+    """Ubah aturan auto trader (batas dana, filter, strategi aktif); berlaku langsung tanpa restart."""
+    from app.paper_trading.autotrader import set_config, status_summary
+    try:
+        set_config(req.values)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    return status_summary()
+
+
+@app.delete("/api/autotrade/config", dependencies=[Depends(require_auth)])
+def autotrade_config_reset_api():
+    """Kembalikan semua aturan auto trader ke default dari .env."""
+    from app.paper_trading.autotrader import reset_config, status_summary
+    reset_config()
+    return status_summary()
+
+
+class StatsSinceRequest(BaseModel):
+    since: Optional[str] = None   # "now", tanggal/waktu ISO, atau kosong = semua waktu
+
+
+@app.post("/api/autotrade/stats-since", dependencies=[Depends(require_auth)])
+def autotrade_stats_since_api(req: StatsSinceRequest):
+    """Mulai periode statistik baru ("now" / ISO) atau kembali ke semua waktu (kosong). Data lama tidak dihapus."""
+    from datetime import datetime as _dt, timezone as _tz
+    from app.paper_trading.autotrader import set_stats_since, status_summary
+    if not req.since:
+        set_stats_since(None)
+    elif req.since == "now":
+        set_stats_since(_dt.now(_tz.utc))
+    else:
+        try:
+            value = _dt.fromisoformat(req.since)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Format waktu tidak valid")
+        set_stats_since(value if value.tzinfo else value.replace(tzinfo=_tz.utc))
+    return status_summary()
+
+
+@app.post("/api/autotrade/{action}", dependencies=[Depends(require_auth)])
+def autotrade_toggle_api(action: str):
+    from app.paper_trading.autotrader import set_enabled, status_summary
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=404, detail="Aksi tidak dikenal")
+    set_enabled(action == "start")
+    return status_summary()
+
+
+@app.get("/api/my-wallet", dependencies=[Depends(require_auth)])
+def my_wallet_api(refresh: bool = False):
+    """Portfolio Polymarket sendiri (read-only). configured=False jika alamat wallet belum diatur."""
+    from app.paper_trading import my_wallet
+    try:
+        summary = my_wallet.get_summary(refresh=refresh)
+    except Exception as err:
+        logger.error("Portfolio API gagal: %s", err, exc_info=True)
+        raise HTTPException(status_code=502, detail="Gagal mengambil data dari Polymarket")
+    return {"configured": summary is not None, "summary": summary}
+
+
+# --- Wallet tracker -------------------------------------------------------------------------
+
+class TrackWalletRequest(BaseModel):
+    address: str = Field(..., min_length=42, max_length=200, description="Alamat 0x… atau URL profil Polymarket")
+    follow: bool = False
+
+
+def _wallet_call(fn, *args, **kwargs):
+    from app.paper_trading.wallets import WalletError
+    try:
+        return fn(*args, **kwargs)
+    except WalletError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except HTTPException:
+        raise
+    except Exception as err:
+        logger.error("Wallet API gagal: %s", err, exc_info=True)
+        raise HTTPException(status_code=502, detail="Gagal mengambil data dari Polymarket")
+
+
+@app.get("/api/wallets", dependencies=[Depends(require_auth)])
+def list_wallets_api(category: Optional[str] = None):
+    """Wallet yang dilacak + kandidat rekomendasi satu kategori market (dari cache database)."""
+    from app.paper_trading import wallets
+    cat = wallets.normalize_category(category) or wallets.default_category()
+    return {"tracked": wallets.list_tracked(), "candidates": wallets.list_candidates(cat)[:10],
+            "category": cat, "categories": wallets.CATEGORIES,
+            "candidates_age_minutes": (lambda a: round(a.total_seconds() / 60) if a else None)(wallets.candidates_age(category=cat))}
+
+
+@app.post("/api/wallets/discover", dependencies=[Depends(require_auth)])
+def discover_wallets_api(category: Optional[str] = None):
+    """Hitung ulang rekomendasi wallet menarik satu kategori market (leaderboard kategori + statistik)."""
+    from app.paper_trading import wallets
+    if category and not wallets.normalize_category(category):
+        raise HTTPException(status_code=400, detail=f"Kategori tidak dikenal: {category}")
+    return {"candidates": _wallet_call(lambda: wallets.discover_wallets(category=category))[:10]}
+
+
+@app.post("/api/wallets", dependencies=[Depends(require_auth)])
+def track_wallet_api(req: TrackWalletRequest):
+    from app.paper_trading import wallets
+    return _wallet_call(wallets.track_wallet, req.address, follow=req.follow)
+
+
+@app.get("/api/wallets/{address}", dependencies=[Depends(require_auth)])
+def wallet_detail_api(address: str):
+    """Statistik (win rate, PnL) + riwayat aktivitas terbaru sebuah wallet."""
+    from app.paper_trading import wallets
+    addr = _wallet_call(wallets.normalize_address, address)
+    return {"stats": _wallet_call(wallets.get_stats, addr),
+            "activity": _wallet_call(wallets.recent_activity, addr, limit=15),
+            "tracked": next((w for w in wallets.list_tracked(include_skipped=True) if w["address"] == addr), None),
+            "profile_url": wallets.profile_url(addr)}
+
+
+@app.post("/api/wallets/{address}/follow", dependencies=[Depends(require_auth)])
+def follow_wallet_api(address: str):
+    from app.paper_trading import wallets
+    return _wallet_call(wallets.set_follow, address, True)
+
+
+@app.post("/api/wallets/{address}/unfollow", dependencies=[Depends(require_auth)])
+def unfollow_wallet_api(address: str):
+    from app.paper_trading import wallets
+    return _wallet_call(wallets.set_follow, address, False)
+
+
+@app.post("/api/wallets/{address}/skip", dependencies=[Depends(require_auth)])
+def skip_wallet_api(address: str):
+    from app.paper_trading import wallets
+    _wallet_call(wallets.skip_wallet, address)
+    return {"skipped": True}
+
+
+@app.delete("/api/wallets/{address}", dependencies=[Depends(require_auth)])
+def untrack_wallet_api(address: str):
+    from app.paper_trading import wallets
+    return {"removed": _wallet_call(wallets.untrack_wallet, address)}
+
+
+@app.get("/api/recommendations/stats", dependencies=[Depends(require_auth)])
+def get_recommendation_stats_api(days: Optional[int] = None):
+    """Win rate & ROI saran beli bot (notifikasi rekomendasi Telegram), opsional N hari terakhir."""
+    from app.paper_trading.recommendation_results import get_recommendation_stats
+    return get_recommendation_stats(days=days if days and days > 0 else None)
 
 
 @app.get("/api/markets/search", dependencies=[Depends(require_auth)])

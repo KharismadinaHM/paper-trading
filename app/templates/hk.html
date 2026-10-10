@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="id" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hong Kong Market</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0b0d; --card: #111316; --card-2: #16191d; --line: #1f2328; --line-2: #2a2f36;
+            --text: #eef0f3; --muted: #8a919b; --dim: #5d646e;
+            --up: #22c55e; --down: #ef4444; --hot: #f97316; --cold: #38bdf8; --accent: #f5f5f5; --live: #f5b524;
+            --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+        a { color: inherit; }
+        .mono { font-family: var(--mono); }
+        .muted, .text-muted-poly { color: var(--muted) !important; }
+        .dim { color: var(--dim) !important; }
+        .up { color: var(--up) !important; }
+        .down { color: var(--down) !important; }
+        .hot { color: var(--hot) !important; }
+        .cold { color: var(--cold) !important; }
+        .wrap { max-width: 1320px; margin: 0 auto; padding: 0 16px; }
+
+        .topbar { border-bottom: 1px solid var(--line); background: rgba(10, 11, 13, .92); position: sticky; top: 0; z-index: 20; backdrop-filter: blur(8px); }
+        .topbar .wrap { display: flex; align-items: center; gap: 28px; height: 56px; }
+        .brand { font-weight: 800; letter-spacing: .06em; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+        .navlinks { display: flex; gap: 22px; font-size: .92rem; }
+        .navlinks a { color: var(--muted); text-decoration: none; }
+        .navlinks a:hover, .navlinks a.active { color: var(--text); }
+
+        .card-x { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+        .tcard { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; height: 100%; }
+        .label { font-family: var(--mono); font-size: .7rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+        .btn-x { background: var(--accent); color: #0a0b0d; border: 0; border-radius: 9px; font-weight: 600; font-size: .9rem; padding: 7px 16px; }
+        .btn-x:hover { background: #fff; }
+        .btn-x:disabled { opacity: .6; }
+        .btn-x.ghost { background: transparent; color: var(--text); border: 1px solid var(--line-2); }
+        .btn-x.ghost:hover { background: var(--card-2); }
+        .btn-x.sm { font-size: .78rem; padding: 4px 10px; border-radius: 7px; }
+        .icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; color: var(--text);
+                    display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+        .icon-btn:hover { background: var(--card-2); color: var(--text); }
+        .chip { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: .68rem; padding: 2px 7px; border-radius: 6px;
+                background: var(--card-2); border: 1px solid var(--line-2); color: var(--muted); }
+        .chip.on { color: var(--up); border-color: rgba(34, 197, 94, .35); }
+        .chip.off { color: var(--down); border-color: rgba(239, 68, 68, .35); }
+        .chip.warn { color: var(--live); border-color: rgba(245, 181, 36, .35); }
+
+        .avatar { width: 58px; height: 58px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem;
+                  background: radial-gradient(circle at 30% 30%, #e0473a, #7f1d1d); box-shadow: 0 0 0 3px var(--card), 0 0 0 5px rgba(239, 68, 68, .45); flex-shrink: 0; }
+        .handle { font-family: var(--mono); font-weight: 700; font-size: 1.35rem; }
+        .big { font-size: 1.5rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; }
+        .huge { font-size: 2.2rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; line-height: 1.1; }
+        .kv { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .kv .k { color: var(--muted); font-size: .88rem; }
+        .kv .v { text-align: right; }
+        .kv .s { font-size: .74rem; color: var(--muted); font-family: var(--mono); }
+        .clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+        .tabs { display: flex; gap: 30px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+        .tabs button { border: 0; background: transparent; color: var(--muted); padding: 12px 2px; font-size: 1rem; font-weight: 500; white-space: nowrap;
+                       border-bottom: 2px solid transparent; margin-bottom: -1px; }
+        .tabs button.active { color: var(--text); border-bottom-color: var(--text); }
+        .tab-pane-x { display: none; }
+        .tab-pane-x.active { display: block; }
+        .section-title { font-weight: 600; font-size: 1rem; }
+
+        .table-dark { --bs-table-bg: transparent; --bs-table-border-color: var(--line); }
+        .table thead th { font-family: var(--mono); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted) !important; font-weight: 600; }
+        .table td { font-family: var(--mono); font-size: .82rem; }
+        .table td:first-child { font-family: Inter, sans-serif; }
+        tr.top-row td { background: rgba(255, 255, 255, .04); }
+        .form-control, .form-select { background-color: var(--card-2) !important; border-color: var(--line-2) !important; color: var(--text) !important; }
+        .bar-row { display: grid; grid-template-columns: 48px 1fr 48px 52px; gap: 8px; align-items: center; font-size: .8rem; font-family: var(--mono); }
+        .bar-track { background: var(--card-2); border-radius: 5px; height: 12px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 5px; }
+        .bar-fill.hot { background: var(--hot); }
+        .bar-fill.cold { background: var(--cold); }
+        .bar-row.today { outline: 1px dashed var(--live); outline-offset: 2px; border-radius: 6px; }
+        textarea.insight { font-size: 1.02rem; line-height: 1.5; }
+        .hit { color: var(--hot); font-weight: 600; }
+        .hit-cold { color: var(--cold); font-weight: 600; }
+        .chat-q { color: var(--muted); }
+        .chat-a { white-space: pre-wrap; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+        .pill { font-family: var(--mono); font-size: .66rem; padding: 2px 6px; border-radius: 5px; font-weight: 600; background: var(--card-2); color: var(--muted); border: 1px solid var(--line-2); }
+
+        .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 10px; padding: 3px; gap: 2px; background: var(--card); }
+        .seg button { border: 0; background: transparent; color: var(--muted); font-size: .8rem; font-weight: 600; padding: 4px 11px; border-radius: 7px; }
+        .seg button.active { background: var(--card-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-2); }
+        .seg.sm button { font-size: .72rem; padding: 3px 9px; font-family: var(--mono); }
+        .wx-chip { display: inline-flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: .74rem; padding: 3px 8px;
+                   border-radius: 7px; background: var(--card-2); border: 1px solid var(--line); }
+        .day-row { display: grid; grid-template-columns: 74px 30px 1fr auto; gap: 10px; align-items: center; padding: 8px 10px;
+                   background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; }
+        .temp-bar { position: relative; height: 6px; background: var(--line); border-radius: 3px; }
+        .temp-bar > span { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: linear-gradient(90deg, var(--cold), var(--hot)); }
+        .cal-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 12px; }
+        .cal-metrics .m-k { font-size: .76rem; color: var(--muted); }
+        .cal-metrics .m-v { font-family: var(--mono); font-weight: 600; font-size: 1.02rem; margin-top: 4px; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+        .cal-head { text-align: center; font-family: var(--mono); font-size: .7rem; letter-spacing: .08em; color: var(--dim); padding: 6px 0; }
+        .cal-cell { border-radius: 9px; padding: 8px 9px; min-height: 86px; background: var(--card-2); border: 1px solid transparent; display: flex; flex-direction: column; position: relative; }
+        .cal-cell.has { cursor: pointer; }
+        .cal-cell.has:hover { filter: brightness(1.15); }
+        .cal-cell.pos { background: linear-gradient(180deg, rgba(34, 197, 94, .26), rgba(34, 197, 94, .10)); border-color: rgba(34, 197, 94, .25); }
+        .cal-cell.neg { background: linear-gradient(180deg, rgba(239, 68, 68, .30), rgba(239, 68, 68, .12)); border-color: rgba(239, 68, 68, .28); }
+        .cal-cell.empty { background: transparent; }
+        .cal-cell.selected { outline: 2px solid var(--text); outline-offset: 1px; }
+        .cal-day { position: absolute; top: 6px; right: 8px; font-family: var(--mono); font-size: .7rem; color: var(--dim); }
+        .cal-cell.has .cal-day { color: var(--text); }
+        .cal-pnl { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; margin-top: 4px; }
+        .cal-cell.pos .cal-pnl { color: var(--up); }
+        .cal-cell.neg .cal-pnl { color: var(--down); }
+        .cal-sub { margin-top: auto; font-family: var(--mono); font-size: .64rem; color: var(--muted); }
+        .pill.w { background: rgba(34, 197, 94, .14); color: var(--up); border-color: transparent; }
+        .pill.l { background: rgba(239, 68, 68, .14); color: var(--down); border-color: transparent; }
+        @media (max-width: 768px) {
+            .cal-cell { min-height: 56px; padding: 5px; }
+            .cal-pnl { font-size: .72rem; margin-top: 12px; }
+            .cal-sub { display: none; }
+            .navlinks { display: none; }
+            .tabs { gap: 20px; }
+            .tabs button { font-size: .92rem; }
+            .huge { font-size: 1.8rem; }
+            .bar-row { grid-template-columns: 40px 1fr 40px 44px; }
+        }
+    </style>
+</head>
+<body>
+<nav class="topbar">
+    <div class="wrap">
+        <a class="brand" href="/hk"><i class="bi bi-hexagon-half"></i>AUTOBOT</a>
+        <div class="navlinks">
+            <a href="/">Dashboard</a>
+            <a href="/autobot">Auto Bot</a>
+            <a href="/hk" class="active">HK</a>
+        </div>
+        <div class="ms-auto">
+            <button class="btn-x sm" id="summaryBtn" onclick="loadSummary(true)"><i class="bi bi-stars me-1"></i>Ringkasan AI</button>
+        </div>
+    </div>
+</nav>
+
+<div class="wrap py-4">
+    <!-- HEADER -->
+    <div class="row g-3 mb-4">
+        <div class="col-lg-5">
+            <div class="card-x p-4 h-100">
+                <div class="d-flex gap-3 align-items-start">
+                    <div class="avatar">HK</div>
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="handle">HK Observatory</div>
+                        <div class="d-flex gap-1 mt-2 flex-wrap" id="hdrChips"><span class="chip">memuat…</span></div>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-3 mt-3">
+                    <div style="font-size: 2rem; line-height: 1" id="wxIcon">·</div>
+                    <div class="min-w-0">
+                        <div class="fw-semibold" id="wxText">Cuaca: memuat…</div>
+                        <div class="small muted mono" id="wxMeta"></div>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-2 flex-wrap" id="wxNext"></div>
+                <div class="small muted mt-2 clamp" id="liveOfficial" title="">Prakiraan resmi HKO: memuat…</div>
+                <div class="d-flex justify-content-between align-items-center mt-3 gap-2">
+                    <div class="small dim">Bracket dibulatkan ke bawah (33.9 → 33°C)</div>
+                    <div class="d-flex gap-2">
+                        <button class="icon-btn" title="Refresh" onclick="loadAll()"><i class="bi bi-arrow-repeat"></i></button>
+                        <a class="icon-btn" title="Auto Bot" href="/autobot"><i class="bi bi-robot"></i></a>
+                        <a class="icon-btn" title="Dashboard" href="/"><i class="bi bi-grid"></i></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <div class="card-x p-4 h-100 d-flex flex-column gap-3" id="liveTiles"><div class="small muted">Memuat data HKO…</div></div>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <div class="card-x p-4 h-100">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                        <div class="muted small">Perkiraan model hari ini</div>
+                        <div class="d-flex gap-4 mt-1">
+                            <div><div class="label">Max</div><div class="big hot text-nowrap" id="estMax">-</div></div>
+                            <div><div class="label">Min</div><div class="big cold text-nowrap" id="estMin">-</div></div>
+                        </div>
+                    </div>
+                    <span class="small mono muted text-nowrap" id="liveObserved">-</span>
+                </div>
+                <div id="hdrSpark" class="mt-2" style="height: 70px"></div>
+                <div class="small dim mono" id="sparkNote"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs mb-3" id="tabs">
+        <button data-tab="overview" onclick="setTab('overview')">Overview</button>
+        <button data-tab="forecast" onclick="setTab('forecast')">Forecast</button>
+        <button data-tab="history" onclick="setTab('history')">Riwayat</button>
+        <button data-tab="market" onclick="setTab('market')">Market</button>
+        <button data-tab="hourly" onclick="setTab('hourly')">Per jam</button>
+        <button data-tab="climate" onclick="setTab('climate')">Iklim</button>
+    </div>
+
+    <!-- OVERVIEW: BOT HK & AI -->
+    <div class="tab-pane-x" id="tab-overview">
+        <div class="row g-3">
+            <div class="col-xl-7">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div class="section-title">Model vs AI vs pasar <span class="chip ms-1" id="botDate">hari ini</span></div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="small muted" id="botStrategies"></span>
+                            <div class="seg" id="daySeg">
+                                <button data-day="today" onclick="setBotDay('today')">Hari ini</button>
+                                <button data-day="tomorrow" onclick="setBotDay('tomorrow')">Besok</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-1">
+                        <div class="label hot">Suhu tertinggi</div><div class="small muted mono" id="botMaxInfo"></div>
+                    </div>
+                    <div class="table-responsive mb-4"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
+                            <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end" title="Peluang campuran model+pasar − (ask + fee)">Edge</th>
+                            <th class="text-end" title="Beli NO: hanya bracket mustahil (angka terukur) atau peluang model YES ≤ 3%">Edge NO</th></tr></thead>
+                        <tbody id="botMax"><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody></table></div>
+                    <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2 mb-1">
+                        <div class="label cold">Suhu terendah</div><div class="small muted mono" id="botMinInfo"></div>
+                    </div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Bracket</th><th class="text-end">Model</th><th class="text-end">AI</th>
+                            <th class="text-end">Pasar</th><th class="text-end">Ask</th><th class="text-end">Edge</th><th class="text-end">Edge NO</th></tr></thead>
+                        <tbody id="botMin"><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody></table></div>
+                    <div class="small dim mt-3" id="botNote">Model = max/min terukur HKO + proyeksi per jam + error historis. Edge = campuran model &amp; pasar − (ask + fee);
+                        hijau = memenuhi ambang beli. AI (Gemini) hanya bayangan: dinilai akurasinya, tidak menentukan pembelian.</div>
+                </div>
+            </div>
+            <div class="col-xl-5">
+                <div class="card-x p-4 mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title"><i class="bi bi-stars me-1"></i>Pandangan AI</div>
+                        <span class="small muted mono" id="aiTime"></span>
+                    </div>
+                    <div class="small" id="aiSummary" style="white-space: pre-wrap">-</div>
+                    <div class="label mt-3 mb-1">Prediksi beberapa jam ke depan</div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Jam</th><th class="text-end">AI</th><th class="text-end">Model</th><th>Cuaca (AI)</th></tr></thead>
+                        <tbody id="aiHourly"><tr><td colspan="4" class="muted">-</td></tr></tbody></table></div>
+                    <div class="small muted mt-3" id="aiScore"></div>
+                </div>
+                <div class="card-x p-4 mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+                        <div class="section-title"><i class="bi bi-sliders me-1"></i>Kalibrasi otomatis</div>
+                        <div class="d-flex gap-2">
+                            <button class="btn-x ghost sm" onclick="runCalibration()" id="calRunBtn">Hitung ulang</button>
+                            <button class="btn-x ghost sm" onclick="resetCalibration()">Reset</button>
+                        </div>
+                    </div>
+                    <div id="calibrationBox" class="small muted">Memuat…</div>
+                </div>
+                <div class="card-x p-4">
+                    <div class="section-title mb-2"><i class="bi bi-chat-dots me-1"></i>Tanya AI</div>
+                    <div id="chatLog" class="small mb-2" style="max-height: 320px; overflow-y: auto"></div>
+                    <form class="d-flex gap-2" onsubmit="askAi(event)">
+                        <input class="form-control form-control-sm" id="chatInput" maxlength="1000"
+                               placeholder="mis. berapa peluang max ≥ 30°C hari ini?" autocomplete="off">
+                        <button class="btn-x sm" id="chatSend" type="submit"><i class="bi bi-send"></i></button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="card-x p-4 mt-3">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title"><i class="bi bi-calendar3 me-1"></i>Kalender PnL · bot HK <span class="chip ms-1">paper</span></div>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="seg sm" id="calSide">
+                        <button data-side="all" onclick="setCalSide('all')">SEMUA</button>
+                        <button data-side="yes" onclick="setCalSide('yes')">YES</button>
+                        <button data-side="no" onclick="setCalSide('no')">NO</button>
+                    </div>
+                    <button class="icon-btn border-0" onclick="shiftCal(-1)" aria-label="Sebelumnya"><i class="bi bi-chevron-left"></i></button>
+                    <span class="fw-semibold" id="calLabel" style="min-width: 140px; text-align: center">-</span>
+                    <button class="icon-btn border-0" onclick="shiftCal(1)" aria-label="Berikutnya"><i class="bi bi-chevron-right"></i></button>
+                </div>
+            </div>
+            <div class="cal-metrics mb-3" id="calSummary"></div>
+            <div id="calGrid"></div>
+            <div id="calTrades" class="mt-3"></div>
+            <div class="small dim mt-2">PnL terealisasi strategi hk_max &amp; hk_min menurut waktu trade selesai (WIB). Klik tanggal untuk melihat trade-nya.</div>
+        </div>
+    </div>
+
+    <!-- FORECAST -->
+    <div class="tab-pane-x" id="tab-forecast">
+        <div class="row g-3 mb-3">
+            <div class="col-lg-5">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title"><i class="bi bi-cloud-drizzle me-1"></i>Nowcast hujan 2 jam</div>
+                        <span id="regimeChip"></span>
+                    </div>
+                    <div id="nowcastBox" class="small muted">Memuat…</div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title"><i class="bi bi-diagram-3 me-1"></i>Ensemble model</div>
+                        <span class="small dim mono">dikoreksi bacaan HKO terakhir</span>
+                    </div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Model</th><th class="text-end">Max hari ini</th><th class="text-end">Min hari ini</th>
+                            <th class="text-end">Max besok</th><th class="text-end">Min besok</th></tr></thead>
+                        <tbody id="ensRows"><tr><td colspan="5" class="muted">Memuat…</td></tr></tbody></table></div>
+                    <div class="small dim mt-2">Rata-rata model dipakai sebagai perkiraan; sebaran antar model (±) memperlebar ketidakpastian bila model tidak sepakat.</div>
+                </div>
+            </div>
+        </div>
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title">24 jam ke depan</div>
+                        <span class="small dim mono">Open-Meteo dikoreksi bacaan HKO</span>
+                    </div>
+                    <div id="fcChart" style="height: 180px"></div>
+                    <div class="table-responsive mt-2" style="max-height: 460px; overflow-y: auto"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead class="sticky-top" style="background: var(--card)"><tr><th>Jam</th><th>Cuaca</th><th class="text-end">Suhu</th>
+                            <th class="text-end">Hujan</th><th class="text-end">RH</th><th class="text-end">Angin</th></tr></thead>
+                        <tbody id="fcHours"><tr><td colspan="6" class="muted">Memuat…</td></tr></tbody></table></div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="section-title">9 hari (HKO resmi)</div>
+                        <span class="small dim mono" id="fcUpdated"></span>
+                    </div>
+                    <div id="fcDays" class="d-grid gap-2"></div>
+                    <div class="small muted mt-3 clamp" id="fcSituation"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIWAYAT -->
+    <div class="tab-pane-x" id="tab-history">
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title">Riwayat trade bot HK <span class="chip ms-1">paper</span></div>
+                <div class="d-flex gap-2 flex-wrap">
+                <div class="seg sm" id="histSide">
+                    <button data-side="all" onclick="setHistSide('all')">SEMUA</button>
+                    <button data-side="yes" onclick="setHistSide('yes')">YES</button>
+                    <button data-side="no" onclick="setHistSide('no')">NO</button>
+                </div>
+                <div class="seg sm" id="histPeriod">
+                    <button data-period="1w" onclick="loadTrades('1w')">1W</button>
+                    <button data-period="1m" onclick="loadTrades('1m')">1M</button>
+                    <button data-period="all" onclick="loadTrades('all')">ALL</button>
+                </div>
+                </div>
+            </div>
+            <div class="row g-2 mb-3" id="histStats"></div>
+            <div class="row g-2 mb-3" id="histSides"></div>
+            <div class="row g-2 mb-3" id="histKinds"></div>
+            <div class="seg mb-2" id="histFilter">
+                <button data-f="" onclick="setHistFilter('')">Semua</button>
+                <button data-f="MENANG" onclick="setHistFilter('MENANG')">Menang</button>
+                <button data-f="KALAH" onclick="setHistFilter('KALAH')">Kalah</button>
+                <button data-f="TERBUKA" onclick="setHistFilter('TERBUKA')">Terbuka</button>
+            </div>
+            <div class="table-responsive" style="max-height: 560px; overflow-y: auto"><table class="table table-dark table-sm mb-0 align-middle">
+                <thead class="sticky-top" style="background: var(--card)"><tr><th>Waktu</th><th>Hasil</th><th>Market</th><th class="text-end">Masuk</th>
+                    <th class="text-end">Model</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th class="text-end">PnL</th></tr></thead>
+                <tbody id="histRows"><tr><td colspan="8" class="muted">Memuat…</td></tr></tbody></table></div>
+        </div>
+    </div>
+
+    <!-- MARKET -->
+    <div class="tab-pane-x" id="tab-market">
+        <div class="card-x p-4">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="label hot mb-2">Market suhu tertinggi hari ini</div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Bracket</th><th class="text-end">Harga</th><th class="text-end">Bid / Ask</th>
+                            <th class="text-end" title="Frekuensi bracket di sekitar tanggal ini (±3 hari, 30 tahun)">Historis ±3 hari</th></tr></thead>
+                        <tbody id="marketMax"></tbody></table></div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="label cold mb-2">Market suhu terendah hari ini</div>
+                    <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                        <thead><tr><th>Bracket</th><th class="text-end">Harga</th><th class="text-end">Bid / Ask</th>
+                            <th class="text-end">Historis ±3 hari</th></tr></thead>
+                        <tbody id="marketMin"></tbody></table></div>
+                </div>
+            </div>
+            <div class="small dim mt-3">Historis = persen hari di sekitar tanggal ini (30 tahun terakhir) yang jatuh di bracket itu —
+                konteks iklim, bukan peluang hari ini.</div>
+        </div>
+    </div>
+
+    <!-- PER JAM -->
+    <div class="tab-pane-x" id="tab-hourly">
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="card-x p-4 h-100">
+                    <div class="section-title mb-2">Hari ini: real vs expected</div>
+                    <div id="hourlyChart" style="height: 260px"></div>
+                    <div class="small dim mono mt-1">Garis putih = bacaan HKO · garis putus = expected / proyeksi 6 jam ke depan</div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="card-x p-4 h-100">
+                    <div class="table-responsive" style="max-height: 420px; overflow-y: auto;"><table class="table table-dark table-sm mb-0">
+                        <thead class="sticky-top" style="background: var(--card)"><tr><th>Jam</th><th class="text-end">Expected</th><th class="text-end">Δ</th><th class="text-end">Real</th></tr></thead>
+                        <tbody id="hourlyRows"></tbody></table></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- IKLIM -->
+    <div class="tab-pane-x" id="tab-climate">
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title" id="climateTitle">Klimatologi</div>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm w-auto" id="monthSelect" onchange="loadClimate()" aria-label="Bulan"></select>
+                    <select class="form-select form-select-sm w-auto" id="yearsSelect" onchange="loadClimate()" aria-label="Rentang tahun">
+                        <option value="5">5 tahun</option><option value="10" selected>10 tahun</option><option value="20">20 tahun</option><option value="30">30 tahun</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row g-2 mb-4" id="climateTiles"></div>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6">
+                    <div class="label hot mb-2">Sebaran suhu tertinggi harian <span class="dim" id="distMaxLabel"></span></div>
+                    <div id="distMax" class="d-grid gap-1"></div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="label cold mb-2">Sebaran suhu terendah harian <span class="dim" id="distMinLabel"></span></div>
+                    <div id="distMin" class="d-grid gap-1"></div>
+                </div>
+            </div>
+            <div class="section-title mb-2">Per tahun</div>
+            <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                <thead><tr><th>Tahun</th><th class="text-end">Max bulan</th><th class="text-end">Rata² max</th>
+                    <th class="text-end">Min bulan</th><th class="text-end">Rata² min</th><th id="hitMaxHead">Hari high ≥</th><th id="hitMinHead">Hari low</th></tr></thead>
+                <tbody id="yearRows"></tbody></table></div>
+            <div class="small dim mt-2" id="climateSource"></div>
+            <div class="hr my-4" style="border-top: 1px solid var(--line)"></div>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div class="section-title">Insight siap posting</div>
+                <div class="d-flex gap-2 align-items-center small">
+                    <label class="muted" for="maxThreshold">High ≥</label>
+                    <input type="number" class="form-control form-control-sm mono" style="width: 72px" id="maxThreshold" onchange="loadClimate()">
+                    <label class="muted" for="minThreshold">Low</label>
+                    <input type="number" class="form-control form-control-sm mono" style="width: 72px" id="minThreshold" onchange="loadClimate()">
+                </div>
+            </div>
+            <textarea class="form-control insight mb-2" id="insightText" rows="4" placeholder="Memuat..."></textarea>
+            <div class="d-flex gap-2 align-items-center">
+                <button class="btn-x sm" onclick="copyInsight()"><i class="bi bi-clipboard me-1"></i>Salin</button>
+                <span class="small muted" id="copyStatus"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="small dim text-center mt-4">Informasi, bukan saran finansial.</div>
+</div>
+
+<script>
+    const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    let liveData = null, climateData = null, botData = null, hourlyData = null;
+    let thresholdsTouched = false;
+
+    function esc(v) {
+        return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    function num(v, d = 1) { return v === null || v === undefined ? '-' : Number(v).toFixed(d); }
+    function cents(v) { return v === null || v === undefined ? '-' : (v * 100).toFixed(v < 0.1 ? 1 : 0) + '¢'; }
+    const pct = v => v === null || v === undefined ? '-' : Math.round(v * 100) + '%';
+    function bracketNumber(label) { const m = String(label || '').match(/-?\d+/); return m ? parseInt(m[0], 10) : null; }
+    const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
+                    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* abaikan */ } } };
+
+    // --- TABS ---
+    let tab = store.get('hkTab', 'overview');
+    function setTab(t) {
+        tab = t; store.set('hkTab', t);
+        document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+        document.querySelectorAll('.tab-pane-x').forEach(p => p.classList.toggle('active', p.id === 'tab-' + t));
+        if (t === 'hourly') renderHourlyChart();
+    }
+
+    // --- GRAFIK ---
+    function lineChart(series, { height = 70, labels = false } = {}) {
+        // series: [{ values: [number|null], dash, color }]; semua sepanjang sumbu x yang sama
+        const all = series.flatMap(s => s.values).filter(v => v !== null && v !== undefined);
+        if (!all.length) return '<div class="small dim mono pt-4">belum ada data</div>';
+        const n = Math.max(...series.map(s => s.values.length));
+        const w = 300, pad = labels ? 14 : 4, min = Math.min(...all) - 0.2, max = Math.max(...all) + 0.2, span = max - min || 1;
+        const x = i => n > 1 ? (i / (n - 1)) * w : w / 2;
+        const y = v => pad + (1 - (v - min) / span) * (height - 2 * pad);
+        const paths = series.map(s => {
+            let d = '', started = false;
+            s.values.forEach((v, i) => {
+                if (v === null || v === undefined) { started = false; return; }
+                d += `${started ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)} `; started = true;
+            });
+            return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" ${s.dash ? 'stroke-dasharray="4 3"' : ''} vector-effect="non-scaling-stroke"/>`;
+        }).join('');
+        const axis = labels ? `<text x="0" y="10" fill="var(--dim)" font-size="9" font-family="var(--mono)">${max.toFixed(1)}°</text>
+            <text x="0" y="${height - 2}" fill="var(--dim)" font-size="9" font-family="var(--mono)">${min.toFixed(1)}°</text>` : '';
+        return `<svg viewBox="0 0 ${w} ${height}" preserveAspectRatio="none" width="100%" height="${height}" aria-hidden="true">${axis}${paths}</svg>`;
+    }
+    function hourlySeries() {
+        const rows = (hourlyData && hourlyData.rows) || [];
+        return [
+            { values: rows.map(r => r.expected), color: 'var(--live)', dash: true, width: 1.5 },
+            { values: rows.map(r => r.real), color: 'var(--text)' },
+        ];
+    }
+    function renderSpark() {
+        document.getElementById('hdrSpark').innerHTML = lineChart(hourlySeries(), { height: 70 });
+        const rows = (hourlyData && hourlyData.rows) || [];
+        const ahead = rows.filter(r => r.future && r.expected !== null);
+        document.getElementById('sparkNote').textContent = ahead.length
+            ? `proyeksi ${ahead[0].hour}–${ahead[ahead.length - 1].hour}: ${num(Math.min(...ahead.map(r => r.expected)))}–${num(Math.max(...ahead.map(r => r.expected)))}°C` : '';
+    }
+    function renderHourlyChart() {
+        const box = document.getElementById('hourlyChart');
+        if (box) box.innerHTML = lineChart(hourlySeries(), { height: 260, labels: true });
+    }
+
+    // --- HEADER & HARI INI ---
+    function renderChips() {
+        const chips = [];
+        if (liveData && liveData.available) {
+            chips.push(`<span class="chip on">● HKO ${new Date(liveData.observed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Hong_Kong' })} HKT</span>`);
+        } else chips.push('<span class="chip warn" title="Setelah pergantian hari HKT, bacaan pertama biasanya masuk dalam ±10 menit">● HKO menunggu bacaan hari ini</span>');
+        if (botData) {
+            const s = botData.strategies || [];
+            chips.push(s.length ? `<span class="chip on">bot ${esc(s.join(' · '))}</span>` : '<span class="chip warn">bot shadow</span>');
+            chips.push((botData.ai_problems || []).length ? '<span class="chip">AI nonaktif</span>' : '<span class="chip on">AI aktif</span>');
+        }
+        document.getElementById('hdrChips').innerHTML = chips.join('');
+    }
+    function renderLive() {
+        const d = liveData;
+        const box = document.getElementById('liveTiles');
+        renderChips();
+        if (!d || !d.available) { box.innerHTML = '<div class="small muted">Data HKO belum tersedia.</div>'; return; }
+        document.getElementById('liveObserved').textContent = new Date(d.observed_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Hong_Kong' }) + ' HKT';
+        const rate = d.rate === null || d.rate === undefined ? '' : `${d.rate > 0 ? '+' : ''}${num(d.rate)}°C/jam`;
+        const row = (k, v, s, cls = '') => `<div class="kv"><div class="k">${k}</div><div class="v"><div class="big ${cls}">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div></div>`;
+        box.innerHTML = row('Sekarang', num(d.temp) + '°', rate)
+            + row('Max hari ini', num(d.max) + '°', d.final_ok ? 'kemungkinan final' : 'belum final', 'hot')
+            + row('Min hari ini', num(d.min) + '°', 'bisa turun s.d. 23:59', 'cold');
+        const off = [];
+        if (d.official_max !== null && d.official_max !== undefined) off.push(`max ±${d.official_max}°C`);
+        if (d.official_min !== null && d.official_min !== undefined) off.push(`min ±${d.official_min}°C`);
+        const official = document.getElementById('liveOfficial');
+        official.innerHTML = '<b>Prakiraan resmi HKO:</b> ' + (off.length ? off.join(' · ') + '. ' : '') + esc(d.official_text || '-');
+        official.title = d.official_text || '';
+        renderEstimates();
+        renderMarkets();
+    }
+    function renderEstimates() {
+        const a = todayBot && todayBot.analysis;
+        const fmt = (m, fallback) => m ? `${num(m.mu)}°<span class="small muted"> ±${num(m.sigma)}</span>` : (fallback === null || fallback === undefined ? '-' : num(fallback) + '°');
+        document.getElementById('estMax').innerHTML = fmt(a && a.max, liveData && liveData.estimate);
+        document.getElementById('estMin').innerHTML = fmt(a && a.min, liveData && liveData.min_estimate);
+    }
+
+    // --- MARKET (harga + historis) ---
+    function historicalShare(label, dist) {
+        if (!dist) return null;
+        const n = bracketNumber(label);
+        if (n === null) return null;
+        const lower = /below|lower/i.test(label), higher = /higher|above/i.test(label);
+        return dist.filter(d => lower ? d.bracket <= n : higher ? d.bracket >= n : d.bracket === n).reduce((a, d) => a + d.share, 0);
+    }
+    function marketRows(rows, dist) {
+        if (!rows || !rows.length) return '<tr><td colspan="4" class="muted">Market hari ini belum tersedia.</td></tr>';
+        const sorted = [...rows].sort((a, b) => (bracketNumber(a.bracket) ?? 0) - (bracketNumber(b.bracket) ?? 0)
+            || (/below|lower/i.test(a.bracket) ? -1 : /higher|above/i.test(a.bracket) ? 1 : 0));
+        const top = Math.max(...rows.map(r => r.price || 0));
+        return sorted.map(r => {
+            const share = historicalShare(r.bracket, dist);
+            return `<tr class="${r.price === top ? 'top-row' : ''}"><td>${esc(r.bracket)}</td>
+                <td class="text-end">${cents(r.price)}</td>
+                <td class="text-end muted">${cents(r.bid)} / ${cents(r.ask)}</td>
+                <td class="text-end">${share === null ? '-' : (share * 100).toFixed(share < 0.01 && share > 0 ? 1 : 0) + '%'}</td></tr>`;
+        }).join('');
+    }
+    function renderMarkets() {
+        if (!liveData || !liveData.available) return;
+        const around = climateData && climateData.around_today;
+        document.getElementById('marketMax').innerHTML = marketRows(liveData.market, around && around.max.distribution);
+        document.getElementById('marketMin').innerHTML = marketRows(liveData.min_market, around && around.min.distribution);
+    }
+
+    // --- IKLIM ---
+    function bars(dist, cls, highlight) {
+        if (!dist || !dist.length) return '<div class="small muted">Tidak ada data.</div>';
+        const maxShare = Math.max(...dist.map(d => d.share));
+        return dist.map(d => `<div class="bar-row ${d.bracket === highlight ? 'today' : ''}">
+            <span>${d.bracket}°C</span>
+            <div class="bar-track"><div class="bar-fill ${cls}" style="width:${(d.share / maxShare * 100).toFixed(1)}%"></div></div>
+            <span class="text-end">${(d.share * 100).toFixed(d.share < 0.01 ? 1 : 0)}%</span>
+            <span class="text-end muted">${d.count} hr</span></div>`).join('');
+    }
+    function climateTile(label, value, sub, cls = '') {
+        return `<div class="col-6 col-md-3"><div class="tcard"><div class="label">${label}</div>
+            <div class="big ${cls} mt-1" style="font-size: 1.25rem">${value}</div>${sub ? `<div class="small muted mono mt-1">${sub}</div>` : ''}</div></div>`;
+    }
+    function renderClimate() {
+        const c = climateData;
+        if (!c) return;
+        const t = c.thresholds;
+        if (!thresholdsTouched) {
+            document.getElementById('maxThreshold').value = t.max ?? '';
+            document.getElementById('minThreshold').value = t.min ?? '';
+        }
+        document.getElementById('insightText').value = c.insight;
+        const monthId = MONTHS[c.month - 1];
+        document.getElementById('climateTitle').textContent = `Klimatologi ${monthId} · HKO`;
+        const s = c.summary, r = c.records, a = c.around_today;
+        document.getElementById('climateTiles').innerHTML =
+            climateTile(`Rata² max ${monthId}`, num(s.avg_max) + '°C', `${s.dist_years} · 10% hari ≥ ${num(s.p90_max)}°C`, 'hot')
+            + climateTile(`Rata² min ${monthId}`, num(s.avg_min) + '°C', `${s.dist_years} · 10% hari ≤ ${num(s.p10_min)}°C`, 'cold')
+            + climateTile(`Sekitar tgl ${a.day} (±${a.window_days} hr)`, `${num(a.max.median)} / ${num(a.min.median)}`,
+                          `median max/min · max ${num(a.max.p10)}–${num(a.max.p90)}°C`)
+            + climateTile('Rekor sejak 1884', `${num(r.max && r.max.value)} / ${num(r.min && r.min.value)}`,
+                          `${r.max ? r.max.date : '-'} · ${r.min ? r.min.date : '-'}`);
+        const todayMax = liveData && liveData.available ? Math.floor(liveData.max + 1e-9) : null;
+        const todayMin = liveData && liveData.available ? Math.floor(liveData.min + 1e-9) : null;
+        document.getElementById('distMaxLabel').textContent = `(${monthId}, ${s.dist_years})`;
+        document.getElementById('distMinLabel').textContent = `(${monthId}, ${s.dist_years})`;
+        const isThisMonth = c.month === new Date().getMonth() + 1;
+        document.getElementById('distMax').innerHTML = bars(c.distribution.max, 'hot', isThisMonth ? todayMax : null);
+        document.getElementById('distMin').innerHTML = bars(c.distribution.min, 'cold', isThisMonth ? todayMin : null);
+        document.getElementById('hitMaxHead').textContent = t.max !== null ? `Hari high ≥ ${t.max}°C` : 'Hari high ≥';
+        document.getElementById('hitMinHead').textContent = t.min !== null ? `Hari low ${t.min_warm ? '≥' : '≤'} ${t.min}°C` : 'Hari low';
+        const rows = [...c.rows].reverse().map(y => `<tr>
+            <td>${y.year}${y.provisional ? ' <span class="pill">sementara</span>' : ''}</td>
+            <td class="text-end">${num(y.max)} <span class="muted">(${y.max_date.slice(8)})</span></td>
+            <td class="text-end">${num(y.avg_max)}</td>
+            <td class="text-end">${num(y.min)} <span class="muted">(${y.min_date.slice(8)})</span></td>
+            <td class="text-end">${num(y.avg_min)}</td>
+            <td>${(y.max_hit_days || []).length ? `<span class="hit">${y.max_hit_days.length}×</span> <span class="muted">tgl ${y.max_hit_days.join(', ')}</span>` : '<span class="muted">-</span>'}</td>
+            <td>${(y.min_hit_days || []).length ? `<span class="hit-cold">${y.min_hit_days.length}×</span> <span class="muted">tgl ${y.min_hit_days.join(', ')}</span>` : '<span class="muted">-</span>'}</td></tr>`);
+        if (c.current) {
+            rows.unshift(`<tr class="top-row"><td>${c.current.year} <span class="pill">sejauh ini · ${c.current.days} hr</span></td>
+                <td class="text-end">${num(c.current.max)}</td><td></td><td class="text-end">${num(c.current.min)}</td><td></td><td colspan="2" class="muted small">
+                ${c.current.provisional_days ? `${c.current.provisional_days} hari dari bacaan real-time (sementara)` : ''}</td></tr>`);
+        }
+        document.getElementById('yearRows').innerHTML = rows.join('');
+        document.getElementById('climateSource').textContent = `Sumber: ${c.source}; data resmi s.d. ${c.last_official || '-'}, sesudahnya dari bacaan HKO real-time yang disimpan bot.`;
+        renderMarkets();
+    }
+
+    // --- PER JAM ---
+    function renderHourly() {
+        const body = document.getElementById('hourlyRows');
+        const rows = (hourlyData && hourlyData.rows) || [];
+        body.innerHTML = rows.map(r => `<tr class="${r.future ? 'top-row' : ''}">
+            <td>${esc(r.hour)}${r.next_day ? ' +1' : ''}${r.future ? ' <span class="pill">proyeksi</span>' : ''}</td><td class="text-end">${num(r.expected)}</td>
+            <td class="text-end ${r.delta > 0 ? 'hot' : r.delta < 0 ? 'cold' : ''}">${r.delta === null ? '-' : (r.delta > 0 ? '+' : '') + num(r.delta)}</td>
+            <td class="text-end fw-semibold">${num(r.real)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Belum ada data.</td></tr>';
+        renderSpark();
+        if (tab === 'hourly') renderHourlyChart();
+    }
+
+    // --- BOT HK & AI ---
+    function impossible(d, b) {
+        if (d.observed === null || d.observed === undefined) return false;
+        return d.kind === 'highest' ? (b.hi !== null && d.observed >= b.hi + 1) : (b.lo !== null && d.observed < b.lo);
+    }
+    function botRows(d, ai) {
+        if (!d) return '<tr><td colspan="7" class="muted">Tidak ada data.</td></tr>';
+        const aiProbs = (ai && ai.probs) || {};
+        const top = Math.max(...d.brackets.map(b => b.model));
+        const minEdge = (botData && botData.min_edge) || 0.08;
+        return d.brackets.map(b => {
+            const fee = b.ask === null || b.ask === undefined ? null : 0.07 * b.ask * (1 - b.ask);
+            const edge = b.ask === null || b.ask === undefined ? null : b.prob - b.ask - fee;
+            const cls = edge === null ? '' : (edge >= minEdge ? 'up fw-semibold' : edge < 0 ? 'down' : '');
+            return `<tr class="${b.model === top ? 'top-row' : ''}"><td>${esc(b.bracket)}</td><td class="text-end">${pct(b.model)}</td>
+                <td class="text-end">${aiProbs[b.bracket] === undefined ? '-' : pct(aiProbs[b.bracket])}</td>
+                <td class="text-end">${pct(b.market_prob)}</td><td class="text-end">${b.ask === null || b.ask === undefined ? '-' : (b.ask * 100).toFixed(1) + '¢'}</td>
+                <td class="text-end ${cls}">${edge === null ? '-' : (edge > 0 ? '+' : '') + (edge * 100).toFixed(1) + '¢'}</td>
+                <td class="text-end">${noEdge(d, b)}</td></tr>`;
+        }).join('');
+    }
+    function noEdge(d, b) {
+        // NO hanya untuk bracket yang (hampir) mustahil: terukur sudah melewatinya, atau peluang model YES ≤ ambang
+        const maxProb = (botData && botData.no_max_prob) || 0.03, minEdge = (botData && botData.no_min_edge) || 0.03;
+        if (b.bid === null || b.bid === undefined) return '<span class="dim">-</span>';
+        const imp = impossible(d, b);
+        if (!imp && b.model > maxProb) return '<span class="dim">-</span>';
+        const price = 1 - b.bid, fee = 0.07 * price * (1 - price);
+        const e = (imp ? 1 : 1 - b.prob) - price - fee;
+        const cls = e >= minEdge ? 'up fw-semibold' : e < 0 ? 'down' : '';
+        return `<span class="${cls}" title="${imp ? 'mustahil oleh angka terukur' : 'peluang model YES ' + (b.model * 100).toFixed(1) + '%'} · NO ${(price * 100).toFixed(1)}¢">${(e > 0 ? '+' : '') + (e * 100).toFixed(1)}¢${imp ? ' ✓' : ''}</span>`;
+    }
+    function botInfo(d) {
+        if (!d) return '';
+        const parts = [];
+        if (d.observed !== null && d.observed !== undefined) parts.push(`terukur ${d.observed.toFixed(1)}°`);
+        parts.push(`model ${d.mu.toFixed(1)}±${d.sigma.toFixed(1)}°${Math.abs(d.bias || 0) >= 0.05 ? ` (bias ${d.bias > 0 ? '+' : ''}${d.bias.toFixed(1)})` : ''}`);
+        if (d.official_hint !== null && d.official_hint !== undefined) parts.push(`HKO ${d.official_hint}°`);
+        if (d.sim) parts.push(`simulasi ${d.sim.n_sims} skenario · p10–p90 ${d.sim.p10}–${d.sim.p90}°${d.sim.n_clim ? ` · historis ${Math.round(d.sim.clim_weight * 100)}%` : ''}${d.lead !== undefined && d.lead !== null && d.observed !== null && d.observed !== undefined ? ` · ${d.lead > 0 ? 'puncak/lembah ±' + d.lead.toFixed(1) + ' jam lagi' : 'terukur kemungkinan bertahan'}` : ''}`);
+        if (d.spread !== null && d.spread !== undefined) parts.push(`ensemble ${Object.keys(d.ensemble || {}).length} model ±${d.spread.toFixed(1)}`);
+        if ((d.rain || []).length) parts.push('🌧 ' + d.rain.join('; '));
+        if (d.regime) parts.push('rezim ' + d.regime);
+        parts.push(d.source + (d.final ? ' · final' : ''));
+        return parts.join(' · ');
+    }
+    function renderScore(score) {
+        const names = { ai: 'AI', model: 'Model', market: 'Pasar' };
+        const items = Object.entries(score || {}).sort((a, b) => a[1].brier - b[1].brier);
+        return items.length ? 'Akurasi (Brier, kecil = baik) — ' + items.map(([k, v]) => `${names[k] || k} ${v.brier.toFixed(2)} · tepat ${pct(v.top_hit)}`).join(' | ')
+            + ` · ${Math.max(...items.map(([, v]) => v.days))} hari` : 'Akurasi: belum ada hari yang selesai dinilai.';
+    }
+    let botDay = 'today', todayBot = null;
+    function setBotDay(day) {
+        botDay = day;
+        document.querySelectorAll('#daySeg button').forEach(b => b.classList.toggle('active', b.dataset.day === day));
+        loadBot();
+    }
+    async function loadBot() {
+        try {
+            const res = await fetch('/api/hk/bot?day=' + botDay);
+            if (!res.ok) throw new Error('Gagal');
+            botData = await res.json();
+            if (botDay === 'today') todayBot = botData;
+            const a = botData.analysis || {}, ai = botData.ai || {};
+            document.getElementById('botMax').innerHTML = botRows(a.max, ai.max && ai.max.ai);
+            document.getElementById('botMin').innerHTML = botRows(a.min, ai.min && ai.min.ai);
+            document.getElementById('botMaxInfo').textContent = botInfo(a.max);
+            document.getElementById('botMinInfo').textContent = botInfo(a.min);
+            document.getElementById('botDate').textContent = (botDay === 'today' ? 'hari ini · ' : 'besok · ') + (botData.date || '');
+            document.getElementById('botNote').textContent = botDay === 'today'
+                ? 'Model = simulasi ±1.000 skenario: 122 anggota ensemble + 5 model dikoreksi bacaan HKO, noise error historis, kejutan hujan (nowcast), prakiraan resmi HKO, kalibrasi, dan klimatologi 30 tahun. Edge = campuran model & pasar − (ask + fee); hijau = memenuhi ambang beli. Bot masuk hanya ≤ 2 jam sebelum puncak/titik terendah. AI (Gemini) hanya bayangan.'
+                : 'Besok = puncak/lembah per jam besok (Open-Meteo dikoreksi HKO) dirata-rata dengan prakiraan 9 hari HKO; ketidakpastian ≥ 1°C. Untuk pantauan — bot hanya membeli market hari ini.';
+            document.getElementById('botStrategies').textContent = (botData.strategies || []).length ? 'aktif: ' + botData.strategies.join(', ') : 'nonaktif (sinyal bayangan)';
+            const latest = (ai.max && ai.max.ai) || (ai.min && ai.min.ai);
+            if (botDay === 'today') {
+                document.getElementById('aiSummary').textContent = (botData.ai_problems || []).length ? 'AI belum aktif: ' + botData.ai_problems.join('; ')
+                    : latest ? (latest.summary || '-') : 'Belum ada pandangan AI hari ini. Klik "Ringkasan AI".';
+                document.getElementById('aiTime').textContent = latest ? new Date(latest.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '';
+            }
+            document.getElementById('aiScore').textContent = renderScore(botData.score);
+            renderAiHourly();
+            renderEstimates();
+            renderChips();
+        } catch (e) {
+            document.getElementById('botMax').innerHTML = '<tr><td colspan="6" class="muted">Gagal memuat bot HK.</td></tr>';
+        }
+    }
+    function renderAiHourly() {
+        const rows = ((botData && botData.ai_hourly) || (todayBot && todayBot.ai_hourly) || {}).probs || [];
+        const model = {};
+        ((forecastData && forecastData.hours) || []).forEach(h => { model[h.hour] = h; });
+        document.getElementById('aiHourly').innerHTML = rows.length ? rows.map(r => {
+            const m = model[r.jam];
+            return `<tr><td>${esc(r.jam)}</td><td class="text-end">${num(r.suhu)}°</td><td class="text-end">${m ? num(m.temp) + '°' : '-'}</td>
+                <td>${esc(r.cuaca)}</td></tr>`;
+        }).join('') : '<tr><td colspan="4" class="muted">Belum ada prediksi AI per jam (muncul setelah ringkasan AI berikutnya).</td></tr>';
+    }
+
+    // --- CUACA & FORECAST ---
+    let forecastData = null;
+    async function loadForecast() {
+        try {
+            const res = await fetch('/api/hk/forecast');
+            forecastData = res.ok ? await res.json() : null;
+        } catch (e) { forecastData = null; }
+        renderWeather();
+        renderForecast();
+        renderNowcast();
+        renderAiHourly();
+    }
+    function renderWeather() {
+        const w = (forecastData && forecastData.now) || null;
+        if (!w) { document.getElementById('wxText').textContent = 'Cuaca: tidak tersedia'; return; }
+        document.getElementById('wxIcon').textContent = w.icon || '·';
+        document.getElementById('wxText').textContent = w.text || '-';
+        const meta = [];
+        if (w.humidity !== null && w.humidity !== undefined) meta.push(`RH ${w.humidity}%`);
+        meta.push(w.rain_max_mm ? `hujan ${w.rain_max_mm} mm` : 'tanpa hujan');
+        if (w.uv !== null && w.uv !== undefined) meta.push(`UV ${w.uv}`);
+        document.getElementById('wxMeta').innerHTML = esc(meta.join(' · ')) + ((w.warnings || []).length ? ` · <span style="color: var(--live)">⚠️ ${esc(w.warnings.join('; '))}</span>` : '');
+        const next = ((forecastData && forecastData.hours) || []).filter((_, i) => i % 2 === 0).slice(0, 4);
+        document.getElementById('wxNext').innerHTML = next.map(h => `<span class="wx-chip" title="${esc(h.text)}">${esc(h.hour)} ${h.icon} ${num(h.temp)}°${h.rain_prob ? ` <span class="cold">${h.rain_prob}%</span>` : ''}</span>`).join('');
+    }
+    function renderNowcast() {
+        const f = forecastData || {};
+        const reg = f.regime || {};
+        const cls = { hujan: 'cold', mendung: '', cerah: 'up' }[reg.name] ?? '';
+        document.getElementById('regimeChip').innerHTML = reg.name ? `<span class="chip ${cls === 'up' ? 'on' : cls === 'cold' ? 'warn' : ''}">rezim: ${esc(reg.name)}</span>` : '';
+        const nc = f.nowcast;
+        const steps = (nc && nc.steps) || [];
+        const maxMm = Math.max(1, ...steps.map(x => x.area_max_mm));
+        const bar = (v, color) => `<div class="bar-track" style="height: 8px"><div class="bar-fill" style="width:${Math.min(100, v / maxMm * 100).toFixed(0)}%; background:${color}"></div></div>`;
+        const rain = f.rain || {};
+        document.getElementById('nowcastBox').innerHTML = `
+            <div class="mb-2 ${rain.expected ? 'cold fw-semibold' : 'up'}">${rain.expected ? '🌧 Hujan diperkirakan: ' + esc((rain.reasons || []).join('; ')) : '☀️ Tidak ada hujan diperkirakan di stasiun HKO dalam 2 jam'}</div>
+            ${steps.length ? `<div class="d-grid gap-2">${steps.map(x => `<div class="bar-row" style="grid-template-columns: 52px 1fr 1fr 90px">
+                <span>${esc(x.end.slice(11, 16))}</span>${bar(x.near_mm, 'var(--cold)')}${bar(x.area_max_mm, 'var(--line-2)')}
+                <span class="text-end">${num(x.near_mm, 1)} / ${num(x.area_max_mm, 1)} mm</span></div>`).join('')}</div>
+                <div class="dim mono mt-1" style="font-size: .7rem">biru = di stasiun · abu = maks ±10 km · per 30 menit · update ${esc((nc.updated || '').slice(11, 16))} HKT</div>`
+              : '<div class="dim">Nowcast radar tidak tersedia.</div>'}
+            <div class="mt-2">${(f.warnings || []).length ? (f.warnings || []).map(w => `<span class="chip warn me-1">⚠️ ${esc(w.name)}</span>`).join('') : '<span class="dim">Tidak ada peringatan HKO aktif.</span>'}</div>
+            <div class="dim mt-2">Awan 3 jam ke depan ${reg.cloud === null || reg.cloud === undefined ? '-' : Math.round(reg.cloud) + '%'} · peluang hujan maks ${reg.rain_prob ?? '-'}%</div>`;
+        const ens = f.ensemble || [];
+        const stat = key => { const xs = ens.map(e => e[key]).filter(v => v !== undefined && v !== null); if (xs.length < 2) return '-';
+            const m = xs.reduce((a, b) => a + b, 0) / xs.length; const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length);
+            return `${m.toFixed(1)} <span class="dim">±${sd.toFixed(1)}</span>`; };
+        document.getElementById('ensRows').innerHTML = ens.length ? ens.map(e => `<tr><td>${esc(e.name)}</td>
+            <td class="text-end hot">${num(e.today_max)}</td><td class="text-end cold">${num(e.today_min)}</td>
+            <td class="text-end hot">${num(e.tomorrow_max)}</td><td class="text-end cold">${num(e.tomorrow_min)}</td></tr>`).join('')
+            + `<tr class="top-row"><td><b>Rata-rata</b></td><td class="text-end">${stat('today_max')}</td><td class="text-end">${stat('today_min')}</td>
+                <td class="text-end">${stat('tomorrow_max')}</td><td class="text-end">${stat('tomorrow_min')}</td></tr>`
+            : '<tr><td colspan="5" class="muted">Ensemble tidak tersedia.</td></tr>';
+    }
+    function renderForecast() {
+        const hours = (forecastData && forecastData.hours) || [];
+        document.getElementById('fcChart').innerHTML = lineChart([{ values: hours.map(h => h.temp), color: 'var(--hot)' }], { height: 180, labels: true });
+        document.getElementById('fcHours').innerHTML = hours.map(h => `<tr>
+            <td>${esc(h.hour)}${h.date !== hours[0].date ? ' <span class="dim">+1</span>' : ''}</td><td>${h.icon} <span class="small">${esc(h.text)}</span></td>
+            <td class="text-end fw-semibold">${num(h.temp)}°</td>
+            <td class="text-end ${h.rain_prob >= 50 ? 'cold' : ''}">${h.rain_prob === null || h.rain_prob === undefined ? '-' : h.rain_prob + '%'}</td>
+            <td class="text-end">${h.humidity === null || h.humidity === undefined ? '-' : h.humidity + '%'}</td>
+            <td class="text-end">${h.wind_kmh === null || h.wind_kmh === undefined ? '-' : Math.round(h.wind_kmh) + ' km/j'}</td></tr>`).join('')
+            || '<tr><td colspan="6" class="muted">Prakiraan per jam tidak tersedia.</td></tr>';
+        const nd = (forecastData && forecastData.nine_day) || {};
+        const days = nd.days || [];
+        const lo = Math.min(...days.map(d => d.min ?? 99)), hi = Math.max(...days.map(d => d.max ?? -99));
+        const span = Math.max(hi - lo, 1);
+        document.getElementById('fcDays').innerHTML = days.map(d => {
+            const date = new Date(d.date + 'T00:00:00');
+            return `<div class="day-row" title="${esc(d.weather || '')}">
+                <div><div class="fw-semibold small">${date.toLocaleDateString('id-ID', { weekday: 'short' })}</div><div class="dim mono" style="font-size: .7rem">${d.date.slice(5)}</div></div>
+                <div style="font-size: 1.3rem">${d.icon}</div>
+                <div class="min-w-0"><div class="small text-truncate">${esc(d.text)}${d.psr ? ` · <span class="cold">hujan ${esc(d.psr)}</span>` : ''}</div>
+                    <div class="temp-bar mt-1"><span style="left:${((d.min - lo) / span * 100).toFixed(0)}%; right:${((hi - d.max) / span * 100).toFixed(0)}%"></span></div></div>
+                <div class="mono small text-nowrap"><span class="cold">${d.min ?? '-'}°</span> / <span class="hot">${d.max ?? '-'}°</span></div></div>`;
+        }).join('') || '<div class="small muted">Prakiraan 9 hari tidak tersedia.</div>';
+        document.getElementById('fcUpdated').textContent = nd.updated ? new Date(nd.updated).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+        const sit = document.getElementById('fcSituation');
+        sit.textContent = nd.situation || ''; sit.title = nd.situation || '';
+    }
+
+    // --- KALENDER PnL HK ---
+    const nowHk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+    const cal = { year: nowHk.getFullYear(), month: nowHk.getMonth() + 1, selected: null };
+    const pad = n => String(n).padStart(2, '0');
+    const money = v => (v > 0 ? '+' : v < 0 ? '−' : '') + '$' + Math.abs(v).toFixed(2);
+    const pnlCls = v => v > 0 ? 'up' : v < 0 ? 'down' : '';
+    function shiftCal(step) {
+        cal.month += step;
+        if (cal.month < 1) { cal.month = 12; cal.year--; }
+        if (cal.month > 12) { cal.month = 1; cal.year++; }
+        cal.selected = null; loadCalendar();
+    }
+    const SIDE_GROUP = { all: 'hk_all', yes: 'hk_yes', no: 'hk_no' };
+    let calSide = store.get('hkCalSide', 'all');
+    function setCalSide(side) {
+        calSide = side; store.set('hkCalSide', side); cal.selected = null;
+        document.querySelectorAll('#calSide button').forEach(b => b.classList.toggle('active', b.dataset.side === side));
+        loadCalendar();
+    }
+    async function loadCalendar() {
+        document.querySelectorAll('#calSide button').forEach(b => b.classList.toggle('active', b.dataset.side === calSide));
+        document.getElementById('calLabel').textContent = `${MONTHS[cal.month - 1]} ${cal.year}`;
+        try {
+            const res = await fetch(`/api/autotrade/calendar?month=${cal.year}-${pad(cal.month)}&strategy=${SIDE_GROUP[calSide]}&source=paper`);
+            const data = await res.json();
+            const t = data.totals || {};
+            const m = (k, v, cls = '') => `<div><div class="m-k">${k}</div><div class="m-v ${cls}">${v}</div></div>`;
+            document.getElementById('calSummary').innerHTML = t.trades
+                ? m('PnL bulan ini', money(t.pnl), pnlCls(t.pnl)) + m('Trade', t.trades) + m('Win rate', pct(t.win_rate))
+                  + m('ROI', t.roi === null ? '-' : (t.roi * 100).toFixed(1) + '%', pnlCls(t.roi)) + m('Volume', '$' + Number(t.volume || 0).toFixed(2))
+                  + m('Fees', '−$' + Number(t.fees || 0).toFixed(2), 'down') + m('Hari hijau / merah', `<span class="up">${t.green}</span> / <span class="down">${t.red}</span>`)
+                : '<div class="small dim">Belum ada trade HK selesai di bulan ini.</div>';
+            const days = data.days || {};
+            const first = new Date(cal.year, cal.month - 1, 1);
+            const offset = (first.getDay() + 6) % 7;
+            const total = new Date(cal.year, cal.month, 0).getDate();
+            const cells = ['SEN', 'SEL', 'RAB', 'KAM', 'JUM', 'SAB', 'MIN'].map(d => `<div class="cal-head">${d}</div>`);
+            for (let i = 0; i < offset; i++) cells.push('<div class="cal-cell empty"></div>');
+            for (let d = 1; d <= total; d++) {
+                const key = `${cal.year}-${pad(cal.month)}-${pad(d)}`;
+                const b = days[key];
+                const cls = ['cal-cell', b ? 'has' : '', b ? (b.pnl > 0 ? 'pos' : b.pnl < 0 ? 'neg' : '') : '', cal.selected === key ? 'selected' : ''].join(' ');
+                cells.push(`<div class="${cls}" data-key="${key}" ${b ? `onclick="selectCal('${key}')"` : ''}><div class="cal-day">${d}</div>
+                    ${b ? `<div class="cal-pnl">${money(b.pnl)}</div><div class="cal-sub"><span class="up">${b.wins}W</span> <span class="down">${b.losses}L</span> · $${Number(b.cost).toFixed(0)}</div>` : ''}</div>`);
+            }
+            const grid = document.getElementById('calGrid');
+            grid.className = 'cal-grid';
+            grid.innerHTML = cells.join('');
+            if (!cal.selected) document.getElementById('calTrades').innerHTML = '';
+        } catch (e) { document.getElementById('calGrid').innerHTML = '<div class="small muted">Gagal memuat kalender.</div>'; }
+    }
+    async function selectCal(key) {
+        cal.selected = key;
+        document.querySelectorAll('#calGrid .cal-cell').forEach(c => c.classList.toggle('selected', c.dataset.key === key));
+        const box = document.getElementById('calTrades');
+        box.innerHTML = '<div class="small muted">Memuat…</div>';
+        try {
+            const res = await fetch(`/api/autotrade/calendar/trades?date=${key}&strategy=${SIDE_GROUP[calSide]}&source=paper`);
+            const trades = (await res.json()).trades || [];
+            const total = trades.reduce((a, t) => a + t.pnl, 0);
+            box.innerHTML = `<div class="tcard"><div class="d-flex justify-content-between mb-2"><b>${new Date(key + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</b>
+                <span class="small">${trades.length} trade · <b class="mono ${pnlCls(total)}">${money(total)}</b>
+                <button class="btn-x ghost sm ms-2" onclick="cal.selected = null; loadCalendar()">Tutup</button></span></div>
+                <table class="table table-dark table-sm mb-0 align-middle"><tbody>${trades.map(t => `<tr>
+                    <td>${t.result === 'MENANG' ? '<span class="pill w">WIN</span>' : t.result === 'KALAH' ? '<span class="pill l">LOSS</span>' : `<span class="pill">${esc(t.result)}</span>`}</td>
+                    <td>${esc(t.market)}</td><td class="text-end">${(t.entry_price * 100).toFixed(1)}¢</td>
+                    <td class="text-end fw-semibold ${pnlCls(t.pnl)}">${money(t.pnl)}</td></tr>`).join('') || '<tr><td class="muted">Tidak ada trade.</td></tr>'}</tbody></table></div>`;
+        } catch (e) { box.innerHTML = '<div class="small muted">Gagal memuat trade.</div>'; }
+    }
+
+    // --- RIWAYAT TRADE HK ---
+    let tradesData = null, histFilter = '', histSide = store.get('hkHistSide', 'all'), histPeriod = 'all';
+    function setHistSide(side) {
+        histSide = side; store.set('hkHistSide', side);
+        loadTrades(histPeriod);
+    }
+    function setHistFilter(f) {
+        histFilter = f;
+        document.querySelectorAll('#histFilter button').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+        renderHistory();
+    }
+    async function loadTrades(period = histPeriod) {
+        histPeriod = period;
+        document.querySelectorAll('#histPeriod button').forEach(b => b.classList.toggle('active', b.dataset.period === period));
+        document.querySelectorAll('#histSide button').forEach(b => b.classList.toggle('active', b.dataset.side === histSide));
+        try {
+            const res = await fetch(`/api/hk/trades?period=${period}&side=${histSide}`);
+            tradesData = await res.json();
+        } catch (e) { tradesData = null; }
+        renderHistory();
+    }
+    function renderHistory() {
+        const d = tradesData;
+        if (!d) { document.getElementById('histRows').innerHTML = '<tr><td colspan="8" class="muted">Gagal memuat riwayat.</td></tr>'; return; }
+        const s = d.stats || {};
+        const tile = (k, v, cls = '') => `<div class="col-6 col-md-3 col-xl"><div class="tcard"><div class="label">${k}</div><div class="big mt-1 ${cls}" style="font-size: 1.2rem">${v}</div></div></div>`;
+        document.getElementById('histStats').innerHTML = tile('Trade selesai', s.trades || 0) + tile('Menang', `<span class="up">${s.wins || 0}</span>`)
+            + tile('Kalah', `<span class="down">${s.losses || 0}</span>`) + tile('Win rate', pct(s.win_rate)) + tile('PnL', money(s.pnl || 0), pnlCls(s.pnl))
+            + tile('ROI', s.roi === null || s.roi === undefined ? '-' : (s.roi * 100).toFixed(1) + '%', pnlCls(s.roi)) + tile('Terbuka', d.open || 0);
+        const sideCard = (label, x, active) => `<div class="col-md-6"><div class="tcard" style="${active ? 'border-color: var(--line-2)' : ''}">
+            <div class="d-flex justify-content-between align-items-center"><div class="label">${label}</div>
+            <div class="mono fw-semibold ${pnlCls((x || {}).pnl || 0)}">${money((x || {}).pnl || 0)}</div></div>
+            <div class="d-flex justify-content-between mt-1"><span class="big" style="font-size: 1.15rem">WR ${pct((x || {}).win_rate)}</span>
+            <span class="small mono muted">${(x || {}).trades || 0} trade · <span class="up">${(x || {}).wins || 0}W</span> <span class="down">${(x || {}).losses || 0}L</span>
+            ${(x || {}).roi !== null && (x || {}).roi !== undefined ? ' · ROI ' + (x.roi * 100).toFixed(1) + '%' : ''}</span></div></div></div>`;
+        const bs = d.by_side || {};
+        document.getElementById('histSides').innerHTML = sideCard('Sisi YES (hk_max · hk_min)', bs.yes, histSide === 'yes')
+            + sideCard('Sisi NO (hk_max_no · hk_min_no)', bs.no, histSide === 'no');
+        const names = { hk_max: 'Max YES (suhu tertinggi)', hk_min: 'Min YES (suhu terendah)', hk_max_no: 'Max NO', hk_min_no: 'Min NO' };
+        const best = s.best ? `<div class="col-md-6"><div class="tcard"><div class="label">Trade terbaik</div><div class="small mt-1">${esc(s.best.market)}</div><div class="mono up fw-semibold">${money(s.best.pnl)}</div></div></div>` : '';
+        const worst = s.worst ? `<div class="col-md-6"><div class="tcard"><div class="label">Trade terburuk</div><div class="small mt-1">${esc(s.worst.market)}</div><div class="mono down fw-semibold">${money(s.worst.pnl)}</div></div></div>` : '';
+        document.getElementById('histKinds').innerHTML = (s.series || []).map(x => `<div class="col-md-6"><div class="tcard d-flex justify-content-between align-items-center">
+                <div><div class="fw-semibold small">${names[x.strategy] || esc(x.strategy)}</div><div class="label" style="font-size: .62rem">${x.trades} trade · WR ${pct(x.win_rate)}${x.roi !== null ? ' · ROI ' + (x.roi * 100).toFixed(1) + '%' : ''}</div></div>
+                <div class="mono fw-semibold ${pnlCls(x.pnl)}">${money(x.pnl)}</div></div></div>`).join('') + best + worst;
+        const pill = { MENANG: '<span class="pill w">WIN</span>', KALAH: '<span class="pill l">LOSS</span>', TERBUKA: '<span class="pill">OPEN</span>',
+                       DIJUAL: '<span class="pill">SOLD</span>', BATAL: '<span class="pill">VOID</span>' };
+        const rows = (d.history || []).filter(r => !histFilter || r.result === histFilter);
+        document.getElementById('histRows').innerHTML = rows.map(r => `<tr>
+            <td class="text-nowrap dim">${new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+            <td>${pill[r.result] || esc(r.result)}</td>
+            <td><div>${esc(r.label || '')}</div>${r.detail ? `<div class="dim" style="font-size: .72rem">${esc(r.detail)}</div>` : ''}</td>
+            <td class="text-end">${(r.price * 100).toFixed(1)}¢</td><td class="text-end">${pct(r.prob)}</td>
+            <td class="text-end">${(r.edge * 100).toFixed(1)}¢</td><td class="text-end">$${Number(r.size).toFixed(2)}</td>
+            <td class="text-end fw-semibold ${pnlCls(r.pnl || 0)}">${r.pnl === null || r.pnl === undefined ? '-' : money(r.pnl)}</td></tr>`).join('')
+            || '<tr><td colspan="8" class="muted">Belum ada trade HK di pilihan ini. Centang hk_max / hk_min (YES) dan hk_max_no / hk_min_no (NO) di Auto Bot → Pengaturan agar bot mulai membeli.</td></tr>';
+    }
+
+    async function loadSummary(refresh) {
+        const btn = document.getElementById('summaryBtn');
+        btn.disabled = true;
+        setTab('overview');
+        document.getElementById('aiSummary').textContent = 'AI sedang merangkum…';
+        try {
+            const res = await fetch('/api/hk/summary' + (refresh ? '?refresh=true' : ''), { method: 'POST' });
+            const d = await res.json();
+            if (!res.ok) throw new Error(d.detail || 'Gagal');
+            await loadBot();  // tabel AI & skor terbaru; lalu tampilkan ringkasan lengkap (alasan & risiko)
+            document.getElementById('aiSummary').textContent = d.view
+                ? d.view.ringkasan + '\n' + (d.view.alasan || []).map(x => '• ' + x).join('\n') + ((d.view.risiko || []).length ? '\n⚠️ ' + d.view.risiko.join('; ') : '')
+                : 'AI tidak tersedia: ' + (d.error || '-');
+        } catch (e) { document.getElementById('aiSummary').textContent = 'Gagal membuat ringkasan: ' + e.message; }
+        finally { btn.disabled = false; }
+    }
+    async function askAi(ev) {
+        ev.preventDefault();
+        const input = document.getElementById('chatInput');
+        const q = input.value.trim();
+        if (!q) return;
+        const log = document.getElementById('chatLog');
+        const btn = document.getElementById('chatSend');
+        log.insertAdjacentHTML('beforeend', `<div class="chat-q mb-1">› ${esc(q)}</div><div class="chat-a mb-3 muted" data-pending>AI sedang menjawab…</div>`);
+        input.value = ''; btn.disabled = true;
+        log.scrollTop = log.scrollHeight;
+        const pending = log.querySelector('[data-pending]');
+        try {
+            const res = await fetch('/api/hk/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) });
+            const d = await res.json();
+            pending.outerHTML = `<div class="chat-a mb-3">${esc(res.ok ? d.answer : (d.detail || 'Gagal'))}</div>`;
+        } catch (e) { pending.outerHTML = '<div class="chat-a mb-3 down">Gagal menghubungi server.</div>'; }
+        finally { btn.disabled = false; log.scrollTop = log.scrollHeight; }
+    }
+
+    // --- KALIBRASI ---
+    function renderCalibration(d) {
+        const box = document.getElementById('calibrationBox');
+        const c = d.calibration || {};
+        const state = d.enabled ? '<span class="chip on">aktif</span>' : '<span class="chip off">nonaktif</span>';
+        if (!c.updated_at) {
+            box.innerHTML = `${state} <span class="ms-1">Belum ada kalibrasi. Dihitung tiap hari setelah 00:30 HKT; koreksi dipakai setelah ≥ ${d.min_days} hari data.</span>
+                <div class="mt-2">Bobot model vs pasar dipakai: <b class="mono">${num(d.weight_in_use, 2)}</b>${d.manual_weight ? ' (manual dari dashboard)' : ''}</div>`;
+            return;
+        }
+        const cell = e => !e || !e.days ? '<span class="dim">-</span>'
+            : `<span class="${e.value > 0.04 ? 'hot' : e.value < -0.04 ? 'cold' : ''}">${e.value > 0 ? '+' : ''}${e.value.toFixed(2)}</span><span class="dim"> ${e.days}h</span>`;
+        const rows = d.buckets.map(b => `<tr><td>${b}</td><td class="text-end">${cell((c.bias.max || {})[b])}</td><td class="text-end">${cell((c.bias.min || {})[b])}</td></tr>`).join('');
+        const w = c.weight || {};
+        const reg = c.regime || {};
+        const regRows = ['hujan', 'mendung', 'cerah'].map(n => `<tr><td>rezim ${n}</td><td class="text-end">${cell((reg.max || {})[n])}</td><td class="text-end">${cell((reg.min || {})[n])}</td></tr>`).join('');
+        box.innerHTML = `<div class="d-flex justify-content-between flex-wrap gap-2 mb-2">${state}
+                <span class="mono">${new Date(c.updated_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${c.signals} sinyal / ${c.window_days} hari</span></div>
+            <div class="table-responsive"><table class="table table-dark table-sm mb-2"><thead><tr><th>Jam HKT</th><th class="text-end">Bias max °C</th><th class="text-end">Bias min °C</th></tr></thead>
+                <tbody>${rows}${regRows}</tbody></table></div>
+            <div>Bobot model vs pasar dipakai: <b class="mono text-white">${num(d.weight_in_use, 2)}</b>${d.manual_weight ? ' (manual dari dashboard)' : ''}
+                ${w.best !== null && w.best !== undefined ? ` · terbaik di data <span class="mono">${w.best}</span> (${w.days} hari)` : ' · belum ada sinyal resolve'}</div>
+            ${w.logloss_market !== null && w.logloss_market !== undefined ? `<div class="mt-1 mono">log-loss: pasar ${w.logloss_market} · model ${w.logloss_model} · terbaik ${w.logloss_best}</div>` : ''}
+            <div class="dim mt-2">Bias = hasil resmi − perkiraan (positif: model meremehkan). Dipakai setelah ≥ ${d.min_days} hari, ditarik ke nol bila data sedikit, maks ±0.3°/hari.</div>`;
+    }
+    async function loadCalibration() {
+        try { const res = await fetch('/api/hk/calibration'); renderCalibration(await res.json()); }
+        catch (e) { document.getElementById('calibrationBox').textContent = 'Gagal memuat kalibrasi.'; }
+    }
+    async function runCalibration() {
+        const btn = document.getElementById('calRunBtn'); btn.disabled = true;
+        try { const res = await fetch('/api/hk/calibration/run', { method: 'POST' }); renderCalibration(await res.json()); loadBot(); }
+        catch (e) { alert('Gagal menghitung kalibrasi.'); } finally { btn.disabled = false; }
+    }
+    async function resetCalibration() {
+        if (!confirm('Reset kalibrasi HK? Bias kembali 0 dan bobot model kembali ke default.')) return;
+        const res = await fetch('/api/hk/calibration', { method: 'DELETE' });
+        if (res.ok) { renderCalibration(await res.json()); loadBot(); }
+    }
+
+    // --- MUAT DATA ---
+    async function loadLive() {
+        try {
+            const res = await fetch('/api/hk/live');
+            liveData = res.ok ? await res.json() : null;
+        } catch (e) { liveData = null; }
+        renderLive();
+    }
+    async function loadClimate() {
+        const params = new URLSearchParams();
+        const month = document.getElementById('monthSelect').value;
+        if (month) params.set('month', month);
+        params.set('years', document.getElementById('yearsSelect').value);
+        const hi = document.getElementById('maxThreshold').value, lo = document.getElementById('minThreshold').value;
+        if (document.activeElement && ['maxThreshold', 'minThreshold'].includes(document.activeElement.id)) thresholdsTouched = true;
+        if (thresholdsTouched && hi !== '') params.set('max_threshold', hi);
+        if (thresholdsTouched && lo !== '') params.set('min_threshold', lo);
+        try {
+            const res = await fetch('/api/hk/climate?' + params.toString());
+            if (!res.ok) throw new Error('Failed');
+            climateData = await res.json();
+            renderClimate();
+        } catch (e) {
+            document.getElementById('insightText').value = 'Gagal memuat data iklim HKO.';
+        }
+    }
+    async function loadHourly() {
+        try {
+            const res = await fetch('/api/hk/hourly');
+            hourlyData = await res.json();
+        } catch (e) { hourlyData = null; }
+        renderHourly();
+    }
+    async function copyInsight() {
+        const text = document.getElementById('insightText').value;
+        const status = document.getElementById('copyStatus');
+        try { await navigator.clipboard.writeText(text); status.textContent = 'Tersalin ✓'; }
+        catch (e) { document.getElementById('insightText').select(); status.textContent = 'Tekan Ctrl/Cmd+C untuk menyalin'; }
+        setTimeout(() => { status.textContent = ''; }, 2500);
+    }
+    async function loadAll() {
+        loadForecast();
+        loadBot();
+        loadCalibration();
+        loadCalendar();
+        loadTrades();
+        await loadLive();
+        await loadClimate();
+        loadHourly();
+    }
+    (function init() {
+        const sel = document.getElementById('monthSelect');
+        const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+        sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}" ${i === now.getMonth() ? 'selected' : ''}>${m}</option>`).join('');
+        if (!document.getElementById('tab-' + tab)) tab = 'overview';
+        setTab(tab);
+        document.querySelectorAll('#daySeg button').forEach(b => b.classList.toggle('active', b.dataset.day === 'today'));
+        setHistFilter('');
+        loadAll();
+        setInterval(() => { loadLive(); loadHourly(); loadBot(); loadForecast(); }, 5 * 60 * 1000);
+    })();
+</script>
+</body>
+</html>

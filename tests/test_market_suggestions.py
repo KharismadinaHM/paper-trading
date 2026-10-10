@@ -1,4 +1,3 @@
-import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -10,7 +9,6 @@ from app.paper_trading.suggestions import (
     format_time_remaining,
 )
 from app.dashboard import get_market_suggestions_api
-from app.paper_service import get_market_suggestions
 
 
 class TestMarketSuggestionsFilter(unittest.TestCase):
@@ -327,28 +325,31 @@ class TestMarketSuggestionsFilter(unittest.TestCase):
         self.assertEqual(format_time_remaining(-50), "0h 00m")
 
     def test_fastapi_endpoint_execution(self):
-        """Uji pemanggilan handler endpoint FastAPI GET /api/markets/suggestions."""
-        with patch("app.paper_service.get_market_snapshots", return_value=self.mock_markets):
-            endpoint_res = get_market_suggestions_api(
-                max_hours_to_resolution=6.0,
-                min_price=0.70,
-                max_price=0.75,
-            )
-            self.assertIsInstance(endpoint_res, list)
-            self.assertTrue(len(endpoint_res) > 0)
-            first = endpoint_res[0]
-            self.assertIn("market_id", first)
-            self.assertIn("market_name", first)
-            self.assertIn("current_price", first)
-            self.assertIn("resolution_time", first)
-            self.assertIn("time_remaining", first)
+        """Endpoint GET /api/markets/suggestions: event suhu di jendela menjelang puncak lokal kota."""
+        from datetime import date
+        from app.paper_trading.weather_peaks import recommendation_window
+        hk = {
+            "market_id": "mkt-hk", "status": "open", "is_resolved": False,
+            "market_name": "Will the highest temperature in Hong Kong be 31°C or higher on September 26?",
+            "end_date": datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc),
+            "price_yes": Decimal("0.20"), "price_no": Decimal("0.80"),
+        }
+        window = recommendation_window("Hong Kong", "highest", date(2026, 9, 26))
+        in_window = window.start.astimezone(timezone.utc) + timedelta(minutes=10)
+        with patch("app.paper_service.get_market_snapshots", return_value=[hk] + self.mock_markets), \
+             patch("app.paper_trading.weather_peaks._utcnow", return_value=in_window):
+            events = get_market_suggestions_api()
+        self.assertEqual([e["city"] for e in events], ["Hong Kong"])
+        first = events[0]
+        for key in ("city", "kind", "window_label", "time_remaining", "local_time", "markets", "market_count"):
+            self.assertIn(key, first)
+        self.assertEqual(first["markets"][0]["market_id"], "mkt-hk")
+        self.assertEqual(first["markets"][0]["bracket"], "31°C or higher")
 
-    def test_fastapi_endpoint_tight_max_hours(self):
-        """Uji endpoint FastAPI jika diberikan max_hours sangat kecil."""
-        # 0.5 jam -> tidak ada yang lolos karena minimum stub data 1 jam
+    def test_fastapi_endpoint_non_temperature_markets_not_recommended(self):
+        """Market non-suhu (tanpa kota & jam puncak) tidak masuk rekomendasi."""
         with patch("app.paper_service.get_market_snapshots", return_value=self.mock_markets):
-            res_tight = get_market_suggestions_api(max_hours_to_resolution=0.5)
-            self.assertEqual(len(res_tight), 0)
+            self.assertEqual(get_market_suggestions_api(), [])
 
     def test_no_settlement_engine_imported(self):
         """

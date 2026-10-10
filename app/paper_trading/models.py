@@ -5,8 +5,8 @@ from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Numeric,
-    String, UniqueConstraint, event
+    BigInteger, Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric,
+    String, Text, UniqueConstraint, event
 )
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.dialects.postgresql import UUID
@@ -208,6 +208,9 @@ MARKET_DATA_FIELDS = (
     "timestamp",
 )
 
+# Kolom yang hanya ada di market_latest (tidak ikut histori market_snapshots)
+LATEST_ONLY_FIELDS = ("volume", "yes_token_id", "resolution_station")
+
 
 class MarketLatest(Base):
     """
@@ -230,6 +233,12 @@ class MarketLatest(Base):
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="Weather")
     outcome_yes_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     outcome_no_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Volume trading kumulatif (USD) dari Gamma. Hanya disimpan di sini, bukan di histori:
+    # volume berubah hampir setiap siklus dan akan membatalkan penulisan histori hemat.
+    volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 2), nullable=True)
+    # Token CLOB outcome YES (untuk order book) & stasiun resolusi (ICAO / 'HKO') market suhu
+    yes_token_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    resolution_station: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_snapshot_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -253,9 +262,13 @@ def upsert_market_latest(connection, rows, history_written: bool) -> None:
     insert_fn = postgresql.insert if dialect == "postgresql" else sqlite.insert
     stmt = insert_fn(MarketLatest.__table__).values(rows)
     update_cols = {f: stmt.excluded[f] for f in MARKET_DATA_FIELDS if f != "market_id"}
+    table = MarketLatest.__table__
+    for f in LATEST_ONLY_FIELDS:
+        if any(f in r for r in rows):
+            # Baris tanpa nilai (mis. dari listener histori) tidak menghapus nilai lama
+            update_cols[f] = func.coalesce(stmt.excluded[f], table.c[f])
     if history_written:
         update_cols["last_snapshot_at"] = stmt.excluded.last_snapshot_at
-    table = MarketLatest.__table__
     stmt = stmt.on_conflict_do_update(
         index_elements=[table.c.market_id],
         set_=update_cols,
@@ -300,3 +313,334 @@ class MarketResolution(Base):
     winning_outcome: Mapped[str] = mapped_column(String(20), nullable=False)  # YES / NO / INVALID
     resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+
+class RecommendationAlert(Base):
+    """Event rekomendasi yang sudah dikirim ke Telegram (mencegah notifikasi ganda)."""
+    __tablename__ = "recommendation_alerts"
+
+    event_key: Mapped[str] = mapped_column(String(255), primary_key=True)  # kota|jenis|tanggal
+    city: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    local_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    market_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    price_yes: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Hasil saran (diisi tracker setelah market resolve): WIN / LOSS / VOID; None = belum ada hasil
+    bracket: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    winning_bracket: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # resolved_at = pelacakan hasil selesai; checked_at = terakhir dicek ke Gamma (throttle)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RecommendationAlertMarket(Base):
+    """Semua bracket sebuah event saat saran dikirim (rank 0 = saran utama), untuk melihat pemenangnya."""
+    __tablename__ = "recommendation_alert_markets"
+
+    event_key: Mapped[str] = mapped_column(
+        ForeignKey("recommendation_alerts.event_key", ondelete="CASCADE"), primary_key=True)
+    market_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    bracket: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    price_yes: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)
+    winning_outcome: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # YES / NO / INVALID
+
+
+class StationReading(Base):
+    """Bacaan suhu stasiun real-time (HKO per 10 menit) untuk mendeteksi lonjakan suhu."""
+    __tablename__ = "station_readings"
+
+    station: Mapped[str] = mapped_column(String(20), primary_key=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    temp: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    max_since_midnight: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
+    min_since_midnight: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
+
+
+class StationAlert(Base):
+    """Alert lonjakan suhu yang sudah dikirim (throttle & dedupe per derajat per hari)."""
+    __tablename__ = "station_alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    station: Mapped[str] = mapped_column(String(20), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # spike / degree
+    local_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    value: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("idx_station_alerts_station_date", "station", "local_date"),)
+
+
+class StationForecast(Base):
+    """
+    Prediksi suhu per jam yang dibuat sebelum jam itu terjadi (HKO: Open-Meteo dikoreksi bacaan
+    terkini), untuk membandingkan expected vs real di tabel per jam.
+    """
+    __tablename__ = "station_forecasts"
+
+    station: Mapped[str] = mapped_column(String(20), primary_key=True)
+    target_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    made_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    value: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+
+
+class ReversalWatch(Base):
+    """
+    Favorit market suhu yang menembus ≥ REVERSAL_MIN_PRICE (market volume besar & likuid): apakah
+    warning "waspada berbalik" dikirim, apakah benar berbalik (harga favorit jatuh & bracket lain
+    memimpin), dan hasil akhirnya (held / reversed) setelah resolve.
+    """
+    __tablename__ = "reversal_watches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    city: Mapped[str] = mapped_column(String(50), nullable=False)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    local_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    fav_label: Mapped[str] = mapped_column(String(50), nullable=False)
+    fav_market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    peak_price: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    last_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    event_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 2), nullable=True)
+    brackets: Mapped[str] = mapped_column(Text, nullable=False)          # JSON [[market_id, label], ...]
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    warned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    warning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    flipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    flip_detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    outcome: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # held / reversed
+    winning_bracket: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("city", "kind", "local_date", "fav_label", name="uq_reversal_watch"),)
+
+
+class InsiderFlag(Base):
+    """
+    Taruhan besar dengan pola "insider" (wallet baru, sedikit market, beli longshot, nominal besar, porsi
+    besar dari porto, market segera selesai) beserta skor, alasan, dan hasil setelah market resolve.
+    """
+    __tablename__ = "insider_flags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    wallet: Mapped[str] = mapped_column(String(42), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    condition_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    outcome: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    outcome_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    slug: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    cash: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    shares: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    avg_price: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    reasons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)          # JSON list
+    wallet_age_days: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 1), nullable=True)
+    markets_traded: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    market_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_trade_ts: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    last_trade_ts: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    flagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    alerted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)    # WIN / LOSS / VOID / UNKNOWN
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("wallet", "condition_id", "outcome_index", name="uq_insider_flag"),
+                      Index("idx_insider_flags_flagged_at", "flagged_at"))
+
+
+class LiveOrder(Base):
+    """Order uang asli (Polymarket CLOB) dari auto trader: batas harga, hasil eksekusi, dan hasil akhir."""
+    __tablename__ = "live_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    decision_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(10), nullable=False)          # UP / DOWN
+    title: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    max_price: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    model_prob: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)           # filled / rejected / error / dry_run
+    order_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    shares: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 6), nullable=True)
+    avg_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    spent: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    local_day: Mapped[str] = mapped_column(String(10), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    result: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # WIN / LOSS / VOID
+    pnl: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    claim_tx: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)      # hash/ID transaksi redeem
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("idx_live_orders_day", "local_day"),)
+
+
+class TrackedWallet(Base):
+    """
+    Wallet Polymarket yang dilacak. status: 'tracking' (dipantau) / 'skipped' (disembunyikan dari
+    rekomendasi). follow=True → alert Telegram real-time setiap wallet ini bertransaksi.
+    """
+    __tablename__ = "tracked_wallets"
+
+    address: Mapped[str] = mapped_column(String(42), primary_key=True)  # lowercase 0x…
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="tracking")
+    follow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")  # manual / discover
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_activity_ts: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # kursor alert (unix)
+    last_alert_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # jeda alert
+    alerts_skipped: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # market baru tak dikirim selama jeda
+    stats_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stats_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WalletCandidate(Base):
+    """
+    Hasil pencarian wallet menarik per kategori market (leaderboard kategori + statistik), diperbarui
+    berkala. Menggantikan tabel lama wallet_candidates (tanpa kategori).
+    """
+    __tablename__ = "wallet_category_candidates"
+
+    category: Mapped[str] = mapped_column(String(20), primary_key=True)   # WEATHER, CRYPTO, SPORTS, …
+    address: Mapped[str] = mapped_column(String(42), primary_key=True)
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stats_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class WalletAlertLog(Base):
+    """Transaksi wallet yang sudah dialertkan (dedupe)."""
+    __tablename__ = "wallet_alert_log"
+
+    transaction_hash: Mapped[str] = mapped_column(String(80), primary_key=True)
+    asset: Mapped[str] = mapped_column(String(100), primary_key=True)
+    address: Mapped[str] = mapped_column(String(42), nullable=False)
+    timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class AutotradeState(Base):
+    """Status runtime auto trader (mis. enabled on/off lewat /startbot /stopbot, laporan terakhir)."""
+    __tablename__ = "autotrade_state"
+
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AutotradeDecision(Base):
+    """
+    Keputusan auto trader yang dieksekusi (filled) atau ditolak risk engine (rejected).
+    decision_key unik per strategi + market/event → paling banyak satu entri per market.
+    """
+    __tablename__ = "autotrade_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    decision_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    model_prob: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)   # VWAP ask
+    fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)     # biaya taker per share
+    edge: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    size_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)                   # filled / rejected
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    features: Mapped[Optional[str]] = mapped_column(Text, nullable=True)              # JSON konteks keputusan
+    local_day: Mapped[str] = mapped_column(String(10), nullable=False)                # hari WIB
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("idx_autotrade_decisions_day", "local_day"),)
+
+
+class AutotradeLimitOrder(Base):
+    """Limit order paper strategi maker: open → filled / cancelled / expired."""
+    __tablename__ = "autotrade_limit_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    decision_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    outcome: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    limit_price: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+    size_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    model_prob: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("idx_autotrade_limit_orders_status", "status"),)
+
+
+class AutotradeSignal(Base):
+    """
+    Sampel sinyal yang dievaluasi auto trader — DITRADE maupun DILEWATI — untuk riset penyesuaian.
+    Satu sampel per strategi + market + ember waktu (signal_key). Hasil (outcome) diisi otomatis
+    setelah market resolve, sehingga ambang (edge, harga, waktu masuk) bisa diuji ulang.
+    """
+    __tablename__ = "autotrade_signals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    signal_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    model_prob: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    edge: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    action: Mapped[str] = mapped_column(String(10), nullable=False)          # traded / skipped
+    skip_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    features: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    local_day: Mapped[str] = mapped_column(String(10), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    outcome: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # WIN / LOSS / VOID
+    pnl_per_share: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_autotrade_signals_strategy_created", "strategy", "created_at"),
+        Index("idx_autotrade_signals_pending", "outcome", "created_at"),
+    )
+
+
+class HkForecastView(Base):
+    """
+    Pandangan peluang per bracket untuk suhu max/min Hong Kong satu hari (HKT), dari tiga sumber yang
+    dicatat bersamaan: 'ai' (Gemini, bayangan), 'model' (bot HK), 'market' (harga Polymarket). Setelah hari
+    itu selesai, ketiganya dinilai (Brier) untuk melihat sumber mana yang paling akurat.
+    """
+    __tablename__ = "hk_forecast_views"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    local_date: Mapped[str] = mapped_column(String(10), nullable=False)       # YYYY-MM-DD (HKT)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)             # max / min
+    source: Mapped[str] = mapped_column(String(10), nullable=False)           # ai / model / market
+    probs: Mapped[str] = mapped_column(Text, nullable=False)                  # JSON {bracket: peluang}
+    point: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)  # perkiraan titik °C
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (Index("idx_hk_forecast_views_date", "local_date", "kind", "source"),)

@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="id" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0b0d; --card: #111316; --card-2: #16191d; --line: #1f2328; --line-2: #2a2f36;
+            --text: #eef0f3; --muted: #8a919b; --dim: #5d646e;
+            --up: #22c55e; --up-bg: rgba(34, 197, 94, .14); --down: #ef4444; --down-bg: rgba(239, 68, 68, .14);
+            --accent: #f5f5f5; --live: #f5b524;
+            --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+        a { color: inherit; }
+        .mono { font-family: var(--mono); }
+        .muted { color: var(--muted) !important; }
+        .dim { color: var(--dim) !important; }
+        .up { color: var(--up) !important; }
+        .down { color: var(--down) !important; }
+        .text-muted-poly { color: var(--muted) !important; }
+        .wrap { max-width: 1320px; margin: 0 auto; padding: 0 16px; }
+
+        /* top bar */
+        .topbar { border-bottom: 1px solid var(--line); background: rgba(10, 11, 13, .92); position: sticky; top: 0; z-index: 20; backdrop-filter: blur(8px); }
+        .topbar .wrap { display: flex; align-items: center; gap: 28px; height: 56px; }
+        .brand { font-weight: 800; letter-spacing: .06em; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+        .brand i { font-size: 1.2rem; }
+        .navlinks { display: flex; gap: 22px; font-size: .92rem; }
+        .navlinks a { color: var(--muted); text-decoration: none; }
+        .navlinks a:hover, .navlinks a.active { color: var(--text); }
+        .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 10px; padding: 3px; gap: 2px; background: var(--card); }
+        .seg button { border: 0; background: transparent; color: var(--muted); font-size: .82rem; font-weight: 600; padding: 5px 12px; border-radius: 7px; }
+        .seg button.active { background: var(--card-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-2); }
+        .seg button.active.live { color: var(--live); }
+        .seg.sm button { font-size: .72rem; padding: 3px 9px; font-family: var(--mono); }
+
+        /* cards */
+        .card-x { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+        .label { font-family: var(--mono); font-size: .7rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+        .btn-x { background: var(--accent); color: #0a0b0d; border: 0; border-radius: 9px; font-weight: 600; font-size: .9rem; padding: 7px 16px; }
+        .btn-x:hover { background: #fff; }
+        .btn-x.ghost { background: transparent; color: var(--text); border: 1px solid var(--line-2); }
+        .btn-x.ghost:hover { background: var(--card-2); }
+        .btn-x.sm { font-size: .78rem; padding: 4px 10px; border-radius: 7px; }
+        .icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; color: var(--text);
+                    display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+        .icon-btn:hover { background: var(--card-2); color: var(--text); }
+        .chip { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: .68rem; padding: 2px 7px; border-radius: 6px;
+                background: var(--card-2); border: 1px solid var(--line-2); color: var(--muted); }
+        .chip.on { color: var(--up); border-color: rgba(34, 197, 94, .35); }
+        .chip.off { color: var(--down); border-color: rgba(239, 68, 68, .35); }
+        .chip.warn { color: var(--live); border-color: rgba(245, 181, 36, .35); }
+
+        /* header */
+        .avatar { width: 58px; height: 58px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.4rem;
+                  background: radial-gradient(circle at 30% 30%, #2f8f55, #14532d); box-shadow: 0 0 0 3px var(--card), 0 0 0 5px rgba(34, 197, 94, .45); }
+        .avatar.live { background: radial-gradient(circle at 30% 30%, #c98a12, #6b4708); box-shadow: 0 0 0 3px var(--card), 0 0 0 5px rgba(245, 181, 36, .5); }
+        .handle { font-family: var(--mono); font-weight: 700; font-size: 1.35rem; }
+        .big { font-size: 1.5rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; }
+        .huge { font-size: 2rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; }
+        .kv { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .kv .k { color: var(--muted); font-size: .88rem; }
+        .kv .v { text-align: right; }
+        .kv .s { font-size: .74rem; color: var(--muted); font-family: var(--mono); }
+
+        /* tabs */
+        .tabs { display: flex; gap: 30px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+        .tabs button { border: 0; background: transparent; color: var(--muted); padding: 12px 2px; font-size: 1rem; font-weight: 500; white-space: nowrap;
+                       border-bottom: 2px solid transparent; margin-bottom: -1px; }
+        .tabs button.active { color: var(--text); border-bottom-color: var(--text); }
+        .tab-pane-x { display: none; }
+        .tab-pane-x.active { display: block; }
+
+        /* overview */
+        .ring { width: 74px; height: 74px; }
+        .wl-bar { height: 7px; border-radius: 4px; background: var(--down); overflow: hidden; }
+        .wl-bar > div { height: 100%; background: var(--up); }
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; }
+        .stat-grid .val { font-family: var(--mono); font-weight: 600; font-size: 1.15rem; margin-top: 2px; }
+        .hr { border-top: 1px solid var(--line); }
+        .tcard { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; height: 100%; }
+        .coin { width: 30px; height: 30px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: .95rem; flex-shrink: 0; }
+        .coin.btc { background: #f7931a; color: #fff; }
+        .coin.eth { background: #627eea; color: #fff; }
+        .coin.wx { background: #0ea5e9; color: #fff; }
+        .coin.hk { background: #de2910; color: #fff; font-size: .62rem; font-weight: 800; }
+        .series-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--card-2); border: 1px solid var(--line);
+                      border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+
+        /* calendar */
+        .cal-summary { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr); gap: 12px; }
+        .cal-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 12px; }
+        .cal-metrics .m-k { font-size: .76rem; color: var(--muted); }
+        .cal-metrics .m-v { font-family: var(--mono); font-weight: 600; font-size: 1.02rem; margin-top: 4px; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+        .cal-grid.months { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .cal-head { text-align: center; font-family: var(--mono); font-size: .7rem; letter-spacing: .08em; color: var(--dim); padding: 6px 0; }
+        .cal-cell { border-radius: 9px; padding: 9px 10px; min-height: 104px; background: var(--card-2); border: 1px solid transparent;
+                    display: flex; flex-direction: column; position: relative; cursor: default; }
+        .cal-cell.has { cursor: pointer; }
+        .cal-cell.has:hover { filter: brightness(1.15); }
+        .cal-cell.pos { background: linear-gradient(180deg, rgba(34, 197, 94, .26), rgba(34, 197, 94, .10)); border-color: rgba(34, 197, 94, .25); }
+        .cal-cell.neg { background: linear-gradient(180deg, rgba(239, 68, 68, .30), rgba(239, 68, 68, .12)); border-color: rgba(239, 68, 68, .28); }
+        .cal-cell.empty { background: transparent; }
+        .cal-cell.selected { outline: 2px solid var(--text); outline-offset: 1px; }
+        .cal-day { position: absolute; top: 7px; right: 9px; font-family: var(--mono); font-size: .72rem; color: var(--dim); }
+        .cal-cell.has .cal-day { color: var(--text); }
+        .cal-cell.today .cal-day { color: var(--live); font-weight: 700; }
+        .cal-pnl { font-family: var(--mono); font-weight: 700; font-size: 1.25rem; margin-top: 4px; letter-spacing: -.02em; }
+        .cal-cell.pos .cal-pnl { color: var(--up); }
+        .cal-cell.neg .cal-pnl { color: var(--down); }
+        .cal-vol { font-family: var(--mono); font-size: .68rem; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cal-foot { margin-top: auto; font-family: var(--mono); font-size: .62rem; color: var(--muted); display: flex; justify-content: space-between; gap: 4px; flex-wrap: wrap; }
+        .months .cal-cell { min-height: 96px; }
+        .months .cal-name { font-size: .8rem; color: var(--muted); }
+        .trade-row { display: grid; grid-template-columns: 54px 1fr auto; gap: 12px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+        .trade-row:last-child { border-bottom: 0; }
+        .pill { font-family: var(--mono); font-size: .66rem; padding: 2px 6px; border-radius: 5px; font-weight: 600; }
+        .pill.w { background: var(--up-bg); color: var(--up); }
+        .pill.l { background: var(--down-bg); color: var(--down); }
+        .pill.n { background: var(--card-2); color: var(--muted); border: 1px solid var(--line-2); }
+
+        /* markets */
+        .mkt { border: 1px solid var(--line); border-radius: 12px; padding: 14px; height: 100%; background: var(--card-2); }
+        .mkt.live { border-color: rgba(34, 197, 94, .5); }
+        .side { border-radius: 8px; padding: 8px 10px; background: var(--card); border: 1px solid var(--line); }
+        .side.best { border-color: rgba(245, 181, 36, .55); }
+        .asset-price { font-size: 1.3rem; font-weight: 700; font-family: var(--mono); }
+
+        /* tables & forms */
+        .table-dark { --bs-table-bg: transparent; --bs-table-border-color: var(--line); }
+        .table thead th { font-family: var(--mono); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted) !important; font-weight: 600; }
+        .form-control, .form-select { background-color: var(--card-2) !important; border-color: var(--line-2) !important; color: var(--text) !important; }
+        .poly-btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; font-weight: 600; }
+        .poly-btn-secondary:hover { background: var(--card-2); color: var(--text); }
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+        .section-title { font-weight: 600; font-size: 1rem; }
+
+        @media (max-width: 991px) { .cal-summary { grid-template-columns: 1fr; } }
+        @media (max-width: 768px) {
+            .navlinks { display: none; }
+            .tabs { gap: 20px; }
+            .tabs-bar { flex-direction: column; align-items: stretch !important; }
+            .tabs-bar #calStrategy { margin-left: 0 !important; width: 100% !important; }
+            .tabs button { font-size: .92rem; }
+            .cal-grid { gap: 4px; }
+            .cal-cell { min-height: 62px; padding: 5px; border-radius: 7px; }
+            .cal-pnl { font-size: .74rem; margin-top: 12px; }
+            .cal-vol, .cal-foot { display: none; }
+            .cal-day { top: 4px; right: 5px; font-size: .62rem; }
+            .huge { font-size: 1.6rem; }
+            .trade-row { grid-template-columns: 44px 1fr auto; gap: 8px; }
+        }
+    </style>
+</head>
+<body>
+<nav class="topbar">
+    <div class="wrap">
+        <a class="brand" href="/autobot"><i class="bi bi-hexagon-half"></i>AUTOBOT</a>
+        <div class="navlinks">
+            <a href="/">Dashboard</a>
+            <a href="/autobot" class="active">Auto Bot</a>
+            <a href="/hk">HK</a>
+        </div>
+        <div class="ms-auto d-flex align-items-center gap-2">
+            <div class="seg" role="group" aria-label="Sumber data">
+                <button id="calSrcPaper" onclick="setSource('paper')">Paper</button>
+                <button id="calSrcLive" class="live" onclick="setSource('live')">💵 Live</button>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="wrap py-4">
+    <!-- HEADER: profil · portofolio · total PnL -->
+    <div class="row g-3 mb-4">
+        <div class="col-lg-5">
+            <div class="card-x p-4 h-100">
+                <div class="d-flex gap-3 align-items-start">
+                    <div class="avatar" id="hdrAvatar">P</div>
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <div class="handle" id="hdrName">Paper Bot</div>
+                        </div>
+                        <div class="d-flex gap-1 mt-2 flex-wrap" id="hdrChips"></div>
+                    </div>
+                    <button class="btn-x" id="hdrToggle" onclick="toggleBot()">-</button>
+                </div>
+                <div class="d-flex justify-content-between align-items-end mt-3 gap-2 flex-wrap">
+                    <div class="small muted" id="hdrRules" style="max-width: 420px">-</div>
+                    <div class="d-flex gap-2">
+                        <button class="icon-btn" title="Refresh" onclick="refreshAll()"><i class="bi bi-arrow-repeat"></i></button>
+                        <button class="icon-btn" title="Pengaturan" onclick="setTab('settings')"><i class="bi bi-sliders"></i></button>
+                        <a class="icon-btn" title="Dashboard" href="/"><i class="bi bi-grid"></i></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <div class="card-x p-4 h-100 d-flex flex-column gap-3" id="hdrPortfolio"></div>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <div class="card-x p-4 h-100">
+                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                    <div>
+                        <div class="muted small">Total PnL</div>
+                        <div class="huge" id="hdrPnl">-</div>
+                        <div class="small mono text-nowrap" id="hdrFees"></div>
+                    </div>
+                    <div class="seg sm" id="periodSeg">
+                        <button data-period="1d" onclick="setPeriod('1d')">1D</button>
+                        <button data-period="1w" onclick="setPeriod('1w')">1W</button>
+                        <button data-period="1m" onclick="setPeriod('1m')">1M</button>
+                        <button data-period="all" onclick="setPeriod('all')">ALL</button>
+                    </div>
+                </div>
+                <div id="hdrSpark" class="mt-2" style="height: 70px"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs-bar d-flex justify-content-between align-items-center gap-2 mb-3">
+        <div class="tabs flex-grow-1" id="tabs">
+            <button data-tab="overview" onclick="setTab('overview')">Overview</button>
+            <button data-tab="markets" onclick="setTab('markets')">Market</button>
+            <button data-tab="history" onclick="setTab('history')">Riwayat</button>
+            <button data-tab="analysis" onclick="setTab('analysis')">Analisis</button>
+            <button data-tab="settings" onclick="setTab('settings')">Pengaturan</button>
+        </div>
+        <select class="form-select form-select-sm w-auto ms-3" id="calStrategy" onchange="onStrategyChange()" aria-label="Strategi">
+            <option value="">Semua seri</option><option value="btc_all">BTC (semua)</option><option value="eth_all">ETH (semua)</option><option value="hk_all">Hong Kong (semua)</option><option value="hk_yes">Hong Kong · YES</option><option value="hk_no">Hong Kong · NO</option>
+        </select>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div class="tab-pane-x" id="tab-overview">
+        <div class="row g-3">
+            <div class="col-xl-4">
+                <div class="card-x p-4 h-100" id="ovLeft"><div class="muted small">Memuat…</div></div>
+            </div>
+            <div class="col-xl-8">
+                <div class="card-x p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div class="seg">
+                            <button id="calModeGrid" onclick="setCalMode('grid')">Kalender</button>
+                            <button id="calModeChart" onclick="setCalMode('chart')">PnL chart</button>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <button class="icon-btn border-0" onclick="shiftCal(-1)" aria-label="Sebelumnya"><i class="bi bi-chevron-left"></i></button>
+                            <span class="fw-semibold" id="calLabel" style="min-width: 150px; text-align: center; font-size: 1.15rem">-</span>
+                            <button class="icon-btn border-0" onclick="shiftCal(1)" aria-label="Berikutnya"><i class="bi bi-chevron-right"></i></button>
+                        </div>
+                        <div class="seg">
+                            <button id="calViewDay" onclick="setCalView('day')">Harian</button>
+                            <button id="calViewMonth" onclick="setCalView('month')">Bulanan</button>
+                        </div>
+                    </div>
+                    <div class="cal-summary mb-3">
+                        <div class="tcard d-flex justify-content-between align-items-center gap-2">
+                            <div><div class="muted small" id="calSumLabel">PnL bulan ini</div><div class="huge" id="calSumPnl">-</div></div>
+                            <div id="calSumSpark" style="width: 46%; height: 56px"></div>
+                        </div>
+                        <div class="tcard cal-metrics" id="calSummary"></div>
+                    </div>
+                    <div id="calGrid"></div>
+                    <div id="calTrades" class="mt-3"></div>
+                    <div class="small dim mt-3" id="calNote"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MARKET -->
+    <div class="tab-pane-x" id="tab-markets">
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title"><i class="bi bi-activity me-2 up"></i>Market berjalan</div>
+                <span class="small muted mono" id="marketsUpdated">-</span>
+            </div>
+            <div id="marketsContainer"><div class="small muted">Memuat market BTC & ETH…</div></div>
+            <div class="small dim mt-3">
+                Peluang model = Φ(perubahan harga sejak open / (σ 1 menit × √sisa menit)), dicampur dengan harga pasar. Biaya = ask + slippage + fee taker.
+                Edge = peluang − biaya; bot membeli bila edge ≥ ambang, di dalam jendela masuk, dan harga ≥ batas minimum.
+                Hijau = sedang dalam jendela masuk · ★ = sisi dengan edge terbesar.
+            </div>
+        </div>
+    </div>
+
+    <!-- RIWAYAT -->
+    <div class="tab-pane-x" id="tab-history">
+        <div class="card-x p-4" id="historyContainer"><div class="small muted">Memuat…</div></div>
+    </div>
+
+    <!-- ANALISIS -->
+    <div class="tab-pane-x" id="tab-analysis">
+        <div class="card-x p-4 mb-3">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div class="section-title"><i class="bi bi-clipboard-check me-2 up"></i>Verdict paper → live</div>
+                <span class="small muted" id="verdictLabel"></span>
+            </div>
+            <div class="small muted mb-2" id="verdictCriteria"></div>
+            <div class="table-responsive"><table class="table table-dark table-sm small mb-0 align-middle">
+                <thead><tr><th>Seri</th><th>Verdict</th><th class="text-end">Trade</th><th class="text-end">Hari</th>
+                    <th class="text-end">ROI</th><th class="text-end">Tanpa 5 terbesar</th><th class="text-end">Paruh 1 / 2</th><th class="text-end">z</th><th>Belum terpenuhi</th></tr></thead>
+                <tbody id="verdictBody"><tr><td colspan="9" class="muted">Memuat…</td></tr></tbody></table></div>
+            <div class="small dim mt-2">LULUS = boleh dicoba live dengan nominal kecil. Dihitung dari trade paper sejak "Mulai periode baru". Statistik, bukan jaminan.</div>
+        </div>
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div class="section-title"><i class="bi bi-clipboard-data me-2"></i>Riset & saran penyesuaian <span class="chip ms-1">paper</span></div>
+                <div class="d-flex gap-2 align-items-center">
+                    <select class="form-select form-select-sm w-auto" id="researchDays" onchange="fetchAutotradeResearch()">
+                        <option value="7">7 hari</option><option value="30">30 hari</option><option value="0" selected>Semua waktu</option>
+                    </select>
+                    <a class="btn btn-sm poly-btn-secondary py-1 px-3" id="researchCsv" href="/api/autotrade/signals.csv"><i class="bi bi-download me-1"></i>CSV</a>
+                </div>
+            </div>
+            <div id="autotradeResearch" class="small">Memuat…</div>
+        </div>
+    </div>
+
+    <!-- PENGATURAN -->
+    <div class="tab-pane-x" id="tab-settings">
+        <div class="card-x p-4" id="settingsContainer"><div class="small muted">Memuat…</div></div>
+    </div>
+</div>
+
+<script>
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function safeNumber(value, fallback = 0) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+    }
+    const pnlClass = v => Number(v) > 0 ? 'up' : (Number(v) < 0 ? 'down' : '');
+    const money = v => (v > 0 ? '+' : v < 0 ? '−' : '') + '$' + Math.abs(v).toFixed(2);
+    const moneyShort = v => { const a = Math.abs(v); const s = a >= 1000 ? (a / 1000).toFixed(1) + 'K' : a >= 100 ? a.toFixed(0) : a.toFixed(2);
+                              return (v > 0 ? '+' : v < 0 ? '−' : '') + '$' + s; };
+    const usd = v => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const usdShort = v => { const a = Math.abs(Number(v || 0)); return '$' + (a >= 1000 ? (a / 1000).toFixed(1) + 'K' : a.toFixed(a >= 100 ? 0 : 2)); };
+    const pct = (v, d = 1) => v === null || v === undefined ? '-' : (v * 100).toFixed(d) + '%';
+    const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
+                    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* abaikan */ } } };
+
+    const SERIES_LABEL = { btc: 'BTC 1 jam', btc15: 'BTC 15 menit', btc5: 'BTC 5 menit', eth: 'ETH 1 jam', eth15: 'ETH 15 menit',
+                           maker_btc: 'BTC 1 jam · maker', maker_btc15: 'BTC 15 menit · maker', maker_btc5: 'BTC 5 menit · maker',
+                           maker_eth: 'ETH 1 jam · maker', maker_eth15: 'ETH 15 menit · maker', weather: 'Cuaca', weather_post: 'Cuaca · pasca puncak',
+                           hk_max: 'Hong Kong · max', hk_min: 'Hong Kong · min', hk_max_no: 'Hong Kong · max NO', hk_min_no: 'Hong Kong · min NO' };
+    const LIVE_SERIES_LABEL = { btc: '🟠 BTC 1 jam', btc15: '🟠 BTC 15 menit', btc5: '🟠 BTC 5 menit', eth: '🔷 ETH 1 jam', eth15: '🔷 ETH 15 menit' };
+    const coinOf = name => String(name).startsWith('hk') ? 'hk' : String(name).includes('eth') ? 'eth' : String(name).includes('btc') ? 'btc' : 'wx';
+    function matchStrategy(filter, name) {
+        if (!filter || name === filter) return true;
+        if (filter === 'hk_yes') return name.startsWith('hk_') && !name.endsWith('_no');
+        if (filter === 'hk_no') return name.startsWith('hk_') && name.endsWith('_no');
+        return filter.endsWith('_all') && coinOf(name) === filter.split('_')[0];
+    }
+    const coinIcon = name => { const c = coinOf(name); return `<span class="coin ${c}">${c === 'btc' ? '<i class="bi bi-currency-bitcoin"></i>' : c === 'eth' ? 'Ξ' : c === 'hk' ? 'HK' : '<i class="bi bi-cloud-sun"></i>'}</span>`; };
+
+    // --- STATE ---
+    const ui = Object.assign({ source: 'paper', period: 'all', tab: 'overview', calMode: 'grid' }, store.get('autobotUi', {}));
+    const saveUi = () => store.set('autobotUi', { source: ui.source, period: ui.period, tab: ui.tab, calMode: ui.calMode });
+    let paperStatus = null, liveStatus = null, overviewData = null;
+
+    function setSource(src) {
+        ui.source = src; cal.selected = null; settingsDirty = false; saveUi(); applyChrome();
+        renderHeader(); renderHistory(); renderSettings(true); fetchOverview(); loadCalendar();
+    }
+    function setPeriod(p) { ui.period = p; saveUi(); applyChrome(); fetchOverview(); }
+    function setTab(tab) {
+        ui.tab = tab; saveUi(); applyChrome();
+        if (tab === 'markets') fetchMarkets();
+        if (tab === 'analysis') { fetchVerdict(); fetchAutotradeResearch(); }
+    }
+    function onStrategyChange() { cal.selected = null; fetchOverview(); loadCalendar(); renderHistory(); }
+    function applyChrome() {
+        document.getElementById('calSrcPaper').classList.toggle('active', ui.source === 'paper');
+        document.getElementById('calSrcLive').classList.toggle('active', ui.source === 'live');
+        document.querySelectorAll('#periodSeg button').forEach(b => b.classList.toggle('active', b.dataset.period === ui.period));
+        document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === ui.tab));
+        document.querySelectorAll('.tab-pane-x').forEach(p => p.classList.toggle('active', p.id === 'tab-' + ui.tab));
+        document.getElementById('calModeGrid').classList.toggle('active', ui.calMode === 'grid');
+        document.getElementById('calModeChart').classList.toggle('active', ui.calMode === 'chart');
+        const av = document.getElementById('hdrAvatar');
+        av.textContent = ui.source === 'live' ? 'L' : 'P';
+        av.classList.toggle('live', ui.source === 'live');
+        document.getElementById('hdrName').textContent = ui.source === 'live' ? 'Live Bot' : 'Paper Bot';
+    }
+
+    // --- SPARKLINE ---
+    function sparkline(values, { height = 70, fill = true } = {}) {
+        if (!values.length) return '<div class="small dim mono pt-4">belum ada data</div>';
+        const pts = values.length === 1 ? [0, values[0]] : [0, ...values];
+        const w = 300, pad = 4, min = Math.min(...pts), max = Math.max(...pts), span = (max - min) || 1;
+        const xy = pts.map((v, i) => [(i / (pts.length - 1)) * w, pad + (1 - (v - min) / span) * (height - 2 * pad)]);
+        const line = xy.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+        const color = pts[pts.length - 1] >= 0 ? 'var(--up)' : 'var(--down)';
+        const id = 'g' + Math.random().toString(36).slice(2, 8);
+        return `<svg viewBox="0 0 ${w} ${height}" preserveAspectRatio="none" width="100%" height="${height}" aria-hidden="true">
+            <defs><linearGradient id="${id}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".35"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+            ${fill ? `<path d="${line} L${w},${height} L0,${height} Z" fill="url(#${id})"/>` : ''}
+            <path d="${line}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+    }
+
+    // --- HEADER ---
+    function renderHeader() {
+        const chips = [], btn = document.getElementById('hdrToggle'), rules = document.getElementById('hdrRules');
+        if (ui.source === 'paper') {
+            const s = paperStatus;
+            if (!s) return;
+            chips.push(s.enabled ? '<span class="chip on">● aktif</span>' : '<span class="chip off">● berhenti</span>');
+            chips.push('<span class="chip">paper</span>');
+            (s.strategies || []).filter(n => !n.startsWith('weather')).forEach(n => chips.push(`<span class="chip">${escapeHtml(n)}</span>`));
+            if (s.stats_label) chips.push(`<span class="chip">${escapeHtml(s.stats_label)}</span>`);
+            btn.textContent = s.enabled ? 'Stop' : 'Start';
+            btn.className = s.enabled ? 'btn-x ghost' : 'btn-x';
+            btn.style.display = '';
+            const l = s.limits || {};
+            rules.innerHTML = `$${l.order_usd}/order · edge ≥${Math.round((l.btc_min_edge || 0) * 100)}¢ · harga min ${Math.round(((s.config || {}).BTC_MIN_PRICE || {}).value * 100 || 0)}¢ · slippage ${(Number(l.slippage || 0) * 100).toFixed(1)}¢ · stop rugi $${l.max_daily_loss}/hari`;
+        } else {
+            const s = liveStatus;
+            if (!s) return;
+            const state = s.active ? (s.dry_run ? ['🧪 dry run', 'warn'] : ['● aktif', 'on']) : (s.enabled && !s.switch_on ? ['⏸ dijeda', 'warn'] : ['● mati', 'off']);
+            chips.push(`<span class="chip ${state[1]}">${state[0]}</span>`, '<span class="chip warn">uang asli</span>');
+            (s.strategies || []).forEach(n => chips.push(`<span class="chip">${escapeHtml(n)}</span>`));
+            chips.push(s.claim && s.claim.active ? '<span class="chip on">auto-claim</span>' : '<span class="chip">claim manual</span>');
+            btn.style.display = s.enabled ? '' : 'none';
+            btn.textContent = s.switch_on ? 'Jeda' : 'Lanjutkan';
+            btn.className = s.switch_on ? 'btn-x ghost' : 'btn-x';
+            const l = s.limits || {};
+            rules.innerHTML = (s.enabled && s.problems.length ? `<span style="color: var(--live)">⚠️ ${s.problems.map(escapeHtml).join(' · ')}</span><br>` : '')
+                + (!s.enabled ? 'Mati (<code>LIVE_TRADING=false</code>) · lihat <code>docs/LIVE_TRADING.md</code><br>' : '')
+                + `$${l.order_usd}/order · maks $${l.max_daily_usd}/hari · stop rugi $${l.max_daily_loss} · maks terbuka $${l.max_open_usd} · harga min ${(l.min_price * 100).toFixed(0)}¢`;
+        }
+        document.getElementById('hdrChips').innerHTML = chips.join('');
+        renderPortfolio();
+    }
+    function renderPortfolio() {
+        const box = document.getElementById('hdrPortfolio');
+        const o = overviewData || {};
+        const open = o.open || { count: 0, value: 0 };
+        const row = (k, v, s) => `<div class="kv"><div class="k">${k}</div><div class="v"><div class="big">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div></div>`;
+        if (ui.source === 'live') {
+            const t = (liveStatus || {}).today || {};
+            box.innerHTML = row('Saldo', o.balance === null || o.balance === undefined ? '-' : usd(o.balance), `${usd(open.value)} di ${open.count} posisi terbuka`)
+                + row('Volume', usdShort(o.volume), `${safeNumber(o.trades)} trade selesai`)
+                + row('Hari ini', `${safeNumber(t.orders)} <span class="muted" style="font-size: .9rem">order</span>`,
+                      `${usd(t.spent)} · <span class="${pnlClass(t.realized_pnl)}">${money(safeNumber(t.realized_pnl))}</span>`);
+        } else {
+            const t = (paperStatus || {}).today || {}, l = (paperStatus || {}).limits || {};
+            box.innerHTML = row('Posisi terbuka', usd(open.value), `${open.count} posisi`)
+                + row('Volume', usdShort(o.volume), `${safeNumber(o.trades)} trade selesai`)
+                + row('Hari ini', `${safeNumber(t.trades)} <span class="muted" style="font-size: .9rem">trade</span>`,
+                      `${usd(t.spent)} / ${l.max_daily_usd ?? '-'} · <span class="${pnlClass(t.realized_pnl)}">${money(safeNumber(t.realized_pnl))}</span>`);
+        }
+    }
+
+    // --- OVERVIEW ---
+    async function fetchOverview() {
+        const params = new URLSearchParams({ source: ui.source, period: ui.period });
+        const strategy = document.getElementById('calStrategy').value;
+        if (strategy) params.set('strategy', strategy);
+        try {
+            const res = await fetch('/api/autotrade/overview?' + params.toString());
+            if (!res.ok) throw new Error('Failed');
+            overviewData = await res.json();
+            renderOverview(overviewData);
+            renderPortfolio();
+        } catch (err) {
+            console.error(err);
+            document.getElementById('ovLeft').innerHTML = '<div class="small muted">Gagal memuat ringkasan.</div>';
+        }
+    }
+    function ring(rate) {
+        const r = 31, c = 2 * Math.PI * r, v = rate === null || rate === undefined ? 0 : rate;
+        return `<svg class="ring" viewBox="0 0 74 74" aria-hidden="true">
+            <circle cx="37" cy="37" r="${r}" fill="none" stroke="var(--line-2)" stroke-width="7"/>
+            <circle cx="37" cy="37" r="${r}" fill="none" stroke="var(--up)" stroke-width="7" stroke-linecap="round"
+                    stroke-dasharray="${(c * v).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 37 37)"/></svg>`;
+    }
+    function tradeCard(title, t) {
+        if (!t) return `<div class="tcard"><div class="small muted mb-2">${title}</div><div class="small dim">-</div></div>`;
+        return `<div class="tcard"><div class="small muted mb-2">${title}</div>
+            <div class="d-flex gap-2 align-items-start">${coinIcon(t.strategy)}
+                <div class="small fw-semibold" style="line-height: 1.3">${escapeHtml(t.market)} · ${escapeHtml(t.outcome)}</div></div>
+            <div class="mt-3"><span class="big ${pnlClass(t.pnl)}" style="font-size: 1.25rem">${money(t.pnl)}</span>
+                ${t.roi !== null ? `<span class="small mono ${pnlClass(t.pnl)} ms-1">${(t.roi > 0 ? '+' : '') + (t.roi * 100).toFixed(1)}%</span>` : ''}</div>
+            <div class="small dim mono mt-1">${escapeHtml(SERIES_LABEL[t.strategy] || t.strategy)} · masuk ${(t.entry * 100).toFixed(1)}¢</div></div>`;
+    }
+    function renderOverview(o) {
+        document.getElementById('hdrPnl').innerHTML = `<span class="${pnlClass(o.pnl)}">${money(o.pnl)}</span>`;
+        document.getElementById('hdrFees').innerHTML = `<span class="muted">Fees${o.fees_estimated ? ' ≈' : ''}</span> <span class="down ms-2">−$${o.fees.toFixed(2)}</span>`
+            + (o.roi !== null ? `<span class="muted ms-3">ROI</span> <span class="${pnlClass(o.roi)} ms-1">${(o.roi > 0 ? '+' : '') + (o.roi * 100).toFixed(1)}%</span>` : '');
+        document.getElementById('hdrSpark').innerHTML = sparkline((o.curve || []).map(p => p.pnl));
+        const wr = o.win_rate;
+        const stat = (k, v, cls = '') => `<div><div class="label">${k}</div><div class="val ${cls}">${v}</div></div>`;
+        const series = (o.series || []).map(s => `<div class="series-row">
+                <div class="d-flex align-items-center gap-2 min-w-0">${coinIcon(s.strategy)}
+                    <div><div class="fw-semibold small">${escapeHtml(SERIES_LABEL[s.strategy] || s.strategy)}</div>
+                    <div class="label" style="font-size: .62rem">${s.trades} trade</div></div></div>
+                <div class="text-end"><div class="mono fw-semibold ${pnlClass(s.pnl)}">${money(s.pnl)}</div>
+                    <div class="label" style="font-size: .62rem">${pct(s.win_rate)} WR${s.roi !== null ? ' · ROI ' + pct(s.roi) : ''}</div></div></div>`).join('')
+            || '<div class="small dim">Belum ada trade selesai.</div>';
+        const periodName = { '1d': '24 jam', '1w': '7 hari', '1m': '30 hari', all: 'semua waktu' }[o.period];
+        document.getElementById('ovLeft').innerHTML = `
+            <div class="d-flex align-items-center gap-4">
+                ${ring(wr)}
+                <div class="flex-grow-1">
+                    <div class="label">Win rate · ${periodName}</div>
+                    <div class="huge" style="font-size: 2.1rem">${wr === null ? '-' : (wr * 100).toFixed(1)}<span style="font-size: 1.1rem">%</span></div>
+                </div>
+            </div>
+            <div class="wl-bar mt-3"><div style="width: ${o.trades ? (o.wins / o.trades * 100).toFixed(1) : 0}%"></div></div>
+            <div class="d-flex justify-content-between small mt-1 mono"><span class="up">● ${o.wins} menang</span><span class="down">● ${o.losses} kalah</span></div>
+            <div class="hr my-4"></div>
+            <div class="stat-grid">
+                ${stat('Realized PnL', money(o.pnl), pnlClass(o.pnl))}
+                ${stat('ROI', o.roi === null ? '-' : (o.roi > 0 ? '+' : '') + (o.roi * 100).toFixed(1) + '%', pnlClass(o.roi))}
+                ${stat('Trade selesai', o.trades.toLocaleString('en-US'))}
+                ${stat('Volume', usd(o.volume))}
+                ${stat('Posisi terbuka', o.open.count)}
+                ${stat('Nilai terbuka', usd(o.open.value))}
+                ${stat('Fees' + (o.fees_estimated ? ' ≈' : ''), '−$' + o.fees.toFixed(2), 'down')}
+                ${stat('Rata² harga masuk', o.avg_entry === null ? '-' : (o.avg_entry * 100).toFixed(1) + '¢')}
+            </div>
+            <div class="hr my-4"></div>
+            <div class="section-title mb-2">Top trades</div>
+            <div class="row g-2">
+                <div class="col-6">${tradeCard('Best trade', o.best)}</div>
+                <div class="col-6">${tradeCard('Worst trade', o.worst)}</div>
+            </div>
+            <div class="hr my-4"></div>
+            <div class="section-title mb-2">Per seri</div>
+            ${series}`;
+    }
+
+    // --- KALENDER PnL ---
+    const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const CAL_KEY = 'autobotCalendar';
+    const nowJkt = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+    let cal = { view: 'day', year: nowJkt.getFullYear(), month: nowJkt.getMonth() + 1, selected: null };
+    Object.assign(cal, store.get(CAL_KEY, {}), { selected: null });
+    const pad = n => String(n).padStart(2, '0');
+    function saveCal() { store.set(CAL_KEY, { view: cal.view, year: cal.year, month: cal.month }); }
+    function setCalView(view) { cal.view = view; cal.selected = null; saveCal(); loadCalendar(); }
+    function setCalMode(mode) { ui.calMode = mode; saveUi(); applyChrome(); loadCalendar(); }
+    function shiftCal(step) {
+        if (cal.view === 'month') cal.year += step;
+        else { cal.month += step; if (cal.month < 1) { cal.month = 12; cal.year--; } if (cal.month > 12) { cal.month = 1; cal.year++; } }
+        cal.selected = null; saveCal(); loadCalendar();
+    }
+    function fillStrategyOptions(stats) {
+        const sel = document.getElementById('calStrategy');
+        const known = new Set([...sel.options].map(o => o.value));
+        Object.keys(stats || {}).forEach(n => { if (!known.has(n)) sel.add(new Option(SERIES_LABEL[n] || n, n)); });
+    }
+    function renderCalSummary(data) {
+        const t = data.totals || {};
+        const buckets = data.days || data.months || {};
+        const keys = Object.keys(buckets).sort();
+        let run = 0;
+        document.getElementById('calSumLabel').textContent = cal.view === 'month' ? `PnL ${cal.year}` : `PnL ${MONTH_NAMES[cal.month - 1]}`;
+        document.getElementById('calSumPnl').innerHTML = `<span class="${pnlClass(t.pnl)}">${t.trades ? money(t.pnl) : '$0.00'}</span>`;
+        document.getElementById('calSumSpark').innerHTML = keys.length ? sparkline(keys.map(k => (run += buckets[k].pnl)), { height: 56 }) : '';
+        const unit = cal.view === 'month' ? 'bulan' : 'hari';
+        const m = (k, v, cls = '') => `<div><div class="m-k">${k}</div><div class="m-v ${cls}">${v}</div></div>`;
+        document.getElementById('calSummary').innerHTML = !t.trades
+            ? '<div class="small dim align-self-center">Belum ada trade selesai pada periode ini.</div>'
+            : m('Volume', usdShort(t.volume)) + m('Fees' + (ui.source === 'live' ? ' ≈' : ''), '−$' + safeNumber(t.fees).toFixed(2), 'down')
+              + m('Trade', t.trades) + m('Win rate', pct(t.win_rate, 0)) + m('ROI', t.roi === null ? '-' : pct(t.roi), pnlClass(t.roi))
+              + m(`${unit} hijau / merah`, `<span class="up">${t.green}</span> / <span class="down">${t.red}</span>`)
+              + m('Terbaik', moneyShort(t.best), 'up') + m('Terburuk', moneyShort(t.worst), pnlClass(t.worst));
+    }
+    async function loadCalendar() {
+        document.getElementById('calViewDay').classList.toggle('active', cal.view === 'day');
+        document.getElementById('calViewMonth').classList.toggle('active', cal.view === 'month');
+        const strategy = document.getElementById('calStrategy').value;
+        const grid = document.getElementById('calGrid');
+        const params = new URLSearchParams(cal.view === 'month' ? { year: cal.year } : { month: `${cal.year}-${pad(cal.month)}` });
+        if (strategy) params.set('strategy', strategy);
+        params.set('source', ui.source);
+        document.getElementById('calLabel').textContent = cal.view === 'month' ? String(cal.year) : `${MONTH_NAMES[cal.month - 1]} ${cal.year}`;
+        document.getElementById('calNote').innerHTML = ui.source === 'live'
+            ? 'PnL order uang asli menurut tanggal market resolve (WIB). Fee ≈ perkiraan 0.07·p·(1−p) per share. Klik tanggal untuk melihat order-nya.'
+            : 'PnL terealisasi paper menurut waktu trade selesai (WIB). Klik tanggal / bulan untuk melihat riwayat trade-nya.';
+        try {
+            const res = await fetch('/api/autotrade/calendar?' + params.toString());
+            if (!res.ok) throw new Error('Failed');
+            const data = await res.json();
+            renderCalSummary(data);
+            if (ui.calMode === 'chart') renderCalChart(data);
+            else cal.view === 'month' ? renderMonths(data) : renderDays(data);
+            if (cal.selected) loadCalTrades(cal.selected);
+            else document.getElementById('calTrades').innerHTML = '';
+        } catch (err) {
+            console.error(err);
+            grid.innerHTML = '<div class="small muted">Gagal memuat kalender.</div>';
+        }
+    }
+    function cellInner(b) {
+        return `<div class="cal-pnl">${moneyShort(b.pnl)}</div>
+            <div class="cal-vol">${usdShort(b.cost)} VOL</div>
+            <div class="cal-foot"><span><span class="up">${b.wins}W</span> <span class="down">${b.losses}L</span></span><span>FEE −$${safeNumber(b.fee).toFixed(1)}</span></div>`;
+    }
+    function renderDays(data) {
+        const days = data.days || {};
+        const first = new Date(cal.year, cal.month - 1, 1);
+        const offset = (first.getDay() + 6) % 7;  // Senin = kolom pertama
+        const total = new Date(cal.year, cal.month, 0).getDate();
+        const todayKey = `${nowJkt.getFullYear()}-${pad(nowJkt.getMonth() + 1)}-${pad(nowJkt.getDate())}`;
+        const cells = ['SEN', 'SEL', 'RAB', 'KAM', 'JUM', 'SAB', 'MIN'].map(d => `<div class="cal-head">${d}</div>`);
+        for (let i = 0; i < offset; i++) cells.push('<div class="cal-cell empty"></div>');
+        for (let d = 1; d <= total; d++) {
+            const key = `${cal.year}-${pad(cal.month)}-${pad(d)}`;
+            const b = days[key];
+            const cls = ['cal-cell', b ? 'has' : '', b ? (b.pnl > 0 ? 'pos' : b.pnl < 0 ? 'neg' : '') : '',
+                         key === todayKey ? 'today' : '', cal.selected === key ? 'selected' : ''].join(' ');
+            cells.push(`<div class="${cls}" data-key="${key}" ${b ? `onclick="selectCal('${key}')"` : ''}>
+                <div class="cal-day">${d}</div>${b ? cellInner(b) : ''}</div>`);
+        }
+        const grid = document.getElementById('calGrid');
+        grid.className = 'cal-grid';
+        grid.innerHTML = cells.join('');
+    }
+    function renderMonths(data) {
+        const months = data.months || {};
+        const grid = document.getElementById('calGrid');
+        grid.className = 'cal-grid months';
+        grid.innerHTML = MONTH_NAMES.map((name, i) => {
+            const key = `${cal.year}-${pad(i + 1)}`;
+            const b = months[key];
+            const cls = ['cal-cell', b ? 'has' : '', b ? (b.pnl > 0 ? 'pos' : b.pnl < 0 ? 'neg' : '') : '', cal.selected === key ? 'selected' : ''].join(' ');
+            return `<div class="${cls}" data-key="${key}" ${b ? `onclick="selectCal('${key}')"` : ''}>
+                <div class="cal-name">${name}</div>${b ? cellInner(b) : '<div class="cal-vol">-</div>'}</div>`;
+        }).join('');
+    }
+    function renderCalChart(data) {
+        const buckets = data.days || data.months || {};
+        const keys = cal.view === 'month'
+            ? MONTH_NAMES.map((_, i) => `${cal.year}-${pad(i + 1)}`)
+            : Array.from({ length: new Date(cal.year, cal.month, 0).getDate() }, (_, i) => `${cal.year}-${pad(cal.month)}-${pad(i + 1)}`);
+        const vals = keys.map(k => (buckets[k] || {}).pnl || 0);
+        const maxAbs = Math.max(0.01, ...vals.map(Math.abs));
+        const w = 700, h = 260, mid = h / 2, bw = w / keys.length;
+        let run = 0;
+        const cum = vals.map(v => (run += v));
+        const cMax = Math.max(0.01, ...cum.map(Math.abs));
+        const bars = vals.map((v, i) => {
+            const bh = Math.abs(v) / maxAbs * (mid - 14);
+            const y = v >= 0 ? mid - bh : mid;
+            return `<rect x="${(i * bw + bw * .18).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw * .64).toFixed(1)}" height="${Math.max(bh, v ? 1.5 : 0).toFixed(1)}"
+                    rx="2" fill="${v >= 0 ? 'var(--up)' : 'var(--down)'}" opacity=".85" style="cursor:${buckets[keys[i]] ? 'pointer' : 'default'}"
+                    ${buckets[keys[i]] ? `onclick="selectCal('${keys[i]}')"` : ''}><title>${keys[i]}: ${money(v)}</title></rect>`;
+        }).join('');
+        const line = cum.map((v, i) => `${i ? 'L' : 'M'}${(i * bw + bw / 2).toFixed(1)},${(mid - v / cMax * (mid - 14)).toFixed(1)}`).join(' ');
+        const labels = keys.map((k, i) => (cal.view === 'month' || i % 5 === 0 || i === keys.length - 1)
+            ? `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${h - 2}" fill="var(--dim)" font-size="10" text-anchor="middle" font-family="var(--mono)">${cal.view === 'month' ? MONTH_NAMES[i].slice(0, 3) : i + 1}</text>` : '').join('');
+        const grid = document.getElementById('calGrid');
+        grid.className = '';
+        grid.innerHTML = `<svg viewBox="0 0 ${w} ${h + 6}" width="100%" style="max-height: 320px" role="img" aria-label="PnL per ${cal.view === 'month' ? 'bulan' : 'hari'}">
+            <line x1="0" x2="${w}" y1="${mid}" y2="${mid}" stroke="var(--line-2)"/>${bars}
+            <path d="${line}" fill="none" stroke="var(--text)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".6"/>${labels}</svg>
+            <div class="small dim mono mt-1">Batang = PnL per ${cal.view === 'month' ? 'bulan' : 'hari'} · garis putus = PnL kumulatif</div>`;
+    }
+    function openMonthDays(key) {
+        cal.view = 'day'; cal.year = parseInt(key.slice(0, 4), 10); cal.month = parseInt(key.slice(5), 10); cal.selected = null;
+        saveCal(); loadCalendar();
+    }
+    function selectCal(key) {
+        cal.selected = key;
+        document.querySelectorAll('#calGrid .cal-cell').forEach(c => c.classList.toggle('selected', c.dataset.key === key));
+        loadCalTrades(key);
+    }
+    async function loadCalTrades(key) {
+        const box = document.getElementById('calTrades');
+        const strategy = document.getElementById('calStrategy').value;
+        const isMonth = key.length === 7;
+        const params = new URLSearchParams(isMonth ? { month: key } : { date: key });
+        if (strategy) params.set('strategy', strategy);
+        params.set('source', ui.source);
+        box.innerHTML = '<div class="small muted">Memuat riwayat trade…</div>';
+        try {
+            const res = await fetch('/api/autotrade/calendar/trades?' + params.toString());
+            if (!res.ok) throw new Error('Failed');
+            const trades = (await res.json()).trades || [];
+            const label = isMonth ? `${MONTH_NAMES[parseInt(key.slice(5), 10) - 1]} ${key.slice(0, 4)}`
+                                  : new Date(key + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            const total = trades.reduce((a, t) => a + t.pnl, 0);
+            const pill = { MENANG: '<span class="pill w">WIN</span>', KALAH: '<span class="pill l">LOSS</span>',
+                           DIJUAL: '<span class="pill n">SOLD</span>', BATAL: '<span class="pill n">VOID</span>' };
+            const rows = trades.map(t => `<div class="trade-row">
+                    <div class="mono small muted">${escapeHtml(new Date(t.closed_at).toLocaleString('id-ID', isMonth ? { day: '2-digit', month: 'short' } : { hour: '2-digit', minute: '2-digit' }))}</div>
+                    <div class="d-flex gap-2 align-items-start min-w-0">${coinIcon(t.strategy)}
+                        <div class="min-w-0"><div class="small fw-semibold text-truncate">${escapeHtml(t.market)} · ${escapeHtml(t.outcome || '')}</div>
+                        <div class="small dim mono">${pill[t.result] || ''} ${escapeHtml(SERIES_LABEL[t.strategy] || t.strategy)} · masuk ${(t.entry_price * 100).toFixed(1)}¢
+                            ${t.prob === null ? '' : ' · model ' + Math.round(t.prob * 100) + '%'} · $${t.size.toFixed(2)}</div>
+                        ${t.detail ? `<div class="dim" style="font-size: .72rem">${escapeHtml(t.detail)}</div>` : ''}</div></div>
+                    <div class="mono fw-semibold ${pnlClass(t.pnl)}">${money(t.pnl)}</div></div>`).join('')
+                || '<div class="small dim">Tidak ada trade.</div>';
+            box.innerHTML = `<div class="tcard">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <div class="section-title">${escapeHtml(label)}</div>
+                    <div class="small d-flex align-items-center gap-2">${trades.length} trade · <b class="mono ${pnlClass(total)}">${money(total)}</b>
+                        ${isMonth ? `<button class="btn-x ghost sm" onclick="openMonthDays('${key}')">Lihat harian</button>` : ''}
+                        <button class="btn-x ghost sm" onclick="cal.selected = null; loadCalendar()">Tutup</button></div>
+                </div>
+                <div style="max-height: 460px; overflow-y: auto">${rows}</div></div>`;
+            box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } catch (err) {
+            console.error(err);
+            box.innerHTML = '<div class="small muted">Gagal memuat riwayat trade.</div>';
+        }
+    }
+
+    // --- START / STOP ---
+    async function toggleBot() {
+        if (ui.source === 'live') return toggleLive();
+        const action = paperStatus && paperStatus.enabled ? 'stop' : 'start';
+        if (action === 'start' && !confirm('Jalankan auto paper trader? Bot akan membeli otomatis di akun PAPER sesuai aturan risiko.')) return;
+        try {
+            const res = await fetch(`/api/autotrade/${action}`, { method: 'POST' });
+            if (!res.ok) throw new Error('Gagal');
+            renderAutotrade(await res.json());
+        } catch (err) { console.error(err); }
+    }
+    async function toggleLive() {
+        const action = liveStatus && liveStatus.switch_on ? 'stop' : 'start';
+        if (action === 'start' && !confirm('Lanjutkan trading UANG ASLI? Order akan dikirim ke Polymarket sesuai batas di .env.')) return;
+        try {
+            const res = await fetch(`/api/live/${action}`, { method: 'POST' });
+            if (!res.ok) throw new Error('Gagal');
+            renderLive(await res.json());
+        } catch (err) { alert('Gagal mengubah status live.'); }
+    }
+
+    // --- PAPER: status, riwayat, aturan ---
+    async function setStatsSince(since) {
+        if (since === 'now' && !confirm('Mulai periode statistik baru dari sekarang? Data lama tetap tersimpan dan bisa dilihat lagi dengan "Semua waktu".')) return;
+        try {
+            const res = await fetch('/api/autotrade/stats-since', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                                    body: JSON.stringify({ since: since || null }) });
+            if (!res.ok) throw new Error('Gagal');
+            renderAutotrade(await res.json());
+        } catch (err) { alert('Gagal mengubah periode statistik.'); }
+    }
+    function renderAutotrade(s) {
+        paperStatus = s;
+        fillStrategyOptions(s.stats);
+        if (ui.source === 'paper') { renderHeader(); renderHistory(); renderSettings(); }
+    }
+    function paperHistoryHtml(s) {
+        const filter = document.getElementById('calStrategy').value;
+        const match = name => matchStrategy(filter, name);
+        const stats = Object.entries(s.stats || {}).filter(([name, st]) => match(name) && (!name.startsWith('weather') || st.trades || (s.strategies || []).includes(name)))
+            .map(([name, st]) => `<tr><td><div class="d-flex align-items-center gap-2">${coinIcon(name)}<span>${escapeHtml(SERIES_LABEL[name] || name)}</span></div></td>
+                <td class="text-end mono">${safeNumber(st.trades)}</td><td class="text-end mono">${safeNumber(st.settled)}</td>
+                <td class="text-end mono">${st.win_rate === null ? '-' : Math.round(st.win_rate * 100) + '%'}</td>
+                <td class="text-end mono ${pnlClass(st.pnl)}">${money(safeNumber(st.pnl))}</td>
+                <td class="text-end mono ${pnlClass(st.roi)}">${st.roi === null ? '-' : (st.roi * 100).toFixed(1) + '%'}</td>
+                <td class="text-end mono">${safeNumber(st.open)}</td></tr>`).join('');
+        const pill = { MENANG: '<span class="pill w">WIN</span>', KALAH: '<span class="pill l">LOSS</span>', DIJUAL: '<span class="pill n">SOLD</span>',
+                       TERBUKA: '<span class="pill n">OPEN</span>', BATAL: '<span class="pill n">VOID</span>' };
+        const hist = (s.history || []).filter(r => match(r.strategy)).map(r => `<tr>
+                <td class="text-nowrap mono dim">${escapeHtml(new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
+                <td>${pill[r.result] || escapeHtml(r.result)}</td>
+                <td><div>${escapeHtml(r.label || '')}</div><div class="dim" style="font-size: .72rem">${escapeHtml(SERIES_LABEL[r.strategy] || r.strategy)}${r.detail ? ' · ' + escapeHtml(r.detail) : ''}</div></td>
+                <td class="text-end mono text-nowrap">${(r.price * 100).toFixed(1)}¢</td>
+                <td class="text-end mono">${Math.round(r.prob * 100)}%</td>
+                <td class="text-end mono">${(r.edge * 100).toFixed(1)}¢</td>
+                <td class="text-end mono">$${Number(r.size).toFixed(2)}</td>
+                <td class="text-end mono fw-semibold ${pnlClass(r.pnl || 0)}">${r.pnl === null ? '-' : money(r.pnl)}</td></tr>`).join('')
+            || '<tr><td colspan="8" class="dim">Belum ada trade.</td></tr>';
+        const recent = (s.recent || []).filter(d => match(d.strategy)).map(d => `<tr>
+                <td class="text-nowrap mono dim">${escapeHtml(new Date(d.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
+                <td>${escapeHtml(d.label || '')} · <b>${escapeHtml(d.side)}</b><div class="dim" style="font-size: .72rem">${escapeHtml(SERIES_LABEL[d.strategy] || d.strategy)}</div></td>
+                <td class="text-end mono">${Math.round(d.prob * 100)}%</td><td class="text-end mono">${((d.price + d.fee) * 100).toFixed(1)}¢</td>
+                <td class="text-end mono">${(d.edge * 100).toFixed(1)}¢</td>
+                <td>${d.status === 'filled' ? '<span class="pill w">filled</span>' : `<span class="pill n" title="${escapeHtml(d.reason || '')}">ditolak</span>`}</td></tr>`).join('')
+            || '<tr><td colspan="6" class="dim">Belum ada keputusan.</td></tr>';
+        return `
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div class="section-title">Hasil per seri <span class="muted fw-normal small">(${escapeHtml(s.stats_label || 'semua waktu')})</span></div>
+                <div class="d-flex gap-2">
+                    <button class="btn-x ghost sm" onclick="setStatsSince('now')" title="Statistik dihitung ulang mulai sekarang; data lama tetap tersimpan">
+                        <i class="bi bi-arrow-counterclockwise"></i> Mulai periode baru</button>
+                    ${s.stats_since ? `<button class="btn-x ghost sm" onclick="setStatsSince('')">Semua waktu</button>` : ''}
+                </div>
+            </div>
+            <div class="table-responsive mb-4"><table class="table table-dark table-sm small mb-0 align-middle">
+                <thead><tr><th>Seri</th><th class="text-end">Trade</th><th class="text-end">Selesai</th><th class="text-end">WR</th><th class="text-end">PnL</th><th class="text-end">ROI</th><th class="text-end">Terbuka</th></tr></thead>
+                <tbody>${stats || '<tr><td colspan="7" class="dim">-</td></tr>'}</tbody></table></div>
+            ${(s.open_orders || []).length ? `<div class="section-title mb-1">Limit order maker terbuka</div>
+                <ul class="list-unstyled small mb-4">${s.open_orders.map(o => `<li>• ${escapeHtml(o.label || '')} @ ${Math.round(o.limit * 100)}¢
+                    <span class="muted">(model ${Math.round(o.prob * 100)}%, $${Number(o.size).toFixed(2)})</span></li>`).join('')}</ul>` : ''}
+            <div class="section-title mb-2">Trade terakhir</div>
+            <div class="table-responsive mb-4" style="max-height: 460px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0 align-middle">
+                <thead class="sticky-top" style="background: var(--card)"><tr><th>Waktu</th><th>Hasil</th><th>Market</th><th class="text-end">Masuk</th>
+                <th class="text-end">Model</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th class="text-end">PnL</th></tr></thead>
+                <tbody>${hist}</tbody></table></div>
+            <div class="section-title mb-2">Keputusan terbaru</div>
+            <div class="table-responsive" style="max-height: 320px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0 align-middle">
+                <thead class="sticky-top" style="background: var(--card)"><tr><th>Waktu</th><th>Market</th><th class="text-end">Model</th><th class="text-end">Biaya</th><th class="text-end">Edge</th><th>Status</th></tr></thead>
+                <tbody>${recent}</tbody></table></div>`;
+    }
+    function buildAutotradeConfigForm(config) {
+        const numeric = Object.entries(config).filter(([, c]) => c.type === 'float').map(([name, c]) => `
+            <div class="col-6 col-md-4 col-xl-3">
+                <label class="label d-block mb-1" for="cfg_${name}" style="text-transform: none; letter-spacing: 0; font-family: Inter">${escapeHtml(c.label)}${c.overridden ? ' <span style="color: var(--live)">•</span>' : ''}</label>
+                <input type="number" step="any" min="${safeNumber(c.min)}" max="${safeNumber(c.max)}" id="cfg_${name}" data-cfg="${name}" data-original="${safeNumber(c.value)}"
+                       class="form-control form-control-sm mono" value="${safeNumber(c.value)}"
+                       title="Default .env: ${escapeHtml(String(c.default))} · rentang ${safeNumber(c.min)}–${safeNumber(c.max)}">
+            </div>`).join('');
+        const bools = Object.entries(config).filter(([, c]) => c.type === 'bool').map(([name, c]) => `
+            <div class="form-check small mt-2">
+                <input class="form-check-input" type="checkbox" id="cfg_${name}" data-cfg-bool="${name}" ${c.value ? 'checked' : ''}>
+                <label class="form-check-label" for="cfg_${name}">${escapeHtml(c.label || name)}${c.overridden ? ' <span style="color: var(--live)">•</span>' : ''}</label>
+            </div>`).join('');
+        const strat = config.STRATEGIES || {};
+        const active = String(strat.value || '').split(',');
+        const checks = (strat.options || []).map(opt => `
+            <div class="form-check form-check-inline small">
+                <input class="form-check-input" type="checkbox" id="cfg_strat_${opt}" data-strategy="${escapeHtml(opt)}" ${active.includes(opt) ? 'checked' : ''}>
+                <label class="form-check-label" for="cfg_strat_${opt}">${escapeHtml(opt)}</label>
+            </div>`).join('');
+        return `<div class="mb-3">
+                <div class="label mb-2">${escapeHtml(strat.label || 'Strategi aktif')}${strat.overridden ? ' <span style="color: var(--live)">•</span>' : ''}</div>
+                ${checks}
+            </div>
+            <div class="row g-3">${numeric}</div>
+            <div class="mt-2">${bools}</div>
+            <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
+                <button class="btn-x" onclick="saveAutotradeConfig()"><i class="bi bi-save me-1"></i>Simpan</button>
+                <button class="btn-x ghost" onclick="resetAutotradeConfig()">Kembalikan ke default .env</button>
+                <span class="small" id="autotradeConfigMsg"></span>
+            </div>
+            <div class="small dim mt-2"><span style="color: var(--live)">•</span> = diubah dari dashboard (default dari .env). Berlaku langsung tanpa restart.</div>`;
+    }
+    async function saveAutotradeConfig() {
+        // Kirim hanya yang benar-benar diubah, agar sisanya tetap mengikuti default .env
+        const values = {};
+        const config = (paperStatus || {}).config || {};
+        document.querySelectorAll('[data-cfg]').forEach(el => {
+            if (el.value === '') values[el.dataset.cfg] = null;
+            else if (Number(el.value) !== Number(el.dataset.original)) values[el.dataset.cfg] = Number(el.value);
+        });
+        const strategies = [...document.querySelectorAll('[data-strategy]')].filter(el => el.checked).map(el => el.dataset.strategy);
+        const currentStrategies = String((config.STRATEGIES || {}).value || '').split(',').filter(Boolean).sort().join(',');
+        if ([...strategies].sort().join(',') !== currentStrategies) values.STRATEGIES = strategies;
+        document.querySelectorAll('[data-cfg-bool]').forEach(el => {
+            if (el.checked !== !!(config[el.dataset.cfgBool] || {}).value) values[el.dataset.cfgBool] = el.checked;
+        });
+        const msg = document.getElementById('autotradeConfigMsg');
+        if (!Object.keys(values).length) { msg.innerHTML = '<span class="muted">Tidak ada perubahan.</span>'; return; }
+        try {
+            const res = await fetch('/api/autotrade/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                                                               body: JSON.stringify({ values }) });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Gagal menyimpan');
+            settingsDirty = false;
+            renderAutotrade(data);
+            const m = document.getElementById('autotradeConfigMsg');
+            if (m) m.innerHTML = '<span class="up">Tersimpan.</span>';
+        } catch (err) {
+            if (msg) msg.innerHTML = `<span class="down">${escapeHtml(err.message)}</span>`;
+        }
+    }
+    async function resetAutotradeConfig() {
+        if (!confirm('Kembalikan semua aturan auto trader ke default dari .env?')) return;
+        const res = await fetch('/api/autotrade/config', { method: 'DELETE' });
+        if (res.ok) { settingsDirty = false; renderAutotrade(await res.json()); }
+    }
+    async function fetchAutotrade() {
+        try {
+            const res = await fetch('/api/autotrade');
+            if (!res.ok) throw new Error('Failed');
+            renderAutotrade(await res.json());
+        } catch (err) { console.error(err); }
+    }
+
+    // --- RISET (paper) ---
+    async function fetchAutotradeResearch() {
+        const box = document.getElementById('autotradeResearch');
+        const days = document.getElementById('researchDays').value || '0';
+        document.getElementById('researchCsv').href = '/api/autotrade/signals.csv' + (days !== '0' ? `?days=${encodeURIComponent(days)}` : '');
+        try {
+            const res = await fetch('/api/autotrade/research' + (days !== '0' ? `?days=${encodeURIComponent(days)}` : ''));
+            if (!res.ok) throw new Error('Gagal');
+            box.innerHTML = renderResearch(await res.json());
+        } catch (err) { box.textContent = 'Gagal memuat riset.'; }
+    }
+    function renderResearch(rep) {
+        const pc = x => x === null || x === undefined ? '-' : Math.round(x * 100) + '%';
+        const roi = x => x === null || x === undefined ? '-' : `<span class="${pnlClass(x)}">${(x > 0 ? '+' : '') + (x * 100).toFixed(1)}%</span>`;
+        const cell = g => g && g.n ? `${roi(g.roi)} <span class="dim">(n${safeNumber(g.n)})</span>` : '<span class="dim">-</span>';
+        const entries = Object.entries(rep.strategies || {});
+        if (!entries.length) return '<div class="dim">Belum ada sampel sinyal. Sampel mulai terkumpul saat auto trader berjalan.</div>';
+        const bucketNames = ((entries[0][1].edge_buckets) || []).map(b => b.range);
+        const rows = entries.map(([name, st]) => `<tr>
+            <td>${escapeHtml(name)}</td><td class="text-end mono">${safeNumber(st.samples)}</td>
+            <td class="text-end mono">${safeNumber(st.markets)}</td><td class="text-end mono">${safeNumber(st.resolved)}</td>
+            <td class="text-end mono">${safeNumber(st.traded)}</td>
+            <td class="text-end mono">${pc(st.all.win_rate)} <span class="dim">vs ${pc(st.all.avg_prob)}</span></td>
+            <td class="text-end mono">${cell(st.all)}</td>
+            ${st.edge_buckets.map(b => `<td class="text-end mono">${cell(b)}</td>`).join('')}</tr>`).join('');
+        const detail = entries.map(([name, st]) => {
+            const groups = [['Menit masuk', st.by_minute], ['Kota', st.by_city], ['Sepakat vs beda', st.by_agree],
+                            ['Jam menuju puncak', st.by_hours], ['Alasan', st.by_reason], ['Kalibrasi (peluang model)', (st.calibration || []).map(c => ({ ...c, key: c.range }))]]
+                .filter(([, g]) => g && g.length)
+                .map(([title, g]) => `<div class="col-md-6 col-xl-4"><div class="small fw-semibold">${title}</div>
+                    <ul class="list-unstyled small mb-2">${g.map(x => `<li>${escapeHtml(String(x.key))}: WR ${pc(x.win_rate)} · ROI ${cell(x)}</li>`).join('')}</ul></div>`).join('');
+            return groups ? `<div class="mt-3"><div class="label mb-1">${escapeHtml(name)}</div><div class="row">${groups}</div></div>` : '';
+        }).join('');
+        const maker = Object.entries(rep.maker || {}).filter(([, m]) => m.placed).map(([name, m]) =>
+            `<li>${escapeHtml(name)}: ${safeNumber(m.placed)} order · fill rate ${pc(m.fill_rate)} · selesai ${safeNumber(m.settled)} · PnL ${Number(m.pnl).toFixed(2)} · ROI ${roi(m.roi)}</li>`).join('');
+        const tips = (rep.suggestions || []).map(t => `<li class="mb-1">${escapeHtml(t)}</li>`).join('');
+        return `
+            ${tips ? `<div class="tcard mb-3"><div class="fw-semibold mb-1"><i class="bi bi-lightbulb me-1" style="color: var(--live)"></i>Saran</div><ul class="small mb-0">${tips}</ul></div>` : ''}
+            <div class="table-responsive"><table class="table table-dark table-sm small mb-2">
+                <thead><tr><th>Strategi</th><th class="text-end">Sampel</th><th class="text-end">Market</th><th class="text-end">Selesai</th>
+                    <th class="text-end">Ditrade</th><th class="text-end">WR vs model</th><th class="text-end">ROI semua</th>
+                    ${bucketNames.map(b => `<th class="text-end">edge ${escapeHtml(b)}</th>`).join('')}</tr></thead>
+                <tbody>${rows}</tbody></table></div>
+            ${maker ? `<div class="small fw-semibold">Maker</div><ul class="small">${maker}</ul>` : ''}
+            ${detail}
+            <div class="small dim mt-2">ROI = seandainya membeli 1 share di harga ask + fee saat sinyal (termasuk sinyal yang dilewati).
+                Saran ambang memakai satu entri per market dan butuh ≥${safeNumber(rep.min_sample)} market selesai.</div>`;
+    }
+
+    // --- LIVE ---
+    function renderLive(s) {
+        liveStatus = s;
+        if (ui.source === 'live') { renderHeader(); renderHistory(); renderSettings(); }
+    }
+    function liveHistoryHtml(s) {
+        const filter = document.getElementById('calStrategy').value;
+        const match = name => matchStrategy(filter, name);
+        const t = s.today || {}, tot = s.totals || {};
+        const pill = o => o.status === 'filled'
+            ? ({ WIN: '<span class="pill w">WIN</span>', LOSS: '<span class="pill l">LOSS</span>', VOID: '<span class="pill n">VOID</span>' }[o.result] || '<span class="pill n">OPEN</span>')
+            : `<span class="pill n">${escapeHtml({ rejected: 'tidak terisi', error: 'error', dry_run: 'dry run' }[o.status] || o.status)}</span>`;
+        const rows = (s.orders || []).filter(o => match(o.strategy)).map(o => `<tr>
+                <td class="text-nowrap mono dim">${escapeHtml(new Date(o.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td>
+                <td>${pill(o)}</td>
+                <td>${escapeHtml(o.title || '')} · <b>${escapeHtml(o.outcome)}</b>
+                    <div class="dim" style="font-size: .72rem">${escapeHtml(LIVE_SERIES_LABEL[o.strategy] || o.strategy)}${o.claimed ? ' · sudah di-claim' : ''}${o.error ? ' · ' + escapeHtml(o.error) : ''}</div></td>
+                <td class="text-end mono">${o.avg_price !== null ? (o.avg_price * 100).toFixed(1) + '¢' : '-'}</td>
+                <td class="text-end mono">${(o.max_price * 100).toFixed(0)}¢</td>
+                <td class="text-end mono">$${Number(o.usd).toFixed(2)}</td>
+                <td class="text-end mono fw-semibold ${pnlClass(o.pnl || 0)}">${o.pnl === null ? '-' : money(o.pnl)}</td></tr>`).join('')
+            || '<tr><td colspan="7" class="dim">Belum ada order live.</td></tr>';
+        return `
+            <div class="row g-2 mb-4">
+                ${[['Order hari ini', safeNumber(t.orders)], ['Beli hari ini', usd(t.spent)],
+                   ['PnL hari ini', `<span class="${pnlClass(t.realized_pnl)}">${money(safeNumber(t.realized_pnl))}</span>`], ['Terbuka', usd(t.open_usd)],
+                   ['Total menang', tot.decided ? `${tot.wins}/${tot.decided}` : '-'],
+                   ['Total PnL', tot.decided ? `<span class="${pnlClass(tot.pnl)}">${money(tot.pnl)}</span>` : '-']]
+                  .map(([k, v]) => `<div class="col-6 col-md-4 col-xl-2"><div class="tcard"><div class="label">${k}</div><div class="mono fw-semibold mt-1">${v}</div></div></div>`).join('')}
+            </div>
+            ${t.awaiting_result ? `<div class="small muted mb-2">${t.awaiting_result} market sudah selesai, menunggu hasil resolve.</div>` : ''}
+            <div class="section-title mb-2">Order terakhir</div>
+            <div class="table-responsive" style="max-height: 520px; overflow-y: auto;"><table class="table table-dark table-sm small mb-0 align-middle">
+                <thead class="sticky-top" style="background: var(--card)"><tr><th>Waktu</th><th>Status</th><th>Market</th>
+                    <th class="text-end">Harga isi</th><th class="text-end">Batas</th><th class="text-end">Nominal</th><th class="text-end">PnL</th></tr></thead>
+                <tbody>${rows}</tbody></table></div>
+            <div class="small mt-3">${s.claim && s.claim.active
+                ? '🪙 <b class="up">Auto-claim aktif</b> — posisi menang di-claim otomatis setelah market resolve.'
+                : `🪙 Auto-claim tidak aktif <span class="muted">(${escapeHtml(((s.claim || {}).problems || []).join('; '))})</span> — claim manual di Polymarket → Portfolio → Claim.`}</div>`;
+    }
+    function buildLiveConfigForm(config) {
+        const strat = config.STRATEGIES || {};
+        const active = String(strat.value || '').split(',');
+        const checks = (strat.options || []).map(opt => `
+            <div class="form-check form-check-inline small">
+                <input class="form-check-input" type="checkbox" id="live_strat_${opt}" data-live-strategy="${escapeHtml(opt)}" ${active.includes(opt) ? 'checked' : ''}>
+                <label class="form-check-label" for="live_strat_${opt}">${escapeHtml(LIVE_SERIES_LABEL[opt] || opt)}</label>
+            </div>`).join('');
+        const numeric = Object.entries(config).filter(([, c]) => c.type === 'float').map(([name, c]) => `
+            <div class="col-6 col-md-4 col-xl-3">
+                <label class="label d-block mb-1" for="live_cfg_${name}" style="text-transform: none; letter-spacing: 0; font-family: Inter">${escapeHtml(c.label)}${c.overridden ? ' <span style="color: var(--live)">•</span>' : ''}</label>
+                <input type="number" step="any" min="${safeNumber(c.min)}" max="${safeNumber(c.max)}" id="live_cfg_${name}" data-live-cfg="${name}"
+                       data-original="${safeNumber(c.value)}" value="${safeNumber(c.value)}" class="form-control form-control-sm mono"
+                       title="Default .env: ${escapeHtml(String(c.default))} · rentang ${safeNumber(c.min)}–${safeNumber(c.max)}">
+            </div>`).join('');
+        const claim = config.AUTO_CLAIM || {};
+        return `<div class="mb-3">
+                <div class="label mb-2">Seri yang dieksekusi dengan uang asli${strat.overridden ? ' <span style="color: var(--live)">•</span>' : ''}</div>
+                ${checks}
+            </div>
+            <div class="row g-3">${numeric}</div>
+            <div class="form-check small mt-3">
+                <input class="form-check-input" type="checkbox" id="live_cfg_AUTO_CLAIM" ${claim.value ? 'checked' : ''}>
+                <label class="form-check-label" for="live_cfg_AUTO_CLAIM">${escapeHtml(claim.label || 'Auto-claim kemenangan')}</label>
+            </div>
+            <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
+                <button class="btn-x" style="background: var(--live)" onclick="saveLiveConfig()"><i class="bi bi-save me-1"></i>Simpan</button>
+                <button class="btn-x ghost" onclick="resetLiveConfig()">Kembalikan ke default .env</button>
+                <span class="small" id="liveConfigMsg"></span>
+            </div>
+            <div class="small dim mt-2">Jendela masuk sama dengan paper (1 jam menit 30–57, 15 menit 7–14, 5 menit 2–4) dan aturan edge/harga yang sama.
+                Nominal per order tidak bisa melebihi <code>LIVE_MAX_ORDER_USD</code> di .env. <span style="color: var(--live)">•</span> = diubah dari dashboard. Berlaku langsung.</div>`;
+    }
+    async function saveLiveConfig() {
+        const updates = {};
+        document.querySelectorAll('[data-live-cfg]').forEach(el => {
+            if (el.value !== '' && Number(el.value) !== Number(el.dataset.original)) updates[el.dataset.liveCfg] = Number(el.value);
+        });
+        updates.STRATEGIES = [...document.querySelectorAll('[data-live-strategy]')].filter(el => el.checked).map(el => el.dataset.liveStrategy);
+        updates.AUTO_CLAIM = document.getElementById('live_cfg_AUTO_CLAIM').checked;
+        const msg = document.getElementById('liveConfigMsg');
+        if (!confirm('Simpan pengaturan trading UANG ASLI ini?')) return;
+        try {
+            const res = await fetch('/api/live/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                                                         body: JSON.stringify({ updates }) });
+            const data = await res.json();
+            if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Gagal menyimpan');
+            settingsDirty = false;
+            renderLive(data);
+            const m = document.getElementById('liveConfigMsg');
+            if (m) m.innerHTML = '<span class="up">Tersimpan.</span>';
+        } catch (err) { if (msg) msg.innerHTML = `<span class="down">${escapeHtml(err.message)}</span>`; }
+    }
+    async function resetLiveConfig() {
+        if (!confirm('Kembalikan semua pengaturan live ke nilai .env?')) return;
+        const res = await fetch('/api/live/config', { method: 'DELETE' });
+        if (res.ok) { settingsDirty = false; renderLive(await res.json()); }
+    }
+    async function fetchLive() {
+        try {
+            const res = await fetch('/api/live');
+            if (!res.ok) throw new Error('Failed');
+            renderLive(await res.json());
+        } catch (err) { console.error(err); }
+    }
+
+    // --- RIWAYAT & PENGATURAN (mengikuti sumber) ---
+    let settingsDirty = false;  // jangan timpa form yang sedang diedit saat refresh otomatis
+    document.addEventListener('input', e => { if (e.target.closest('#settingsContainer')) settingsDirty = true; });
+    function renderHistory() {
+        const box = document.getElementById('historyContainer');
+        const s = ui.source === 'live' ? liveStatus : paperStatus;
+        box.innerHTML = s ? (ui.source === 'live' ? liveHistoryHtml(s) : paperHistoryHtml(s)) : '<div class="small muted">Memuat…</div>';
+    }
+    function renderSettings(force) {
+        if (settingsDirty && !force) return;
+        const box = document.getElementById('settingsContainer');
+        const s = ui.source === 'live' ? liveStatus : paperStatus;
+        if (!s) { box.innerHTML = '<div class="small muted">Memuat…</div>'; return; }
+        const title = ui.source === 'live'
+            ? '<div class="section-title mb-3"><i class="bi bi-sliders me-2" style="color: var(--live)"></i>Pengaturan live · uang asli</div>'
+            : '<div class="section-title mb-3"><i class="bi bi-sliders me-2"></i>Aturan & batas auto paper trader</div>';
+        box.innerHTML = title + (ui.source === 'live' ? buildLiveConfigForm(s.config || {}) : buildAutotradeConfigForm(s.config || {}));
+    }
+
+    // --- MARKET LIVE BTC & ETH ---
+    const ASSET_NAMES = { btc: 'Bitcoin', eth: 'Ethereum' };
+    function cents(v) { return v === null || v === undefined ? '-' : (v * 100).toFixed(1) + '¢'; }
+    function marketCard(m) {
+        if (m.error && !m.sides) {
+            return `<div class="col-md-6 col-lg-4"><div class="mkt"><div class="fw-semibold">${escapeHtml(m.label)}</div>
+                <div class="small muted">${escapeHtml(m.error)}</div></div></div>`;
+        }
+        const sides = m.sides || {};
+        const best = ['UP', 'DOWN'].filter(k => sides[k] && sides[k].edge !== null).sort((a, b) => sides[b].edge - sides[a].edge)[0];
+        const side = k => {
+            const s = sides[k] || {};
+            const edgeCls = s.edge === null || s.edge === undefined ? '' : (s.edge >= 0 ? 'up' : 'down');
+            return `<div class="col-6"><div class="side ${k === best ? 'best' : ''}">
+                <div class="d-flex justify-content-between"><b>${k === 'UP' ? '▲ Up' : '▼ Down'}${k === best ? ' ★' : ''}</b>
+                    <span class="mono">${s.prob === null || s.prob === undefined ? '-' : Math.round(s.prob * 100) + '%'}</span></div>
+                <div class="small muted mono">ask ${cents(s.ask)} · bid ${cents(s.bid)}</div>
+                <div class="small mono">biaya ${cents(s.cost)} · edge <span class="${edgeCls}">${s.edge === null || s.edge === undefined ? '-' : (s.edge > 0 ? '+' : '') + (s.edge * 100).toFixed(1) + '¢'}</span></div>
+                <div class="small ${s.skip ? 'dim' : 'up fw-semibold'}">${s.skip ? 'dilewati: ' + escapeHtml(s.skip) : '✓ memenuhi aturan beli'}</div>
+            </div></div>`;
+        };
+        const status = [m.taker_on ? '<span class="chip on">taker</span>' : '<span class="chip">taker off</span>',
+                        m.maker_on ? '<span class="chip on">maker</span>' : ''].join(' ');
+        const chg = m.change_pct === undefined ? '' : `<span class="${pnlClass(m.change_pct)}">${m.change_pct > 0 ? '+' : ''}${m.change_pct.toFixed(2)}%</span>`;
+        const link = m.slug ? `https://polymarket.com/event/${encodeURIComponent(m.slug)}` : null;
+        return `<div class="col-md-6 col-lg-4"><div class="mkt ${m.in_window && m.accepting ? 'live' : ''}">
+            <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                <div class="d-flex align-items-center gap-2">${coinIcon(m.asset)}<div class="fw-semibold">${escapeHtml(m.label)}</div></div><div>${status}</div></div>
+            <div class="small muted mb-2">${link ? `<a class="muted" href="${link}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.title || '')}</a>` : escapeHtml(m.title || '')}</div>
+            <div class="small mono mb-2">menit ${safeNumber(m.minute).toFixed(1)}/${m.minutes} · sisa ${m.minutes_left === undefined ? '-' : safeNumber(m.minutes_left).toFixed(1) + 'm'}
+                · jendela ${escapeHtml(m.window || '-')} ${m.in_window ? '<span class="up">● sekarang</span>' : ''}</div>
+            <div class="small mono mb-2">${m.price !== undefined ? `${Number(m.price).toLocaleString('en-US', { maximumFractionDigits: 2 })} vs open ${Number(m.open).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${chg}` : '<span class="dim">model belum tersedia</span>'}</div>
+            <div class="row g-2">${side('UP')}${side('DOWN')}</div>
+        </div></div>`;
+    }
+    async function fetchMarkets() {
+        const box = document.getElementById('marketsContainer');
+        try {
+            const res = await fetch('/api/autotrade/markets');
+            if (!res.ok) throw new Error('Failed');
+            const data = await res.json();
+            const byAsset = {};
+            for (const m of data.markets || []) (byAsset[m.asset] = byAsset[m.asset] || []).push(m);
+            box.innerHTML = Object.entries(byAsset).map(([asset, list]) => {
+                const ref = list.find(m => m.price !== undefined);
+                return `<div class="mb-4">
+                    <div class="d-flex align-items-center gap-3 mb-2">${coinIcon(asset)}<span class="fw-bold">${escapeHtml(ASSET_NAMES[asset] || asset.toUpperCase())}</span>
+                        ${ref ? `<span class="asset-price">$${Number(ref.price).toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>` : ''}</div>
+                    <div class="row g-3">${list.map(marketCard).join('')}</div></div>`;
+            }).join('') || '<div class="small muted">Tidak ada market.</div>';
+            document.getElementById('marketsUpdated').textContent = 'diperbarui ' + new Date().toLocaleTimeString('id-ID');
+        } catch (err) {
+            console.error(err);
+            box.innerHTML = '<div class="small muted">Gagal memuat market BTC & ETH.</div>';
+        }
+    }
+
+    // --- VERDICT PAPER → LIVE ---
+    async function fetchVerdict() {
+        const body = document.getElementById('verdictBody');
+        try {
+            const res = await fetch('/api/autotrade/verdict');
+            if (!res.ok) throw new Error('Failed');
+            const d = await res.json();
+            const c = d.criteria;
+            document.getElementById('verdictLabel').textContent = d.label;
+            document.getElementById('verdictCriteria').textContent = `Kriteria: ≥ ${c.min_trades} trade total (≥ ${c.min_trades_series} per seri) · ≥ ${c.min_days} hari · ROI positif · tetap positif tanpa ${c.top_excluded} menang terbesar · kedua paruh positif`;
+            const badge = { LULUS: '<span class="pill w">LULUS</span>', GAGAL: '<span class="pill l">GAGAL</span>', BELUM: '<span class="pill n">BELUM</span>' };
+            const p = v => v === null || v === undefined ? '-' : `<span class="${pnlClass(v)}">${(v * 100).toFixed(1)}%</span>`;
+            const row = (name, r, strong) => `<tr${strong ? ' class="fw-semibold"' : ''}><td>${escapeHtml(name)}</td><td>${badge[r.verdict] || ''}</td>
+                <td class="text-end mono">${r.n}/${r.min_trades}</td><td class="text-end mono">${r.days ?? '-'}</td>
+                <td class="text-end mono">${p(r.roi)}</td><td class="text-end mono">${p(r.roi_without_top)}</td>
+                <td class="text-end mono">${p(r.roi_first_half)} / ${p(r.roi_second_half)}</td>
+                <td class="text-end mono">${r.z === null || r.z === undefined ? '-' : r.z.toFixed(1)}</td>
+                <td class="muted">${r.verdict === 'LULUS' ? '' : escapeHtml((r.reasons || []).join('; '))}</td></tr>`;
+            body.innerHTML = row('Gabungan crypto', d.total, true)
+                + Object.entries(d.series).map(([name, r]) => row(LIVE_SERIES_LABEL[name] || name, r, false)).join('');
+        } catch (err) {
+            body.innerHTML = '<tr><td colspan="9" class="muted">Gagal memuat verdict.</td></tr>';
+        }
+    }
+
+    function refreshAll() {
+        fetchAutotrade(); fetchLive(); fetchOverview(); loadCalendar();
+        if (ui.tab === 'markets') fetchMarkets();
+        if (ui.tab === 'analysis') { fetchVerdict(); fetchAutotradeResearch(); }
+    }
+    applyChrome();
+    refreshAll();
+    setInterval(() => { if (ui.tab === 'markets') fetchMarkets(); }, 15000);
+    setInterval(() => { fetchLive(); fetchAutotrade(); fetchOverview(); }, 60000);
+    setInterval(() => { if (!cal.selected) loadCalendar(); }, 120000);
+</script>
+</body>
+</html>
