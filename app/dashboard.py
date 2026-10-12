@@ -685,13 +685,49 @@ class CopySettingsRequest(BaseModel):
     max_delay_min: Optional[float] = None
 
 
+@app.get("/copy", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+def copy_page(request: Request):
+    """Halaman copy trade (paper) — terpisah dari Auto Bot."""
+    return templates.TemplateResponse(request=request, name="copy.html", context={})
+
+
 @app.get("/api/copy", dependencies=[Depends(require_auth)])
 def copy_list_api():
-    """Copy trade (paper): pengaturan & hasil per wallet yang dilacak."""
-    from app.paper_trading.autotrader import enabled_strategies, is_enabled
-    from app.paper_trading.copy_trader import list_copy
-    return {"active": is_enabled() and "copy" in enabled_strategies(), "bot_enabled": is_enabled(),
-            "strategy_enabled": "copy" in enabled_strategies(), "wallets": list_copy()}
+    """Copy trade (paper): status, batas, hari ini, ringkasan yang dilewati, pengaturan & hasil per wallet."""
+    from app.paper_trading import copy_trader as ct
+    return {"active": ct.is_active(), "limits": ct.limits(), "today": ct.today(), "skip_summary": ct.skip_summary(),
+            "notify_skips": settings.COPY_NOTIFY_SKIPS, "wallets": ct.list_copy()}
+
+
+@app.post("/api/copy/{action}", dependencies=[Depends(require_auth)])
+def copy_switch_api(action: str):
+    """Saklar copy trade: start / stop (terpisah dari auto bot)."""
+    from app.paper_trading import copy_trader as ct
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=404, detail="Aksi: start atau stop")
+    ct.set_active(action == "start")
+    return copy_list_api()
+
+
+@app.get("/api/copy-skips", dependencies=[Depends(require_auth)])
+def copy_skips_api(hours: int = 24, limit: int = 100):
+    """Copy yang dilewati (alasan: harga lari, order book tipis, di luar batas, terlambat, batas risiko)."""
+    from app.paper_trading.copy_trader import recent_skips
+    return {"skips": recent_skips(limit=max(1, min(limit, 500)), hours=max(1, min(hours, 24 * 30)))}
+
+
+@app.get("/api/copy-trades", dependencies=[Depends(require_auth)])
+def copy_trades_api(period: str = "all", limit: int = 100):
+    """Riwayat & statistik copy trade."""
+    from app.paper_trading.autobot_overview import overview
+    from app.paper_trading.autotrader import trade_history
+    stats = _calendar_call(overview, source="paper", period=period, strategy="copy")
+    rows = trade_history(limit=max(1, min(limit, 300)), strategy="copy")
+    for r in rows:
+        r["created_at"] = r["created_at"].isoformat()
+        if r.get("closed_at") is not None:
+            r["closed_at"] = (r["closed_at"] if r["closed_at"].tzinfo else r["closed_at"].replace(tzinfo=timezone.utc)).isoformat()
+    return _json_safe({"stats": stats, "history": rows})
 
 
 @app.put("/api/copy/{address}", dependencies=[Depends(require_auth)])

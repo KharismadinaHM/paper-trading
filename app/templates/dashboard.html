@@ -1121,7 +1121,7 @@
                     <thead><tr class="text-muted-poly">
                         <th>Wallet</th><th class="text-end">Win rate</th><th class="text-end">PnL 30h</th>
                         <th class="text-end">All-time</th><th class="text-end">Posisi</th><th>Aktif</th>
-                        <th title="Copy trade paper: ikut membeli otomatis saat wallet ini membeli">Copy</th><th class="text-end">Aksi</th>
+                        <th title="Copy trade paper: ikut membeli otomatis saat wallet ini membeli"><a class="text-muted-poly" href="/copy">Copy ↗</a></th><th class="text-end">Aksi</th>
                     </tr></thead>
                     <tbody id="walletTrackedBody"><tr><td colspan="8" class="text-muted-poly">Memuat…</td></tr></tbody>
                 </table>
@@ -2696,7 +2696,7 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || 'Gagal');
                 await fetchCopy();
-                if (updates.enabled && !copyData.strategy_enabled) alert('Copy aktif untuk wallet ini, tapi strategi "copy" belum dicentang di Auto Bot → Pengaturan — belum ada yang dibeli.');
+                if (updates.enabled && !copyData.active) alert('Copy aktif untuk wallet ini, tapi copy trade sedang berhenti — jalankan di halaman /copy atau /copy start di Telegram.');
                 fetchWallets();
             } catch (e) { alert('Gagal mengubah copy trade: ' + e.message); }
         }

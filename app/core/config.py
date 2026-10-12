@@ -151,7 +151,7 @@ class Settings(BaseSettings):
     AUTOTRADE_ENABLED: bool = False            # status awal; bisa diubah lewat /startbot /stopbot
     # btc15 & maker_btc15 nonaktif: backtest 14 hari (1.344 market) negatif di semua aturan; sinyalnya tetap
     # dicatat (shadow) untuk riset.
-    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc,hk_max,hk_min,hk_max_no,hk_min_no,copy"
+    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc,hk_max,hk_min,hk_max_no,hk_min_no"
     AUTOTRADE_ORDER_USD: Decimal = Decimal("5.00")
     AUTOTRADE_MAX_DAILY_USD: Decimal = Decimal("50.00")   # total pembelian per hari (WIB)
     AUTOTRADE_MAX_DAILY_LOSS: Decimal = Decimal("20.00")  # stop hari itu jika rugi terealisasi ≥ ini
@@ -212,6 +212,13 @@ class Settings(BaseSettings):
     HK_AI_REPORT_TZ: str = "Asia/Jakarta"            # zona jam laporan di atas
     HK_AI_ASK_PER_HOUR: int = 20                     # batas /tanya per jam (kendali biaya)
     TELEGRAM_AUTOTRADE_CHAT_ID: Optional[str] = None  # chat/grup terpisah untuk notif auto trade
+    # --- Copy trade (paper) wallet yang diikuti: terpisah dari auto bot (saklar, batas, notifikasi sendiri) ---
+    COPY_ENABLED: bool = True                    # status awal saklar copy (/copy start|stop, dashboard /copy)
+    COPY_MAX_DAILY_USD: float = 50.0             # total pembelian copy per hari (WIB)
+    COPY_MAX_OPEN_USD: float = 100.0             # total posisi copy terbuka
+    COPY_MAX_DAILY_LOSS: float = 25.0            # stop copy hari itu bila rugi terealisasi ≥ ini
+    COPY_NOTIFY_SKIPS: bool = False              # kabari tiap copy yang dilewati (default: ringkasan saja)
+    TELEGRAM_COPY_CHAT_ID: Optional[str] = None  # chat notif copy; kosong = chat utama (tempat alert wallet)
     # --- Trading UANG ASLI (Polymarket CLOB). Mati secara default; lihat docs/LIVE_TRADING.md ---
     LIVE_TRADING: bool = False
     LIVE_STRATEGIES: str = "btc,eth"            # seri yang dieksekusi live (default: BTC & ETH 1 jam)

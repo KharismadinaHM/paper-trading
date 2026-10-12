@@ -43,8 +43,12 @@ STRATEGY_VERSIONS = {
     "weather": "auto_weather_v1", "weather_post": "auto_weather_post_v1",
     "hk_max": "auto_hk_max_v1", "hk_min": "auto_hk_min_v1",
     "hk_max_no": "auto_hk_max_no_v1", "hk_min_no": "auto_hk_min_no_v1",
-    "copy": "auto_copy_v1",  # copy trade wallet yang diikuti (copy_trader.py)
 }
+# Strategi yang TERPISAH dari auto bot: saklar, batas risiko, notifikasi, statistik & halaman sendiri. Tidak ikut
+# dihitung di statistik/rekap/batas harian auto bot; tetap bisa dipakai fungsi kalender & riwayat dengan nama strateginya.
+SEPARATE_VERSIONS = {"copy": "auto_copy_v1"}
+ALL_VERSIONS = {**STRATEGY_VERSIONS, **SEPARATE_VERSIONS}
+AUTOBOT_NAMES = tuple(STRATEGY_VERSIONS)
 BINANCE = "https://data-api.binance.vision"
 ET = ZoneInfo("America/New_York")
 
@@ -221,9 +225,11 @@ def today_summary(now: Optional[datetime] = None) -> Dict[str, Any]:
     db = get_db_session()
     try:
         spent = db.query(func.coalesce(func.sum(AutotradeDecision.size_usd), 0)).filter(
-            AutotradeDecision.local_day == day, AutotradeDecision.status == "filled").scalar()
+            AutotradeDecision.local_day == day, AutotradeDecision.status == "filled",
+            AutotradeDecision.strategy.in_(AUTOBOT_NAMES)).scalar()
         count = db.query(AutotradeDecision).filter(
-            AutotradeDecision.local_day == day, AutotradeDecision.status == "filled").count()
+            AutotradeDecision.local_day == day, AutotradeDecision.status == "filled",
+            AutotradeDecision.strategy.in_(AUTOBOT_NAMES)).count()
         realized = db.query(func.coalesce(func.sum(PaperTrade.net_pnl), 0)).filter(
             PaperTrade.strategy_version.in_(versions), PaperTrade.closed_at >= day_start).scalar()
         open_usd = db.query(func.coalesce(func.sum(PaperPosition.position_size), 0)).filter(
@@ -1057,8 +1063,8 @@ def _versions_for(strategy: Optional[str]) -> List[str]:
     """Versi paper trade untuk filter: nama strategi, 'btc' / 'eth' (semua seri aset itu), atau semua."""
     if not strategy:
         return list(STRATEGY_VERSIONS.values())
-    if strategy in STRATEGY_VERSIONS:
-        return [STRATEGY_VERSIONS[strategy]]
+    if strategy in ALL_VERSIONS:
+        return [ALL_VERSIONS[strategy]]
     if strategy in ("btc_all", "eth_all"):
         asset = strategy.split("_")[0]
         return [STRATEGY_VERSIONS[name] for name in STRATEGY_VERSIONS
@@ -1155,7 +1161,7 @@ def closed_trades(day: Optional[str] = None, month: Optional[str] = None, strate
         start = datetime(year, mon, 1, tzinfo=tz)
         end = datetime(year + (mon == 12), mon % 12 + 1, 1, tzinfo=tz)
     rows = _closed(start, end, strategy)[-limit:]
-    names = {v: k for k, v in STRATEGY_VERSIONS.items()}
+    names = {v: k for k, v in ALL_VERSIONS.items()}
     db = get_db_session()
     try:
         decisions = {}
@@ -1276,7 +1282,8 @@ def strategy_stats(days: Optional[int] = None, now: Optional[datetime] = None,
 def recent_decisions(limit: int = 20) -> List[Dict[str, Any]]:
     db = get_db_session()
     try:
-        rows = db.query(AutotradeDecision).order_by(AutotradeDecision.created_at.desc()).limit(limit).all()
+        rows = (db.query(AutotradeDecision).filter(AutotradeDecision.strategy.in_(AUTOBOT_NAMES))
+                .order_by(AutotradeDecision.created_at.desc()).limit(limit).all())
         return [{"strategy": r.strategy, "label": r.label, "side": r.side, "status": r.status, "reason": r.reason,
                  "prob": float(r.model_prob or 0), "price": float(r.price or 0), "fee": float(r.fee or 0),
                  "edge": float(r.edge or 0), "size": float(r.size_usd or 0), "created_at": r.created_at}
@@ -1310,17 +1317,19 @@ def trade_history(limit: int = 20, strategy: Optional[str] = None, days: Optiona
     db = get_db_session()
     try:
         q = db.query(AutotradeDecision).filter(AutotradeDecision.status == "filled")
-        if strategy and strategy not in STRATEGY_VERSIONS:  # grup: btc_all, eth_all, hk_all, hk_yes, hk_no
+        if strategy and strategy not in ALL_VERSIONS:  # grup: btc_all, eth_all, hk_all, hk_yes, hk_no
             names = {v: k for k, v in STRATEGY_VERSIONS.items()}
             q = q.filter(AutotradeDecision.strategy.in_([names[v] for v in _versions_for(strategy)]))
         elif strategy:
             q = q.filter(AutotradeDecision.strategy == strategy)
+        else:
+            q = q.filter(AutotradeDecision.strategy.in_(AUTOBOT_NAMES))
         if days:
             q = q.filter(AutotradeDecision.created_at >= now - timedelta(days=days))
         rows = q.order_by(AutotradeDecision.created_at.desc()).limit(limit).all()
         out = []
         for d in rows:
-            version = STRATEGY_VERSIONS.get(d.strategy)
+            version = ALL_VERSIONS.get(d.strategy)
             trade = (db.query(PaperTrade).filter(PaperTrade.market_id == d.market_id,
                                                  PaperTrade.strategy_version == version)
                      .order_by(PaperTrade.opened_at.desc()).first())
@@ -1466,6 +1475,7 @@ def hourly_summary(start: datetime, end: datetime) -> Dict[str, Any]:
     db = get_db_session()
     try:
         opened = (db.query(AutotradeDecision).filter(AutotradeDecision.status == "filled",
+                                                     AutotradeDecision.strategy.in_(AUTOBOT_NAMES),
                                                      AutotradeDecision.created_at >= start,
                                                      AutotradeDecision.created_at < end).all())
         versions = {v: k for k, v in STRATEGY_VERSIONS.items()}

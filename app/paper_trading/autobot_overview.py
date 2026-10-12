@@ -20,9 +20,9 @@ def _aware(dt: datetime) -> datetime:
 
 
 def _paper_rows(start: datetime, end: datetime, strategy: Optional[str]) -> List[Dict[str, Any]]:
-    from app.paper_trading.autotrader import STRATEGY_VERSIONS, _closed
+    from app.paper_trading.autotrader import ALL_VERSIONS, _closed
 
-    names = {v: k for k, v in STRATEGY_VERSIONS.items()}
+    names = {v: k for k, v in ALL_VERSIONS.items()}
     out = []
     for t in _closed(start, end, strategy):
         out.append({"t": _aware(t.closed_at), "pnl": float(t.net_pnl or 0), "cost": float(t.position_size or 0),

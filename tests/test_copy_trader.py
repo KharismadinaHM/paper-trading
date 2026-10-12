@@ -42,15 +42,15 @@ def env(monkeypatch):
     db.add(TrackedWallet(address=WALLET, name="RainKing", status="tracking", follow=True, source="manual", added_at=NOW))
     db.commit()
     db.close()
-    at.set_enabled(True)
-    at.set_config({"STRATEGIES": ["copy"]})
+    at.set_enabled(False)          # auto bot mati: copy trade tetap jalan (terpisah)
+    ct.set_active(True)
     book = {"price": 0.46}
     monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": book["price"], "fee": 0.0, "spread": 0.02,
                                                                "shares": usd / book["price"], "slippage": 0.01})
-    sent = []
+    sent, chats = [], []
     with patch("app.paper_trading.telegram.send_telegram_message",
-               side_effect=lambda text, **kw: sent.append(text) or {"success": True}):
-        yield {"book": book, "sent": sent}
+               side_effect=lambda text, **kw: sent.append(text) or chats.append(kw.get("chat_id")) or {"success": True}):
+        yield {"book": book, "sent": sent, "chats": chats}
 
 
 def wallet():
@@ -77,7 +77,10 @@ def test_buy_is_copied_once_with_fresh_price(env):
     assert [r["action"] for r in results] == ["bought"]                     # dua fill = satu order
     pos = [p for p in get_open_positions() if p["market_id"] == MARKET]
     assert pos and pos[0]["strategy_version"] == "auto_copy_v1" and str(pos[0]["side"]).endswith("YES")
-    assert any("👛 COPY TRADE" in m and "Salin 👛 RainKing" in m for m in env["sent"])
+    assert any("👛 COPY BUY (paper) · RainKing" in m and "Salin 👛 RainKing" in m for m in env["sent"])
+    assert env["chats"] and all(c is None for c in env["chats"])        # chat utama, bukan grup auto bot
+    assert at.today_summary()["trades"] == 0 and ct.today()["bought"] == 1  # tidak masuk batas/statistik auto bot
+    assert at.trade_history() == [] and len(at.trade_history(strategy="copy")) == 1
     assert ct.process_wallet_trades(wallet(), [row(tx="c")], NOW) == []     # market + outcome yang sama: sekali saja
     assert ct.copy_stats()[WALLET]["trades"] == 1 and ct.copy_stats()[WALLET]["open"] == 1
 
@@ -87,17 +90,28 @@ def test_skips_when_price_ran_old_or_disabled(env):
     env["book"]["price"] = 0.52
     r = ct.process_wallet_trades(wallet(), [row()], NOW)
     assert r[0]["action"] == "skipped" and "harga sudah naik 45.0¢ → 52.0¢" in r[0]["reason"]
-    assert any("COPY DILEWATI" in m for m in env["sent"])
+    assert not any("COPY DILEWATI" in m for m in env["sent"])          # default: tidak dikirim satu per satu
+    assert ct.skip_summary() == {"harga sudah lari": 1} and "harga sudah naik" in ct.format_skips()
     db = get_db_session()
     assert db.query(AutotradeDecision).filter_by(strategy="copy", status="rejected").count() == 1
     db.close()
     old = ct.process_wallet_trades(wallet(), [row(ts=NOW - timedelta(hours=2), oi=1)], NOW)
     assert old[0]["action"] == "skipped" and "menit lalu" in old[0]["reason"]
-    at.set_config({"STRATEGIES": ["btc"]})                                  # strategi copy tidak dicentang
+    ct.set_active(False)                                                   # saklar copy mati
     assert ct.process_wallet_trades(wallet(), [row(tx="z", oi=1)], NOW) == []
+    ct.set_active(True)
     ct.set_settings(WALLET, {"enabled": False})
-    at.set_config({"STRATEGIES": ["copy"]})
     assert ct.process_wallet_trades(wallet(), [row(tx="y", oi=1)], NOW) == []
+
+
+def test_copy_has_its_own_risk_limits(env, monkeypatch):
+    monkeypatch.setattr(settings, "COPY_MAX_DAILY_USD", 3.0)
+    monkeypatch.setattr(settings, "COPY_NOTIFY_SKIPS", True)
+    ct.set_settings(WALLET, {"enabled": True, "usd": 2})
+    assert ct.process_wallet_trades(wallet(), [row()], NOW)[0]["action"] == "bought"
+    r = ct.process_wallet_trades(wallet(), [row(tx="n", oi=1)], NOW)
+    assert r[0]["action"] == "skipped" and "batas harian copy $3" in r[0]["reason"]
+    assert any("COPY DILEWATI" in m for m in env["sent"])                 # notif per kejadian bila diaktifkan
 
 
 def test_mirror_sell_closes_copy_position(env):
@@ -135,6 +149,9 @@ def test_polling_triggers_copy_for_all_categories(env, monkeypatch):
 
 def test_command_and_api(env):
     assert "Copy trade (paper)" in handle_incoming_message("/copy", "1")
+    assert "dihentikan" in handle_incoming_message("/copy stop", "1") and not ct.is_active()
+    assert "dijalankan" in handle_incoming_message("/copy start", "1") and ct.is_active()
+    assert "Tidak ada copy yang dilewati" in handle_incoming_message("/copy dilewati", "1")
     reply = handle_incoming_message(f"/copy {WALLET} on 4", "1")
     assert "AKTIF" in reply and "$4/trade" in reply
     assert "$5/trade" in handle_incoming_message(f"/copy {WALLET} usd 5", "1")
@@ -145,7 +162,10 @@ def test_command_and_api(env):
     from app.dashboard import app
     client = TestClient(app)
     data = client.get("/api/copy").json()
-    assert data["active"] and data["wallets"][0]["copy"]["usd"] == 5
+    assert data["active"] and data["wallets"][0]["copy"]["usd"] == 5 and data["limits"]["max_daily_usd"] > 0
+    assert client.post("/api/copy/stop").json()["active"] is False and client.post("/api/copy/start").json()["active"]
+    assert client.get("/api/copy-skips").json() == {"skips": []} and client.get("/api/copy-trades").json()["history"] == []
+    assert 'id="walletRows"' in client.get("/copy").text and 'href="/copy"' in client.get("/autobot").text
     assert client.put(f"/api/copy/{WALLET}", json={"enabled": False}).json()["copy"]["enabled"] is False
     assert client.put(f"/api/copy/{WALLET}", json={"usd": 0}).status_code == 400
-    assert at.strategy_header("copy") == "👛 COPY TRADE"
+    assert "copy" not in at.get_config()["STRATEGIES"]["options"]        # bukan strategi auto bot lagi
