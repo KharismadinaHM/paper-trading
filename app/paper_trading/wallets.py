@@ -631,7 +631,7 @@ def _group_trades(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(groups.values(), key=lambda g: g["timestamp"])
 
 
-def poll_followed_wallets(now: Optional[datetime] = None) -> int:
+def poll_followed_wallets(now: Optional[datetime] = None, only: Optional[List[str]] = None) -> int:
     """Cek transaksi baru wallet yang diikuti dan kirim alert Telegram. Kembalikan jumlah alert terkirim."""
     from app.paper_trading.telegram import send_telegram_message
 
@@ -641,7 +641,10 @@ def poll_followed_wallets(now: Optional[datetime] = None) -> int:
     db = get_db_session()
     sent = 0
     try:
-        for wallet in db.query(TrackedWallet).filter_by(follow=True, status="tracking").all():
+        wallets_q = db.query(TrackedWallet).filter_by(follow=True, status="tracking")
+        if only is not None:  # polling cepat khusus wallet yang di-copy
+            wallets_q = wallets_q.filter(TrackedWallet.address.in_([a.lower() for a in only]))
+        for wallet in wallets_q.all():
             cursor = wallet.last_activity_ts or int(now.timestamp())
             try:
                 rows = _get("/activity", user=wallet.address, limit=50, type="TRADE", start=cursor) or []
@@ -815,6 +818,17 @@ def check_portfolio_overlap(now: Optional[datetime] = None) -> int:
 
 
 _last_overlap_check: Dict[str, float] = {"at": 0.0}
+
+
+def run_copy_polling() -> int:
+    """Polling cepat (COPY_POLL_SECONDS) khusus wallet yang copy-nya aktif — jeda copy lebih pendek. Tak pernah melempar."""
+    try:
+        from app.paper_trading.copy_trader import copy_wallets, is_active
+        targets = copy_wallets() if is_active() else []
+        return poll_followed_wallets(only=targets) if targets else 0
+    except Exception as err:
+        logger.error("Gagal polling wallet copy: %s", err, exc_info=True)
+        return 0
 
 
 def run_wallet_polling() -> int:

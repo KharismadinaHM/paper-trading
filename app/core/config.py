@@ -218,6 +218,7 @@ class Settings(BaseSettings):
     COPY_MAX_OPEN_USD: float = 100.0             # total posisi copy terbuka
     COPY_MAX_DAILY_LOSS: float = 25.0            # stop copy hari itu bila rugi terealisasi ≥ ini
     COPY_NOTIFY_SKIPS: bool = False              # kabari tiap copy yang dilewati (default: ringkasan saja)
+    COPY_POLL_SECONDS: int = 15                  # wallet yang di-copy dicek lebih sering dari alert biasa
     TELEGRAM_COPY_CHAT_ID: Optional[str] = None  # chat notif copy; kosong = chat utama (tempat alert wallet)
     # --- Trading UANG ASLI (Polymarket CLOB). Mati secara default; lihat docs/LIVE_TRADING.md ---
     LIVE_TRADING: bool = False

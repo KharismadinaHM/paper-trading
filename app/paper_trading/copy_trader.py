@@ -31,8 +31,12 @@ STRATEGY = "copy"
 VERSION = "auto_copy_v1"
 DEFAULTS = {"enabled": False, "usd": None, "max_slippage": 0.03, "min_price": 0.05, "max_price": 0.95,
             "mirror_sell": True, "max_delay_min": 15}
+# maks telat ≥ 3 menit: wallet dicek tiap COPY_POLL_SECONDS dan data-api Polymarket butuh ±1 menit menampilkan
+# transaksi — batas 1 menit membuat hampir semua copy terlewat (12 Okt: CreamCream1215).
 LIMITS = {"usd": (1, 1000), "max_slippage": (0, 0.5), "min_price": (0, 0.99), "max_price": (0.01, 0.99),
-          "max_delay_min": (1, 1440)}
+          "max_delay_min": (3, 1440)}
+SCALP_WINDOW_MIN = 15      # beli lalu jual aset yang sama dalam ≤ 15 menit = scalping
+SCALP_WARN_RATIO = 0.5     # ≥ 50% pembelian dijual cepat → wallet tidak cocok di-copy
 
 
 # --- Saklar, batas risiko, notifikasi (terpisah dari auto bot) ---------------------------
@@ -153,6 +157,9 @@ def get_settings(address: str) -> Dict[str, Any]:
     out = {**DEFAULTS, **{k: v for k, v in stored.items() if k in DEFAULTS}}
     if out["usd"] is None:
         out["usd"] = float(cfg("ORDER_USD"))
+    for name, (lo, hi) in LIMITS.items():  # nilai lama di luar batas baru (mis. telat 1 menit) ikut disesuaikan
+        if isinstance(out.get(name), (int, float)):
+            out[name] = min(max(float(out[name]), lo), hi)
     return out
 
 
@@ -185,6 +192,62 @@ def set_settings(address: str, updates: Dict[str, Any], now: Optional[datetime] 
     return current
 
 
+def copy_wallets() -> List[str]:
+    """Alamat wallet yang copy-nya aktif (untuk polling cepat)."""
+    from app.paper_trading.models import TrackedWallet
+
+    db = get_db_session()
+    try:
+        addresses = [w.address for w in db.query(TrackedWallet).filter_by(follow=True, status="tracking").all()]
+    finally:
+        db.close()
+    return [a for a in addresses if get_settings(a)["enabled"]]
+
+
+_style_cache: Dict[str, Any] = {}
+
+
+def wallet_style(address: str, refresh: bool = False) -> Dict[str, Any]:
+    """
+    Gaya trading dari ±200 transaksi terakhir: berapa persen pembelian yang dijual lagi dalam ≤ SCALP_WINDOW_MIN menit
+    (aset yang sama) dan median lama menahan. Wallet scalper (beli 97¢ → jual 99¢ di menit yang sama) tidak bisa
+    di-copy: ask sudah ia borong, dan posisinya langsung ditutup. Cache 1 jam.
+    """
+    import time as _time
+
+    from app.paper_trading.wallets import _get
+
+    hit = _style_cache.get(address)
+    if hit and not refresh and _time.monotonic() - hit[0] < 3600:
+        return hit[1]
+    try:
+        rows = _get("/activity", user=address, limit=200, type="TRADE") or []
+    except Exception as err:
+        logger.warning("Gaya wallet %s gagal dibaca: %s", address, err)
+        return {"buys": 0, "scalp_ratio": None, "median_hold_min": None, "scalper": False}
+    buys: Dict[str, List[int]] = {}
+    sells: Dict[str, List[int]] = {}
+    for r in rows:
+        bucket = buys if str(r.get("side")).upper() == "BUY" else sells
+        bucket.setdefault(str(r.get("asset")), []).append(int(r.get("timestamp") or 0))
+    holds, quick, total = [], 0, 0
+    for asset, times in buys.items():
+        for t in times:
+            total += 1
+            later = [x for x in sells.get(asset, []) if x >= t]
+            if later:
+                hold = (min(later) - t) / 60
+                holds.append(hold)
+                quick += hold <= SCALP_WINDOW_MIN
+    ratio = quick / total if total else None
+    holds.sort()
+    style = {"buys": total, "scalp_ratio": round(ratio, 2) if ratio is not None else None,
+             "median_hold_min": round(holds[len(holds) // 2], 1) if holds else None,
+             "scalper": bool(total >= 6 and ratio is not None and ratio >= SCALP_WARN_RATIO)}
+    _style_cache[address] = (_time.monotonic(), style)
+    return style
+
+
 def list_copy(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
     """Wallet yang dilacak + pengaturan copy + hasil copy per wallet."""
     from app.paper_trading.models import TrackedWallet
@@ -199,6 +262,7 @@ def list_copy(now: Optional[datetime] = None) -> List[Dict[str, Any]]:
     for r in rows:
         r["copy"] = get_settings(r["address"])
         r["stats"] = stats.get(r["address"], {"trades": 0, "settled": 0, "wins": 0, "pnl": 0.0, "open": 0})
+        r["style"] = wallet_style(r["address"]) if r["follow"] else None
     return sorted(rows, key=lambda r: (not r["copy"]["enabled"], not r["follow"], (r["name"] or r["address"]).lower()))
 
 
@@ -279,7 +343,8 @@ def _skip(decision: Dict[str, Any], reason: str, now: datetime, quiet: bool = Fa
     return {"action": "skipped", "reason": reason, "key": decision["key"]}
 
 
-SKIP_GROUPS = (("harga sudah naik", "harga sudah lari"), ("order book", "order book tipis/tidak ada"),
+SKIP_GROUPS = (("harga sudah naik", "harga sudah lari"), ("ask kosong", "ask habis diborong"),
+               ("order book", "order book tipis/tidak ada"),
                ("di luar batas", "harga di luar batas"), ("spread", "spread lebar"), ("menit lalu", "terlambat"),
                ("batas", "batas risiko copy"), ("stop harian", "stop rugi harian"))
 
@@ -325,6 +390,23 @@ def skip_summary(hours: int = 24, now: Optional[datetime] = None) -> Dict[str, i
     return dict(sorted(out.items(), key=lambda kv: -kv[1]))
 
 
+def _book_problem(token: str, usd: float) -> str:
+    """Kenapa tidak bisa membeli: tidak ada order book, ask habis, atau terlalu tipis untuk nominal copy."""
+    from app.paper_trading.live_market_data import FRESH_BOOK_TTL, fetch_order_books
+
+    if not token:
+        return "token outcome tidak diketahui"
+    try:
+        book = fetch_order_books([token], ttl=FRESH_BOOK_TTL).get(str(token))
+    except Exception:
+        book = None
+    if not book:
+        return "market tidak punya order book (tutup / belum dibuka)"
+    if not book.get("asks"):
+        return "tidak ada penjual: ask kosong (kemungkinan sudah diborong wallet)"
+    return f"order book terlalu tipis untuk ${usd:g}"
+
+
 def copy_buy(wallet: Any, trade: Dict[str, Any], cfg_wallet: Dict[str, Any], now: datetime) -> Optional[Dict[str, Any]]:
     """Salin satu pembelian wallet. Mengembalikan ringkasan hasil, atau None bila sudah pernah diproses."""
     from app.paper_trading.autotrader import _book_side, already_decided, cfg
@@ -357,7 +439,7 @@ def copy_buy(wallet: Any, trade: Dict[str, Any], cfg_wallet: Dict[str, Any], now
         return _skip(decision, f"transaksi wallet sudah {age_min:.0f} menit lalu (maks {cfg_wallet['max_delay_min']:g})",
                      now, quiet=True)
     if not book:
-        return _skip(decision, "order book tidak tersedia / tidak cukup dalam", now)
+        return _skip(decision, _book_problem(trade["token"], usd), now)
     if price - wallet_price > float(cfg_wallet["max_slippage"]) + 1e-9:
         return _skip(decision, f"harga sudah naik {wallet_price * 100:.1f}¢ → {price * 100:.1f}¢ "
                                f"(maks +{float(cfg_wallet['max_slippage']) * 100:.0f}¢)", now)
@@ -444,8 +526,11 @@ def format_copy_list() -> str:
         state = "✅" if c["enabled"] else "⬜️"
         res = (f" · {s['trades']} copy · WR {s['win_rate'] * 100:.0f}% · PnL {s['pnl']:+.2f}" if s.get("win_rate") is not None
                else (f" · {s['trades']} copy · {s['open']} terbuka" if s["trades"] else ""))
-        lines.append(f"{state} {name} · ${c['usd']:g}/trade · slip ≤{c['max_slippage'] * 100:.0f}¢"
-                     + (" · ikut jual" if c["mirror_sell"] else "") + res)
+        style = r.get("style") or {}
+        warn = (f"\n   ⚠️ scalper: {style['scalp_ratio'] * 100:.0f}% beli dijual lagi ≤{SCALP_WINDOW_MIN} mnt — sulit di-copy"
+                if style.get("scalper") else "")
+        lines.append(f"{state} {name} · ${c['usd']:g}/trade · slip ≤{c['max_slippage'] * 100:.0f}¢ · telat ≤{c['max_delay_min']:g} mnt"
+                     + (" · ikut jual" if c["mirror_sell"] else "") + res + warn)
     lines.append("\n`/copy start|stop` · `/copy <wallet> on [usd]` · `off` · `usd 5` · `slip 3` · `jual on|off` · `/copy dilewati`")
     return "\n".join(lines)
 

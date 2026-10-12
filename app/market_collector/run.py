@@ -32,7 +32,7 @@ from app.paper_trading.reversal_watch import run_reversal_watch
 from app.paper_trading.settlement_worker import run_settlement_cycle
 from app.paper_trading.autotrade_research import run_signal_tracking
 from app.paper_trading.autotrader import run_autotrade_tick
-from app.paper_trading.wallets import run_wallet_maintenance, run_wallet_polling
+from app.paper_trading.wallets import run_copy_polling, run_wallet_maintenance, run_wallet_polling
 
 logger = get_logger("market_collector_runner")
 
@@ -126,8 +126,9 @@ def main():
         logger.info("Menunggu siklus berikutnya dalam %.1f detik...", sleep_duration)
 
         # Selama menunggu, cek transaksi wallet yang diikuti tiap WALLET_POLL_SECONDS (alert real-time)
-        slept, since_wallet_poll, since_autotrade = 0.0, 0.0, 0.0
+        slept, since_wallet_poll, since_autotrade, since_copy = 0.0, 0.0, 0.0, 0.0
         wallet_every = max(15, settings.WALLET_POLL_SECONDS)
+        copy_every = max(5, settings.COPY_POLL_SECONDS)
         autotrade_every = max(5, settings.AUTOTRADE_POLL_SECONDS)
         while _running and slept < sleep_duration:
             step = min(1.0, sleep_duration - slept)
@@ -135,9 +136,13 @@ def main():
             slept += step
             since_wallet_poll += step
             since_autotrade += step
+            since_copy += step
             if since_wallet_poll >= wallet_every:
-                since_wallet_poll = 0.0
+                since_wallet_poll, since_copy = 0.0, 0.0
                 run_wallet_polling()
+            elif since_copy >= copy_every:  # wallet yang di-copy: dicek lebih sering agar jeda copy pendek
+                since_copy = 0.0
+                run_copy_polling()
             if since_autotrade >= autotrade_every:  # BTC per jam: cek model vs order book tiap beberapa detik
                 since_autotrade = 0.0
                 run_autotrade_tick()

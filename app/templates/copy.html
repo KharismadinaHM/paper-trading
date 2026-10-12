@@ -200,7 +200,9 @@
                 <tbody id="walletRows"><tr><td colspan="8" class="muted">Memuat…</td></tr></tbody></table></div>
             <div class="small dim mt-3">Copy aktif = saat wallet membeli, bot membeli outcome yang sama di akun paper memakai harga order book terkini
                 (sekali per wallet + market + outcome). Dilewati bila harga sudah naik melebihi "Slip", di luar rentang harga, order book tipis,
-                transaksi wallet terlalu lama, atau batas risiko copy tercapai. Ikut jual = saat wallet menjual, posisi copy kita ikut dijual.</div>
+                transaksi wallet terlalu lama (min. 3 menit), atau batas risiko copy tercapai. Ikut jual = saat wallet menjual, posisi copy kita ikut dijual.
+                Wallet yang di-copy dicek tiap ±15 detik. ⚠️ scalper = wallet yang biasa beli lalu jual lagi dalam hitungan menit (mis. 97¢ → 99¢):
+                ask sudah ia borong sehingga hampir tidak bisa disalin.</div>
         </div>
     </div>
 
@@ -317,8 +319,11 @@
                 value="${v}" onchange="saveCopy('${a}', '${field}', this.value)">`;
             const name = w.name && !/^0x/i.test(w.name) ? esc(w.name) : esc(w.address.slice(0, 6) + '…' + w.address.slice(-4));
             const res = s.trades ? `${s.trades} copy${s.win_rate !== null && s.win_rate !== undefined ? ` · WR ${pct(s.win_rate)} · <span class="${pnlCls(s.pnl)}">${money(s.pnl)}</span>` : ''}${s.open ? ` · ${s.open} terbuka` : ''}` : '<span class="dim">-</span>';
+            const st = w.style || {};
+            const style = st.scalper ? `<div class="small" style="color: var(--live)" title="Beli lalu jual aset yang sama dalam ≤15 menit">⚠️ scalper: ${Math.round(st.scalp_ratio * 100)}% dijual ≤15 mnt — sulit di-copy</div>`
+                : (st.median_hold_min !== null && st.median_hold_min !== undefined ? `<div class="dim" style="font-size: .7rem">median tahan ${st.median_hold_min >= 60 ? (st.median_hold_min / 60).toFixed(1) + ' jam' : st.median_hold_min + ' mnt'}</div>` : '');
             return `<tr>
-                <td>${w.follow ? '🔔' : '🔕'} <a href="https://polymarket.com/profile/${a}" target="_blank" rel="noopener noreferrer">${name}</a></td>
+                <td>${w.follow ? '🔔' : '🔕'} <a href="https://polymarket.com/profile/${a}" target="_blank" rel="noopener noreferrer">${name}</a>${style}</td>
                 <td><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" ${c.enabled ? 'checked' : ''} onchange="saveCopy('${a}', 'enabled', this.checked)"></div></td>
                 <td class="text-end">${num('usd', c.usd, 1)}</td>
                 <td class="text-end">${num('max_slippage', Math.round(c.max_slippage * 100), 1, 56)}</td>

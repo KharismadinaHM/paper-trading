@@ -169,3 +169,37 @@ def test_command_and_api(env):
     assert client.put(f"/api/copy/{WALLET}", json={"enabled": False}).json()["copy"]["enabled"] is False
     assert client.put(f"/api/copy/{WALLET}", json={"usd": 0}).status_code == 400
     assert "copy" not in at.get_config()["STRATEGIES"]["options"]        # bukan strategi auto bot lagi
+
+
+def test_scalper_detection_and_clearer_book_reasons(env, monkeypatch):
+    from app.paper_trading import wallets
+    base = int(NOW.timestamp())
+    acts = []
+    for i in range(8):  # beli lalu jual aset yang sama ±1 menit kemudian (97¢ → 99¢)
+        acts.append({"side": "BUY", "asset": f"a{i}", "timestamp": base - 3600 * i})
+        acts.append({"side": "SELL", "asset": f"a{i}", "timestamp": base - 3600 * i + 60})
+    monkeypatch.setattr(wallets, "_get", lambda path, **p: acts)
+    style = ct.wallet_style(WALLET, refresh=True)
+    assert style["scalper"] and style["scalp_ratio"] == 1.0 and style["median_hold_min"] == 1.0
+    assert "scalper" in ct.format_copy_list()
+    monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books",
+                        lambda tokens, ttl=None: {"tok": {"ask": None, "bid": 0.98, "asks": [], "bids": [(0.98, 50)]}})
+    assert "ask kosong" in ct._book_problem("tok", 3)
+    monkeypatch.setattr("app.paper_trading.live_market_data.fetch_order_books", lambda tokens, ttl=None: {})
+    assert "tidak punya order book" in ct._book_problem("tok", 3)
+
+
+def test_min_delay_three_minutes_and_fast_polling(env, monkeypatch):
+    from app.paper_trading import autotrader as _at, wallets
+    _at._set_state(f"copy|{WALLET}", '{"enabled": true, "max_delay_min": 1}')
+    assert ct.get_settings(WALLET)["max_delay_min"] == 3           # nilai lama 1 menit dinaikkan ke batas minimum
+    with pytest.raises(ValueError):
+        ct.set_settings(WALLET, {"max_delay_min": 1})
+    assert ct.copy_wallets() == [WALLET]
+    polled = []
+    monkeypatch.setattr(wallets, "poll_followed_wallets", lambda now=None, only=None: polled.append(only) or 0)
+    wallets.run_copy_polling()
+    assert polled == [[WALLET]]
+    ct.set_active(False)
+    wallets.run_copy_polling()
+    assert polled == [[WALLET]]                                     # copy berhenti: tidak ada polling cepat
