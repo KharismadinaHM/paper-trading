@@ -648,15 +648,28 @@ def poll_followed_wallets(now: Optional[datetime] = None) -> int:
             except Exception as err:
                 logger.warning("Gagal mengambil aktivitas %s: %s", wallet.address, err)
                 continue
-            fresh = []
+            unseen = []
             for r in rows:
                 ts, tx, asset = int(r.get("timestamp") or 0), r.get("transactionHash"), str(r.get("asset") or "")
                 if ts < cursor or not tx or db.get(WalletAlertLog, (tx, asset)) is not None:
                     continue
-                if settings.WALLET_ALERT_WEATHER_ONLY and not WEATHER_RE.search(str(r.get("title") or "")):
-                    continue
-                fresh.append(r)
+                unseen.append(r)
+            if unseen:
+                # Copy trade (paper) untuk wallet yang copy-nya aktif — semua kategori, sebelum filter alert
+                from app.paper_trading.copy_trader import process_wallet_trades
+                process_wallet_trades(wallet, unseen, now)
+            fresh = [r for r in unseen if not settings.WALLET_ALERT_WEATHER_ONLY
+                     or WEATHER_RE.search(str(r.get("title") or ""))]
             if not fresh:
+                if unseen:  # tetap majukan kursor & catat agar tidak diproses ulang
+                    for key in {(r["transactionHash"], str(r.get("asset") or "")) for r in unseen}:
+                        db.add(WalletAlertLog(transaction_hash=key[0], asset=key[1], address=wallet.address,
+                                              timestamp=int(now.timestamp())))
+                    wallet.last_activity_ts = max(int(r.get("timestamp") or 0) for r in unseen)
+                    try:
+                        db.commit()
+                    except IntegrityError:
+                        db.rollback()
                 continue
             trades = [t for t in _group_trades(fresh) if t["usdc"] >= settings.WALLET_ALERT_MIN_USDC]
             # Anti-spam: market + sisi yang sudah dialertkan hari ini tidak dikirim lagi
@@ -687,21 +700,21 @@ def poll_followed_wallets(now: Optional[datetime] = None) -> int:
             # Satu transaksi bisa muncul di beberapa baris /activity (beberapa fill): catat tiap (tx, asset) sekali,
             # kalau tidak commit gagal (duplikat) dan alert yang sama terkirim ulang tiap siklus.
             logged = set()
-            for r in fresh:
+            for r in unseen:
                 key = (r["transactionHash"], str(r.get("asset") or ""))
                 if key in logged:
                     continue
                 logged.add(key)
                 db.add(WalletAlertLog(transaction_hash=key[0], asset=key[1], address=wallet.address,
                                       timestamp=int(r.get("timestamp") or 0)))
-            wallet.last_activity_ts = max(int(r.get("timestamp") or 0) for r in fresh)
+            wallet.last_activity_ts = max(int(r.get("timestamp") or 0) for r in unseen)
             try:
                 db.commit()
             except IntegrityError as err:
                 # Jangan sampai satu baris bermasalah membuat alert terkirim berulang: majukan kursor saja
                 db.rollback()
                 logger.warning("Log alert wallet %s gagal disimpan (%s); kursor dimajukan", wallet.address, err.orig)
-                fresh_ts = max(int(r.get("timestamp") or 0) for r in fresh)
+                fresh_ts = max(int(r.get("timestamp") or 0) for r in unseen)
                 w = db.get(TrackedWallet, wallet.address)
                 w.last_activity_ts = fresh_ts + 1  # baris di detik yang sama tidak diproses ulang
                 if trades:

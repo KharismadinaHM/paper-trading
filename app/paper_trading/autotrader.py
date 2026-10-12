@@ -43,6 +43,7 @@ STRATEGY_VERSIONS = {
     "weather": "auto_weather_v1", "weather_post": "auto_weather_post_v1",
     "hk_max": "auto_hk_max_v1", "hk_min": "auto_hk_min_v1",
     "hk_max_no": "auto_hk_max_no_v1", "hk_min_no": "auto_hk_min_no_v1",
+    "copy": "auto_copy_v1",  # copy trade wallet yang diikuti (copy_trader.py)
 }
 BINANCE = "https://data-api.binance.vision"
 ET = ZoneInfo("America/New_York")
@@ -392,6 +393,8 @@ def strategy_header(strategy: str) -> str:
         return label + (" · MAKER" if maker else "")
     if strategy == "weather_post":
         return "🌡 CUACA · PASCA PUNCAK"
+    if strategy == "copy":
+        return "👛 COPY TRADE"
     if strategy.startswith("hk_"):
         return (f"🇭🇰 HONG KONG · {'MAX' if strategy.startswith('hk_max') else 'MIN'}"
                 + (" · NO" if strategy.endswith("_no") else ""))

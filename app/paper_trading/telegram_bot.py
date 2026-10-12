@@ -69,6 +69,7 @@ def build_help_message() -> str:
         "💼 `/porto` - Portfolio Polymarket Anda (read-only): PnL, posisi, cash · `/porto posisi|aktivitas|order`\n"
         "🔎 `/discover [kategori]` - Rekomendasi wallet per kategori market: cuaca, kripto, olahraga, politik, … (tombol Ikuti / Skip)\n"
         "👛 `/wallets` - Wallet yang dilacak · `/wallet <nama/alamat>` detail & riwayat\n"        "🕵️ `/insider [jam]` - Taruhan besar berpola insider (wallet baru, longshot, nominal besar) & ketepatannya\n"
+        "👛 `/copy` - Copy trade (paper) wallet yang diikuti: `/copy <wallet> on [usd]` · `off` · `usd 5` · `slip 3` · `jual on|off`\n"
         "👁 `/track <alamat>` · `/follow` · `/unfollow` · `/skip` · `/untrack` - Kelola wallet\n"
         "🔄 `/berbalik` - Riwayat waspada berbalik: favorit ≥90¢, warning, benar berbalik atau tidak (`/berbalik 7`)\n"
         "🇭🇰 `/hk` - Hong Kong real-time (HKO 10 menit): lonjakan suhu & perkiraan max hari ini · `/hk riwayat` · `/hk jam` (tabel per jam + 6 jam ke depan) · `/hk iklim` (klimatologi bulan ini + insight)\n"
@@ -545,6 +546,9 @@ def handle_incoming_message(text: str, sender_chat_id: str, allowed_chat_id: Opt
     elif cmd in ("/rangkum", "/ringkas", "/hkai"):
         from app.paper_trading.hk_ai import build_summary
         return build_summary(use_cache=not (args and args[0].lower() in ("baru", "segar", "refresh")))["text"]
+    elif cmd in ("/copy", "/copytrade"):
+        from app.paper_trading.copy_trader import handle_copy_command
+        return handle_copy_command(args)
     elif cmd in ("/kalibrasi", "/calibration"):
         from app.paper_trading import hk_calibration as hc
         sub = args[0].lower() if args else ""

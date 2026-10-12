@@ -151,7 +151,7 @@ class Settings(BaseSettings):
     AUTOTRADE_ENABLED: bool = False            # status awal; bisa diubah lewat /startbot /stopbot
     # btc15 & maker_btc15 nonaktif: backtest 14 hari (1.344 market) negatif di semua aturan; sinyalnya tetap
     # dicatat (shadow) untuk riset.
-    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc,hk_max,hk_min,hk_max_no,hk_min_no"
+    AUTOTRADE_STRATEGIES: str = "weather,weather_post,btc,maker_btc,hk_max,hk_min,hk_max_no,hk_min_no,copy"
     AUTOTRADE_ORDER_USD: Decimal = Decimal("5.00")
     AUTOTRADE_MAX_DAILY_USD: Decimal = Decimal("50.00")   # total pembelian per hari (WIB)
     AUTOTRADE_MAX_DAILY_LOSS: Decimal = Decimal("20.00")  # stop hari itu jika rugi terealisasi ≥ ini

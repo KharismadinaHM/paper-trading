@@ -25,13 +25,20 @@ FND = {"generalSituation": "A ridge of high pressure...", "updateTime": "2026-10
                             "forecastMaxtemp": {"value": 29}, "forecastMintemp": {"value": 25}, "ForecastIcon": 62, "PSR": "High"}]}
 
 
+def _hours():
+    """Jam UTC dari 9 Okt 00:00 (08:00 HKT) sampai 3 hari setelah sekarang — test tidak bergantung tanggal hari ini."""
+    start = datetime(2026, 10, 9, 0, tzinfo=timezone.utc)
+    n = int((max(datetime.now(timezone.utc), start) - start).total_seconds() // 3600) + 72
+    return start, n
+
+
 def open_meteo():
-    start = datetime(2026, 10, 9, 0, tzinfo=timezone.utc)  # 08:00 HKT
-    times = [(start + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M") for i in range(72)]
-    temps = [27 + 3 * ((i + 8) % 24 in range(11, 17)) for i in range(72)]  # 30°C jam 11–16 HKT
-    return {"hourly": {"time": times, "temperature_2m": temps, "weather_code": [2] * 72,
-                       "precipitation_probability": [20] * 72, "relative_humidity_2m": [70] * 72,
-                       "wind_speed_10m": [12.0] * 72, "cloud_cover": [40] * 72}}
+    start, n = _hours()
+    times = [(start + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M") for i in range(n)]
+    temps = [27 + 3 * ((i + 8) % 24 in range(11, 17)) for i in range(n)]  # 30°C jam 11–16 HKT
+    return {"hourly": {"time": times, "temperature_2m": temps, "weather_code": [2] * n,
+                       "precipitation_probability": [20] * n, "relative_humidity_2m": [70] * n,
+                       "wind_speed_10m": [12.0] * n, "cloud_cover": [40] * n}}
 
 
 @pytest.fixture
@@ -130,11 +137,11 @@ NOWCAST_CSV = ("Updated Date and Time (in Hong Kong Time),Ending Date and Time (
 
 
 def ensemble_json():
-    start = datetime(2026, 10, 9, 0, tzinfo=timezone.utc)
-    times = [(start + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M") for i in range(72)]
+    start, n = _hours()
+    times = [(start + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M") for i in range(n)]
     hourly = {"time": times}
     for model, peak in zip(hk_forecast.ENSEMBLE_MODELS, [31.0, 30.0, 30.5, 31.5, 29.0]):
-        hourly[f"temperature_2m_{model}"] = [peak if (i + 8) % 24 == 14 else 27.0 for i in range(72)]
+        hourly[f"temperature_2m_{model}"] = [peak if (i + 8) % 24 == 14 else 27.0 for i in range(n)]
     return {"hourly": hourly}
 
 

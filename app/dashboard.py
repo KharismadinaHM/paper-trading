@@ -675,6 +675,36 @@ def wallet_detail_api(address: str):
             "profile_url": wallets.profile_url(addr)}
 
 
+class CopySettingsRequest(BaseModel):
+    enabled: Optional[bool] = None
+    usd: Optional[float] = None
+    max_slippage: Optional[float] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    mirror_sell: Optional[bool] = None
+    max_delay_min: Optional[float] = None
+
+
+@app.get("/api/copy", dependencies=[Depends(require_auth)])
+def copy_list_api():
+    """Copy trade (paper): pengaturan & hasil per wallet yang dilacak."""
+    from app.paper_trading.autotrader import enabled_strategies, is_enabled
+    from app.paper_trading.copy_trader import list_copy
+    return {"active": is_enabled() and "copy" in enabled_strategies(), "bot_enabled": is_enabled(),
+            "strategy_enabled": "copy" in enabled_strategies(), "wallets": list_copy()}
+
+
+@app.put("/api/copy/{address}", dependencies=[Depends(require_auth)])
+def copy_settings_api(address: str, req: CopySettingsRequest):
+    """Ubah pengaturan copy satu wallet (mengaktifkan copy juga mengikuti wallet itu)."""
+    from app.paper_trading.copy_trader import set_settings
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    try:
+        return {"address": address.lower(), "copy": set_settings(address, updates)}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
 @app.post("/api/wallets/{address}/follow", dependencies=[Depends(require_auth)])
 def follow_wallet_api(address: str):
     from app.paper_trading import wallets
