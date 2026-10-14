@@ -469,6 +469,35 @@ def hk_trades_api(period: str = "all", limit: int = 100, side: str = "all"):
     return _json_safe({"side": side, "stats": stats, "by_side": by_side, "history": rows, "open": len(open_rows)})
 
 
+@app.get("/api/hk/signals", dependencies=[Depends(require_auth)])
+def hk_signals_api(per_strategy: int = 5):
+    """Sinyal terakhir tiap strategi HK (hk_max, hk_min, hk_max_no, hk_min_no): dibeli atau alasan dilewati."""
+    import json as _json
+    from app.core.database import get_db_session
+    from app.paper_trading.autotrader import enabled_strategies
+    from app.paper_trading.models import AutotradeSignal
+    db = get_db_session()
+    try:
+        out = {}
+        for strat in ("hk_max", "hk_min", "hk_max_no", "hk_min_no"):
+            rows = (db.query(AutotradeSignal).filter(AutotradeSignal.strategy == strat)
+                    .order_by(AutotradeSignal.created_at.desc()).limit(max(1, min(per_strategy, 50))).all())
+            items = []
+            for r in rows:
+                try:
+                    f = _json.loads(r.features or "{}")
+                except ValueError:
+                    f = {}
+                items.append({"created_at": (r.created_at if r.created_at.tzinfo else r.created_at.replace(tzinfo=timezone.utc)).isoformat(),
+                              "label": r.label, "action": r.action, "reason": r.skip_reason, "price": float(r.price or 0),
+                              "edge": float(r.edge or 0), "model": f.get("model_raw", f.get("model_yes")),
+                              "market": f.get("market_prob", f.get("market_yes")), "outcome": r.outcome})
+            out[strat] = {"enabled": strat in enabled_strategies(), "signals": items}
+        return out
+    finally:
+        db.close()
+
+
 class HkAskRequest(BaseModel):
     question: str
 

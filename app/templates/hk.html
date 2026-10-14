@@ -358,6 +358,11 @@
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                 <div class="section-title">Riwayat trade bot HK <span class="chip ms-1">paper</span></div>
                 <div class="d-flex gap-2 flex-wrap">
+                <div class="seg sm" id="histKind">
+                    <button data-kind="" onclick="setHistKind('')">MAX+MIN</button>
+                    <button data-kind="max" onclick="setHistKind('max')">MAX</button>
+                    <button data-kind="min" onclick="setHistKind('min')">MIN</button>
+                </div>
                 <div class="seg sm" id="histSide">
                     <button data-side="all" onclick="setHistSide('all')">SEMUA</button>
                     <button data-side="yes" onclick="setHistSide('yes')">YES</button>
@@ -383,6 +388,11 @@
                 <thead class="sticky-top" style="background: var(--card)"><tr><th>Waktu</th><th>Hasil</th><th>Market</th><th class="text-end">Masuk</th>
                     <th class="text-end">Model</th><th class="text-end">Edge</th><th class="text-end">Ukuran</th><th class="text-end">PnL</th></tr></thead>
                 <tbody id="histRows"><tr><td colspan="8" class="muted">Memuat…</td></tr></tbody></table></div>
+        </div>
+        <div class="card-x p-4 mt-3">
+            <div class="section-title mb-1">Sinyal terakhir per strategi</div>
+            <div class="small dim mb-3">Dicek tiap siklus collector, dicatat tiap 30 menit — termasuk yang dilewati dan alasannya (mis. kenapa hk_min belum membeli).</div>
+            <div class="row g-3" id="sigBox"><div class="col-12 small muted">Memuat…</div></div>
         </div>
     </div>
 
@@ -976,12 +986,17 @@
         const names = { hk_max: 'Max YES (suhu tertinggi)', hk_min: 'Min YES (suhu terendah)', hk_max_no: 'Max NO', hk_min_no: 'Min NO' };
         const best = s.best ? `<div class="col-md-6"><div class="tcard"><div class="label">Trade terbaik</div><div class="small mt-1">${esc(s.best.market)}</div><div class="mono up fw-semibold">${money(s.best.pnl)}</div></div></div>` : '';
         const worst = s.worst ? `<div class="col-md-6"><div class="tcard"><div class="label">Trade terburuk</div><div class="small mt-1">${esc(s.worst.market)}</div><div class="mono down fw-semibold">${money(s.worst.pnl)}</div></div></div>` : '';
-        document.getElementById('histKinds').innerHTML = (s.series || []).map(x => `<div class="col-md-6"><div class="tcard d-flex justify-content-between align-items-center">
+        const seriesMap = Object.fromEntries((s.series || []).map(x => [x.strategy, x]));
+        const allKinds = ['hk_max', 'hk_min', 'hk_max_no', 'hk_min_no']
+            .filter(k => (histSide === 'all' || (histSide === 'no') === k.endsWith('_no')) && (!histKind || k.startsWith('hk_' + histKind)))
+            .map(k => seriesMap[k] || { strategy: k, trades: 0, wins: 0, win_rate: null, pnl: 0, roi: null });
+        document.getElementById('histKinds').innerHTML = allKinds.map(x => `<div class="col-md-6"><div class="tcard d-flex justify-content-between align-items-center">
                 <div><div class="fw-semibold small">${names[x.strategy] || esc(x.strategy)}</div><div class="label" style="font-size: .62rem">${x.trades} trade · WR ${pct(x.win_rate)}${x.roi !== null ? ' · ROI ' + (x.roi * 100).toFixed(1) + '%' : ''}</div></div>
                 <div class="mono fw-semibold ${pnlCls(x.pnl)}">${money(x.pnl)}</div></div></div>`).join('') + best + worst;
         const pill = { MENANG: '<span class="pill w">WIN</span>', KALAH: '<span class="pill l">LOSS</span>', TERBUKA: '<span class="pill">OPEN</span>',
                        DIJUAL: '<span class="pill">SOLD</span>', BATAL: '<span class="pill">VOID</span>' };
-        const rows = (d.history || []).filter(r => !histFilter || r.result === histFilter);
+        const kindOk = r => !histKind || (histKind === 'max' ? String(r.strategy).startsWith('hk_max') : String(r.strategy).startsWith('hk_min'));
+        const rows = (d.history || []).filter(r => (!histFilter || r.result === histFilter) && kindOk(r));
         document.getElementById('histRows').innerHTML = rows.map(r => `<tr>
             <td class="text-nowrap dim">${new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
             <td>${pill[r.result] || esc(r.result)}</td>
@@ -1067,6 +1082,28 @@
         if (res.ok) { renderCalibration(await res.json()); loadBot(); }
     }
 
+    // --- SINYAL TERAKHIR & FILTER JENIS ---
+    let histKind = store.get('hkHistKind', '');
+    function setHistKind(kind) {
+        histKind = kind; store.set('hkHistKind', kind);
+        document.querySelectorAll('#histKind button').forEach(b => b.classList.toggle('active', b.dataset.kind === kind));
+        renderHistory();
+    }
+    async function loadSignals() {
+        try {
+            const res = await fetch('/api/hk/signals?per_strategy=4');
+            const d = await res.json();
+            const names = { hk_max: 'Max · YES', hk_min: 'Min · YES', hk_max_no: 'Max · NO', hk_min_no: 'Min · NO' };
+            document.getElementById('sigBox').innerHTML = Object.entries(d).map(([k, v]) => `<div class="col-md-6"><div class="tcard">
+                <div class="d-flex justify-content-between mb-1"><b class="small">${names[k]}</b>${v.enabled ? '<span class="chip on">aktif</span>' : '<span class="chip">nonaktif</span>'}</div>
+                ${(v.signals || []).map(x => `<div class="small mb-1"><span class="dim mono">${new Date(x.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                    ${esc((x.label || '').split(' · ').pop())} @ ${(x.price * 100).toFixed(1)}¢${x.model !== null && x.model !== undefined ? ` · model ${Math.round(x.model * 100)}%` : ''}${x.market !== null && x.market !== undefined ? ` vs pasar ${Math.round(x.market * 100)}%` : ''}
+                    ${x.action === 'traded' ? '<span class="up"> → beli</span>' : `<div class="dim" style="font-size: .72rem">↳ ${esc(x.reason || '-')}</div>`}
+                    ${x.outcome ? ` <span class="pill ${x.outcome === 'WIN' ? 'w' : x.outcome === 'LOSS' ? 'l' : ''}">${x.outcome}</span>` : ''}</div>`).join('') || '<div class="small dim">Belum ada sinyal.</div>'}
+                </div></div>`).join('');
+        } catch (e) { document.getElementById('sigBox').innerHTML = '<div class="col-12 small muted">Gagal memuat sinyal.</div>'; }
+    }
+
     // --- MUAT DATA ---
     async function loadLive() {
         try {
@@ -1108,6 +1145,7 @@
         setTimeout(() => { status.textContent = ''; }, 2500);
     }
     async function loadAll() {
+        loadSignals();
         loadForecast();
         loadBot();
         loadCalibration();
@@ -1125,6 +1163,7 @@
         setTab(tab);
         document.querySelectorAll('#daySeg button').forEach(b => b.classList.toggle('active', b.dataset.day === 'today'));
         setHistFilter('');
+        document.querySelectorAll('#histKind button').forEach(b => b.classList.toggle('active', b.dataset.kind === histKind));
         loadAll();
         setInterval(() => { loadLive(); loadHourly(); loadBot(); loadForecast(); }, 5 * 60 * 1000);
     })();

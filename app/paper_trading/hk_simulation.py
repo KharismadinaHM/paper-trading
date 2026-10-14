@@ -4,7 +4,8 @@ Simulasi Monte Carlo suhu max/min Hong Kong (HKO) — gabungan banyak sumber, bu
 Satu simulasi = satu jalur suhu per jam untuk sisa hari (atau besok), dibangun dari:
 1. **Skenario fisika**: anggota ensemble Open-Meteo (ECMWF ENS 51, GFS ENS 31, ICON EPS 40 — suhu & hujan per jam yang
    konsisten secara fisika) + 5 model deterministik (ECMWF, GFS, ICON, JMA, CMA). Tiap jalur dikoreksi bacaan HKO
-   terakhir (selisih bacaan − jalur saat itu, meluruh dengan jarak seperti proyeksi per jam).
+   terakhir; koreksinya meluruh ke PROFIL BIAS STASIUN per jam (HKO kota konsisten lebih hangat dari model, terutama
+   malam), lalu ditambah selisih puncak/lembah 10 menit (hko_hourly.station_bias_profile).
 2. **Error historis**: tiap jalur diberi beberapa realisasi noise AR(1) per jam dengan besaran dari error proyeksi
    HKO yang terukur (hk_bot.sigma_for), sehingga ketidakpastian lokal stasiun ikut terwakili.
 3. **Cuaca saat ini**: bila nowcast radar / peringatan HKO menunjukkan hujan ±2 jam, sebagian simulasi (yang jalurnya
@@ -45,6 +46,9 @@ CLIM_WEIGHT_MAX = 0.15     # porsi sampel klimatologi paling besar (jauh sebelum
 CLIM_HORIZON_H = 8.0       # porsi klimatologi menyusut linier sampai 0 saat puncak tinggal 0 jam
 ANOMALY_SHRINK = 0.5
 _clim_cache: Dict[Tuple[str, str], Tuple[float, List[float]]] = {}
+_last_members: Dict[str, Any] = {"at": 0.0, "value": None}
+STALE_MEMBERS_S = 6 * 3600   # ensemble gagal diambil: pakai yang terakhir berhasil (≤ 6 jam) daripada 5 model saja
+MIN_PATHS_TO_TRADE = 20      # simulasi dengan jalur model sedikit (ensemble gagal) tidak boleh dipakai untuk membeli
 
 
 # --- Sumber data -------------------------------------------------------------------------
@@ -74,8 +78,16 @@ def ensemble_members() -> List[Dict[str, Any]]:
         return out
 
     try:
-        return _cached("hk_ensemble_members", 3600, load)
+        members = _cached("hk_ensemble_members", 3600, load)
+        if members:
+            _last_members.update(at=time.monotonic(), value=members)
+        return members
     except Exception as err:
+        stale = _last_members["value"]
+        if stale and time.monotonic() - _last_members["at"] < STALE_MEMBERS_S:
+            logger.warning("Ensemble Open-Meteo gagal (%s); memakai data %.0f menit lalu", err,
+                           (time.monotonic() - _last_members["at"]) / 60)
+            return stale
         logger.warning("Gagal mengambil anggota ensemble Open-Meteo: %s", err)
         return []
 
@@ -134,7 +146,7 @@ def simulate(kind: str, now: datetime, observed: Optional[float], latest_at: Opt
              clim: Optional[List[float]] = None) -> Optional[Dict[str, Any]]:
     """Sampel suhu akhir (max atau min hari itu) dari semua sumber. None bila tidak ada jalur sama sekali."""
     from app.paper_trading.hk_bot import sigma_for
-    from app.paper_trading.hko_hourly import bias_weight
+    from app.paper_trading.hko_hourly import correction, station_bias_profile
 
     local = now.astimezone(HKT)
     day = local.date() + timedelta(days=day_offset)
@@ -146,6 +158,9 @@ def simulate(kind: str, now: datetime, observed: Optional[float], latest_at: Opt
     seed = int(hashlib.sha1(f"{kind}|{day}|{int(now.timestamp() // 600)}".encode()).hexdigest()[:8], 16)
     rng = random.Random(seed)  # stabil selama 10 menit: tampilan & keputusan tidak berkedip
 
+    profile = station_bias_profile(now)
+    # Puncak/lembah singkat 10 menit yang tak terlihat di jalur per jam (max HKO dari bacaan 10 menit)
+    excess = profile.get("peak_excess", 0.0) if highest else profile.get("trough_excess", 0.0)
     extremes: List[Tuple[float, float]] = []   # (nilai, jam sejak sekarang)
     n_paths = 0
     for path in paths:
@@ -160,7 +175,7 @@ def simulate(kind: str, now: datetime, observed: Optional[float], latest_at: Opt
             continue
         n_paths += 1
         leads = [((ts - latest_at).total_seconds() / 3600 if latest_at else 24.0) for ts, _ in hours]
-        base = [v + offset * bias_weight(lead) for (_, v), lead in zip(hours, leads)]
+        base = [v + correction(ts, lead, offset, profile) for (ts, v), lead in zip(hours, leads)]
         rains = any(path["precip"].get(ts, 0.0) >= 0.5 for ts, _ in hours[:3])
         for _ in range(SIMS_PER_PATH):
             noise, values = 0.0, []
@@ -174,7 +189,7 @@ def simulate(kind: str, now: datetime, observed: Optional[float], latest_at: Opt
                 for j in range(hit, len(values)):  # permukaan basah & awan: puncak sesudahnya ikut tertahan
                     values[j] -= drop * math.exp(-(j - hit) / RAIN_RECOVERY_H)
             idx = max(range(len(values)), key=values.__getitem__) if highest else min(range(len(values)), key=values.__getitem__)
-            extremes.append((values[idx], (hours[idx][0] - now).total_seconds() / 3600))
+            extremes.append((values[idx] + excess, (hours[idx][0] - now).total_seconds() / 3600))
     if not extremes:
         return None
 

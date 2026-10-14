@@ -38,6 +38,7 @@ SIGMA_PER_HOUR_BEYOND = 0.1
 SIGMA_CAP = 2.5
 SIGNAL_BUCKET_MINUTES = 30
 RAIN_SIGMA_FACTOR = 1.3    # hujan diperkirakan: ketidakpastian diperlebar
+MIN_PATHS = 20             # minimal jalur model di simulasi sebelum boleh membeli
 _sigma_cache: Dict[str, Any] = {"at": 0.0, "values": None}
 
 
@@ -475,6 +476,12 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
     elif lead > float(cfg("HK_LEAD_HOURS")):
         reason = (f"{'puncak' if kind == 'highest' else 'titik terendah'} masih ±{lead:.1f} jam lagi "
                   f"(masuk ≤ {float(cfg('HK_LEAD_HOURS')):g} jam sebelumnya)")
+    elif dist.get("sim") and dist["sim"].get("n_paths", 0) < MIN_PATHS:
+        reason = f"simulasi hanya {dist['sim']['n_paths']} jalur model (ensemble gagal diambil)"
+    elif target.get("market_prob") is not None and target["model"] - target["market_prob"] > float(cfg("HK_MAX_DISAGREE")):
+        # 10–13 Okt: 4 pembelian dengan model jauh di atas pasar (58% vs 16%, 78% vs 20%, 100% vs 45%) — pasar benar semua
+        reason = (f"model terlalu berbeda dengan pasar ({target['model'] * 100:.0f}% vs {target['market_prob'] * 100:.0f}%, "
+                  f"maks {float(cfg('HK_MAX_DISAGREE')) * 100:.0f} poin)")
     elif already_decided(key):
         reason = "sudah trade hari ini"
     elif not book:

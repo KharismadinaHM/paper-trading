@@ -34,6 +34,17 @@ Aturan masuk: hanya bila puncak (max) / titik terendah (min) tinggal ≤ `HK_LEA
 (nilai terukur bertahan di ≥ 50% skenario), dan harga ≥ `HK_MIN_PRICE` (15¢). 10 Okt bot membeli bracket 6.7¢ jam 09:04
 (model 23% vs pasar 5%) dan kalah — kedua aturan ini akan menolaknya.
 
+## Profil bias stasiun & pengaman (14 Okt)
+
+3 kalah beruntun (10–12 Okt, 13 Okt menyusul): model meremehkan puncak ±1°C, pasar (31°C) benar setiap kali.
+Data 30 Sep–13 Okt: max HKO − model **+0.66°C** (13/14 hari), min **+2.2°C** (14/14). Profil per jam HKT (14 hari):
+10–14 ≈ 0, **15–19 +1.0…+1.3** (HKO tetap panas saat model mendingin), **malam +1.4…+1.8** (pulau panas kota).
+- `hko_hourly.station_bias_profile()`: bias per jam (ditarik ke 0 bila sampel sedikit) + selisih puncak/lembah 10 menit.
+  Koreksi jam-jam jauh kini meluruh ke profil ini, bukan ke 0 — di proyeksi per jam, ensemble, simulasi, dan forecast.
+- Lewati YES bila peluang model − pasar > `HK_MAX_DISAGREE` (30 poin) — keempat trade di atas tertolak.
+- `HK_MODEL_WEIGHT` 0.6 → 0.4; simulasi < 20 jalur model (ensemble gagal) tidak dipakai membeli; ensemble terakhir yang
+  berhasil (≤ 6 jam) dipakai saat pengambilan gagal.
+
 ## Sisi NO (hk_max_no / hk_min_no)
 
 Bot membeli NO hanya pada bracket yang **mustahil** oleh angka terukur hari ini (max sudah melewati bracket itu, atau

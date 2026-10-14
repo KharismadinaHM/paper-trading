@@ -92,7 +92,10 @@ def test_evaluate_picks_best_edge_and_applies_rules(books, monkeypatch):
     analysis = hk_bot.analyze(now, status=st, projection=[(hkt(17), 29.6), (hkt(18), 29.0)])
     books["tok-30°C"] = 0.40
     d = hk_bot.evaluate("hk_max", now, analysis)
-    assert d["features"]["bracket"] == "30°C" and d["skip_reason"] is None
+    assert d["features"]["bracket"] == "30°C" and "model terlalu berbeda dengan pasar" in d["skip_reason"]
+    at.set_config({"HK_MAX_DISAGREE": 1.0})
+    d = hk_bot.evaluate("hk_max", now, analysis)
+    assert d["skip_reason"] is None
     assert d["prob"] > 0.9 and d["edge"] == pytest.approx(d["prob"] - 0.41)
     assert d["key"] == "hk_max|2026-10-09" and d["title"].startswith("🇭🇰 Hong Kong max")
     early = hkt(8).astimezone(timezone.utc)
@@ -106,11 +109,12 @@ def test_market_weight_shrinks_model(books):
     now = hkt(16, 30).astimezone(timezone.utc)
     analysis = hk_bot.analyze(now, status=status(now, temp=29.8), projection=[(hkt(17), 29.6)])
     row = next(r for r in analysis["max"]["brackets"] if r["bracket"] == "30°C")
-    assert row["prob"] == pytest.approx(row["market_prob"] + 0.6 * (row["model"] - row["market_prob"]), abs=1e-3)
+    assert row["prob"] == pytest.approx(row["market_prob"] + 0.4 * (row["model"] - row["market_prob"]), abs=1e-3)
 
 
 def test_hk_tick_executes_active_and_shadows_inactive(books, monkeypatch):
     from app.paper_trading import autotrader as at
+    at.set_config({"HK_MAX_DISAGREE": 1.0})
     now = hkt(16, 30).astimezone(timezone.utc)
     analysis = hk_bot.analyze(now, status=status(now, temp=29.8), projection=[(hkt(17), 29.6)])
     monkeypatch.setattr(hk_bot, "analyze", lambda now=None, status=None, projection=None: analysis)

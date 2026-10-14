@@ -92,6 +92,86 @@ def bias_weight(lead_hours: float, at_6h: Optional[float] = None) -> float:
     return 1.0 + (at_6h - 1.0) * frac
 
 
+PROFILE_DAYS = 21
+PROFILE_SHRINK = 5        # per jam: rata-rata × n / (n + 5)
+PROFILE_CAP = 4.0
+_profile_cache: Dict[str, Any] = {"at": 0.0, "value": None}
+
+
+def station_bias_profile(now: Optional[datetime] = None, days: int = PROFILE_DAYS, refresh: bool = False) -> Dict[str, Any]:
+    """
+    Profil bias stasiun HKO vs model Open-Meteo per jam HKT dari PROFILE_DAYS hari terakhir: rata-rata
+    (bacaan HKO jam :00 − model jam itu), ditarik ke 0 bila sampel sedikit. HKO (Tsim Sha Tsui, padat kota) konsisten
+    lebih hangat dari model — 30 Sep–13 Okt: max +0.66°C (13/14 hari), min +2.2°C (14/14, efek pulau panas malam hari).
+    Juga 'peak_excess' / 'trough_excess': max/min harian HKO (termasuk bacaan 10 menit) dibanding max/min bacaan :00 —
+    puncak/lembah singkat yang tidak terlihat di data per jam. Cache 6 jam. Nol bila data belum ada.
+    """
+    import time as _time
+
+    from app.paper_trading.hko_alerts import row_extremes
+
+    if not refresh and _profile_cache["value"] is not None and _time.monotonic() - _profile_cache["at"] < 6 * 3600:
+        return _profile_cache["value"]
+    now = now or datetime.now(timezone.utc)
+    today = now.astimezone(HKT).date()
+    start = datetime.combine(today - timedelta(days=days), datetime.min.time(), tzinfo=HKT)
+    end = datetime.combine(today, datetime.min.time(), tzinfo=HKT)
+    empty = {"hourly": [0.0] * 24, "counts": [0] * 24, "peak_excess": 0.0, "trough_excess": 0.0, "days": 0}
+    db = get_db_session()
+    try:
+        rows = (db.query(StationReading).filter(StationReading.station == STATION,
+                                                StationReading.observed_at >= start.astimezone(timezone.utc),
+                                                StationReading.observed_at < end.astimezone(timezone.utc))
+                .order_by(StationReading.observed_at).all())
+    except Exception as err:
+        logger.warning("Profil bias HKO gagal dibaca: %s", err)
+        rows = []
+    finally:
+        db.close()
+    if not rows:
+        return empty
+    model = dict(fetch_model_series(start.astimezone(timezone.utc).date(), end.astimezone(timezone.utc).date()))
+    sums, counts = [0.0] * 24, [0] * 24
+    by_day: Dict[date, Dict[str, List[float]]] = {}
+    for r in rows:
+        at = _aware(r.observed_at)
+        local = at.astimezone(HKT)
+        day = by_day.setdefault(local.date(), {"all": [], "hourly": [], "hi": [], "lo": []})
+        temp = float(r.temp)
+        day["all"].append(temp)
+        d, hi, lo = row_extremes(r)
+        if d == local.date():
+            day["hi"] += [hi] if hi is not None else []
+            day["lo"] += [lo] if lo is not None else []
+        if local.minute == 0:
+            day["hourly"].append(temp)
+            m = model.get(at.replace(second=0, microsecond=0))
+            if m is not None:
+                sums[local.hour] += temp - m
+                counts[local.hour] += 1
+    hourly = [max(-PROFILE_CAP, min(PROFILE_CAP, (sums[h] / counts[h]) * counts[h] / (counts[h] + PROFILE_SHRINK)))
+              if counts[h] else 0.0 for h in range(24)]
+    peaks = [max(d["all"] + d["hi"]) - max(d["hourly"]) for d in by_day.values() if len(d["hourly"]) >= 20]
+    troughs = [min(d["all"] + d["lo"]) - min(d["hourly"]) for d in by_day.values() if len(d["hourly"]) >= 20]
+    value = {"hourly": [round(x, 2) for x in hourly], "counts": counts,
+             "peak_excess": round(sum(peaks) / len(peaks), 2) if peaks else 0.0,
+             "trough_excess": round(sum(troughs) / len(troughs), 2) if troughs else 0.0,
+             "days": len([d for d in by_day.values() if len(d["hourly"]) >= 20])}
+    _profile_cache.update(at=_time.monotonic(), value=value)
+    return value
+
+
+def correction(ts: datetime, lead_hours: float, offset: float, profile: Optional[Dict[str, Any]] = None,
+               at_6h: Optional[float] = None) -> float:
+    """
+    Koreksi model pada waktu ts: selisih bacaan terkini (offset) berbobot bias_weight(lead), sisanya diisi bias stasiun
+    jam itu (profil historis) — bukan nol. Dekat sekarang mengikuti bacaan, jauh ke depan mengikuti pola historis.
+    """
+    w = bias_weight(lead_hours, at_6h)
+    hourly = (profile or {}).get("hourly") or [0.0] * 24
+    return w * offset + (1 - w) * hourly[ts.astimezone(HKT).hour]
+
+
 def project_ahead(now: datetime, readings: List[Tuple[datetime, float]], model: Dict[datetime, float],
                   hours: int = AHEAD_HOURS, at_6h: Optional[float] = None) -> List[Tuple[datetime, float]]:
     """
@@ -106,6 +186,7 @@ def project_ahead(now: datetime, readings: List[Tuple[datetime, float]], model: 
     if at_obs is None:
         return []
     offset = latest - at_obs
+    profile = station_bias_profile(now)
     out = []
     first = _hour_start(now) + timedelta(hours=1)
     for i in range(hours):
@@ -113,7 +194,7 @@ def project_ahead(now: datetime, readings: List[Tuple[datetime, float]], model: 
         raw = _model_at(model, ts)
         if raw is not None:
             lead = (ts - latest_at).total_seconds() / 3600
-            out.append((ts, round(raw + offset * bias_weight(lead, at_6h), 1)))
+            out.append((ts, round(raw + correction(ts, lead, offset, profile, at_6h), 1)))
     return out
 
 

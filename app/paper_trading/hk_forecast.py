@@ -139,9 +139,10 @@ def _open_meteo_hourly() -> List[Dict[str, Any]]:
 def hourly_outlook(now: Optional[datetime] = None, hours: int = 24) -> List[Dict[str, Any]]:
     """Per jam mulai jam berikutnya: suhu (model + bias HKO meluruh), kondisi, peluang hujan, RH, angin, awan."""
     from app.core.database import get_db_session
-    from app.paper_trading.hko_hourly import _readings, bias_weight
+    from app.paper_trading.hko_hourly import _readings, correction, station_bias_profile
 
     now = now or datetime.now(timezone.utc)
+    profile = station_bias_profile(now)
     rows = _open_meteo_hourly()
     if not rows:
         return []
@@ -169,7 +170,7 @@ def hourly_outlook(now: Optional[datetime] = None, hours: int = 24) -> List[Dict
         local = r["at"].astimezone(HKT)
         out.append({
             "at": local.isoformat(), "hour": local.strftime("%H:%M"), "date": local.date().isoformat(),
-            "temp": round(r["temperature_2m"] + offset * bias_weight(lead), 1), "model_temp": r["temperature_2m"],
+            "temp": round(r["temperature_2m"] + correction(r["at"], lead, offset, profile), 1), "model_temp": r["temperature_2m"],
             "rain_prob": r.get("precipitation_probability"), "humidity": r.get("relative_humidity_2m"),
             "wind_kmh": r.get("wind_speed_10m"), "cloud": r.get("cloud_cover"),
             **describe_wmo(r.get("weather_code"), local.hour),
@@ -265,8 +266,9 @@ def ensemble_extremes(kind: str, start: datetime, end: datetime, latest_at: Opti
     Puncak (highest) / lembah (lowest) tiap model dalam [start, end), setelah dikoreksi bacaan HKO terakhir
     (selisih bacaan − model saat itu, meluruh dengan jarak seperti proyeksi per jam). {model: {value, at}}.
     """
-    from app.paper_trading.hko_hourly import bias_weight
+    from app.paper_trading.hko_hourly import correction, station_bias_profile
 
+    profile = station_bias_profile()
     out = {}
     for model, series in ensemble_series().items():
         offset = 0.0
@@ -278,10 +280,11 @@ def ensemble_extremes(kind: str, start: datetime, end: datetime, latest_at: Opti
         for ts, v in series:
             if start <= ts < end:
                 lead = (ts - latest_at).total_seconds() / 3600 if latest_at else 24.0
-                points.append((ts, v + offset * bias_weight(lead)))
+                points.append((ts, v + correction(ts, lead, offset, profile)))
         if points:
             pick = max if kind == "highest" else min
             ts, value = pick(points, key=lambda p: p[1])
+            value += profile.get("peak_excess", 0.0) if kind == "highest" else profile.get("trough_excess", 0.0)
             out[model] = {"value": round(value, 2), "at": ts.astimezone(HKT).isoformat()}
     return out
 

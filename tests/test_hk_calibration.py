@@ -76,9 +76,10 @@ def test_weight_learns_toward_market_with_guards():
     add_signals(12, model=0.9, market=0.5, outcomes=["WIN", "LOSS"])
     w = hc.calibrate(NOW)["weight"]
     assert w["best"] == 0.0 and w["days"] == 12 and w["logloss_market"] < w["logloss_model"]
-    assert w["target"] == pytest.approx(0.6 - 0.6 * 12 / 32, abs=0.01)
-    assert w["value"] == pytest.approx(0.5)                       # langkah maks 0.1 per hari
-    assert hc.model_weight() == pytest.approx(0.5)
+    prior = settings.AUTOTRADE_HK_MODEL_WEIGHT
+    assert w["target"] == pytest.approx(prior - prior * 12 / 32, abs=0.01)
+    assert w["value"] == pytest.approx(prior - 0.1)               # langkah maks 0.1 per hari
+    assert hc.model_weight() == pytest.approx(prior - 0.1)
     from app.paper_trading import autotrader as at
     at.set_config({"HK_MODEL_WEIGHT": 0.8})                      # manual di dashboard selalu menang
     assert hc.model_weight() == pytest.approx(0.8)

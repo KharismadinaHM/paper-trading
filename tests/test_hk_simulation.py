@@ -81,13 +81,19 @@ def test_entry_waits_until_close_to_peak(monkeypatch):
     monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.30, "fee": 0.01, "spread": 0.02, "shares": 3, "slippage": 0})
     monkeypatch.setattr(at, "already_decided", lambda key: False)
     rows = [{"bracket": "31°C", "yes_token_id": "t", "market_id": "m", "ask": 0.30, "bid": 0.28, "prob": 0.6,
-             "model": 0.6, "market_prob": 0.29, "lo": 31, "hi": 31}]
+             "model": 0.6, "market_prob": 0.40, "lo": 31, "hi": 31}]
     analysis = {"temp": 28.0, "max": {"observed": 28.4, "mu": 31.0, "sigma": 0.8, "source": "simulasi", "projected": 31.0,
                                       "lead": 3.9, "brackets": rows}}
     d = hk_bot.evaluate("hk_max", NOW, analysis)
     assert "puncak masih ±3.9 jam lagi" in d["skip_reason"]
     analysis["max"]["lead"] = 1.5
     assert hk_bot.evaluate("hk_max", NOW, analysis)["skip_reason"] is None
+    rows[0]["market_prob"] = 0.20
+    assert "model terlalu berbeda dengan pasar (60% vs 20%" in hk_bot.evaluate("hk_max", NOW, analysis)["skip_reason"]
+    rows[0]["market_prob"] = 0.40
+    analysis["max"]["sim"] = {"n_paths": 5, "n_sims": 40, "p10": 30.0, "p50": 30.5, "p90": 31.0, "p_observed_holds": 0.5}
+    assert "simulasi hanya 5 jalur" in hk_bot.evaluate("hk_max", NOW, analysis)["skip_reason"]
+    analysis["max"].pop("sim")
     rows[0]["ask"] = 0.10
     monkeypatch.setattr(at, "_book_side", lambda token, usd: {"price": 0.10, "fee": 0.01, "spread": 0.02, "shares": 9, "slippage": 0})
     assert "harga min 15¢" in hk_bot.evaluate("hk_max", NOW, analysis)["skip_reason"]   # tiket lotre ditolak
@@ -161,3 +167,42 @@ def test_min_impossible_and_no_book_mirror(monkeypatch):
     monkeypatch.setattr(at, "cfg", lambda name: 0.0 if name == "SLIPPAGE" else at.EDITABLE_CONFIG and 0)
     b = at._book_no_side("t", 10.0)   # NO 90¢ × 5 sh = $4.5, sisanya di 91¢
     assert b["book_price"] == pytest.approx(10.0 / (5 + 5.5 / 0.91), abs=1e-3) and b["spread"] == pytest.approx(0.02)
+
+
+def test_station_bias_profile_and_correction(monkeypatch):
+    """HKO kota lebih hangat dari model (terutama malam): koreksi jauh ke depan memudar ke profil, bukan ke nol."""
+    from decimal import Decimal
+    from app.core.database import get_db_session
+    from app.paper_trading import hko_hourly as hh
+    from app.paper_trading.models import StationReading
+    monkeypatch.setattr(hh, "_profile_cache", {"at": 0.0, "value": None})
+    now = datetime(2026, 10, 14, 12, 0, tzinfo=HKT).astimezone(timezone.utc)
+    model, db = [], get_db_session()
+    for day in range(1, 8):
+        start = datetime(2026, 10, 14, 0, tzinfo=HKT) - timedelta(days=day)
+        for i in range(144):
+            at = start + timedelta(minutes=10 * i)
+            base = 26 + 4 * math.sin(math.pi * max(0, at.hour - 6) / 14)
+            night = at.hour < 6 or at.hour >= 20
+            temp = base + (2.0 if night else 0.5) + (0.3 if (at.hour == 14 and at.minute == 20) else 0.0)
+            db.add(StationReading(station="HKO", observed_at=at.astimezone(timezone.utc), temp=Decimal(str(round(temp, 2)))))
+            if at.minute == 0:
+                model.append((at.astimezone(timezone.utc), base))
+    db.commit()
+    db.close()
+    monkeypatch.setattr(hh, "fetch_model_series", lambda start, end: model)
+    p = hh.station_bias_profile(now, refresh=True)
+    assert p["days"] == 7 and p["hourly"][2] == pytest.approx(2.0 * 7 / 12, abs=0.05)   # malam: +2°C (ditarik ke 0)
+    assert p["hourly"][13] == pytest.approx(0.5 * 7 / 12, abs=0.05) and p["peak_excess"] == pytest.approx(0.2, abs=0.05)  # 14:20 30.7 vs 13:00 30.5
+    far = datetime(2026, 10, 15, 2, tzinfo=HKT)
+    assert hh.correction(far, 14, 0.0, p) == pytest.approx(0.5 * p["hourly"][2])         # offset 0, lead jauh: separuh profil
+    assert hh.correction(far, 0.5, 1.2, p) == pytest.approx(1.2)                           # dekat: ikut bacaan terkini
+
+
+def test_hk_signals_api():
+    from fastapi.testclient import TestClient
+    from app.dashboard import app
+    data = TestClient(app).get("/api/hk/signals").json()
+    assert set(data) == {"hk_max", "hk_min", "hk_max_no", "hk_min_no"} and data["hk_min"]["signals"] == []
+    html = TestClient(app).get("/hk").text
+    assert 'id="histKind"' in html and 'id="sigBox"' in html

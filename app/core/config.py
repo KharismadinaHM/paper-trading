@@ -187,7 +187,9 @@ class Settings(BaseSettings):
     # Bot Hong Kong (hk_max / hk_min): peluang per bracket dari max/min terukur HKO + proyeksi per jam
     # (Open-Meteo + bias HKO) + error historis proyeksi. Lihat docs/HK_BOT.md.
     AUTOTRADE_HK_MIN_EDGE: float = 0.08
-    AUTOTRADE_HK_MODEL_WEIGHT: float = 0.6     # peluang = pasar + bobot × (model − pasar); dikalibrasi ulang dari data
+    # 0.6 → 0.4 (14 Okt): 3 kalah beruntun saat model jauh lebih yakin dari pasar; pasar benar semua
+    AUTOTRADE_HK_MODEL_WEIGHT: float = 0.4     # peluang = pasar + bobot × (model − pasar); dikalibrasi ulang dari data
+    AUTOTRADE_HK_MAX_DISAGREE: float = 0.30    # lewati YES bila peluang model − pasar > 30 poin
     AUTOTRADE_HK_START_HOUR: float = 9         # jam HKT paling awal bot HK boleh membeli
     # Harga min 15¢: 10 Okt bot membeli bracket 6.7¢ jam 09:04 (model 23% vs pasar 5%) dan kalah — tiket murah jauh
     # sebelum puncak = model berbeda pendapat dengan pasar saat ketidakpastian terbesar.
