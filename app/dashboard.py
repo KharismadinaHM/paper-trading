@@ -469,6 +469,23 @@ def hk_trades_api(period: str = "all", limit: int = 100, side: str = "all"):
     return _json_safe({"side": side, "stats": stats, "by_side": by_side, "history": rows, "open": len(open_rows)})
 
 
+@app.get("/api/hk/positions", dependencies=[Depends(require_auth)])
+def hk_positions_api():
+    """Posisi HK terbuka + penilaian jual/switch saat ini, mode (bayangan/live), dan penilaian exit yang sudah resolve."""
+    from app.paper_trading import hk_bot, hk_positions
+    from app.paper_trading.autotrader import cfg
+    now = datetime.now(timezone.utc)
+    positions = hk_positions.open_positions(now)
+    analysis = hk_bot.analyze(now) if positions else None
+    rows = []
+    for p in positions:
+        ev = hk_positions.evaluate_exit(p, now, analysis) if analysis else None
+        rows.append({**p, "opened_at": p["opened_at"].isoformat(), "eval": ev})
+    return _json_safe({"enabled": bool(cfg("HK_SWITCH_ENABLED")), "live": bool(cfg("HK_SWITCH_LIVE")),
+                       "exit_edge": float(cfg("HK_EXIT_EDGE")), "positions": rows,
+                       "report": hk_positions.switch_report()})
+
+
 @app.get("/api/hk/signals", dependencies=[Depends(require_auth)])
 def hk_signals_api(per_strategy: int = 5):
     """Sinyal terakhir tiap strategi HK (hk_max, hk_min, hk_max_no, hk_min_no): dibeli atau alasan dilewati."""

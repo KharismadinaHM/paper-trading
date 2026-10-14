@@ -45,6 +45,17 @@ Data 30 Sep–13 Okt: max HKO − model **+0.66°C** (13/14 hari), min **+2.2°C
 - `HK_MODEL_WEIGHT` 0.6 → 0.4; simulasi < 20 jalur model (ensemble gagal) tidak dipakai membeli; ensemble terakhir yang
   berhasil (≤ 6 jam) dipakai saat pengambilan gagal.
 
+## Jual / switch posisi (hk_positions.py)
+
+Posisi HK terbuka dinilai ulang tiap siklus: nilai jual = VWAP bid terkini untuk seluruh share − fee − slippage (NO: 1 − ask
+YES); jual bila nilai jual − peluang menahan (model+pasar) ≥ `HK_EXIT_EDGE` (5¢), posisi ≥ `HK_SWITCH_COOLDOWN_MIN` (20)
+menit, dan exit hari itu < `HK_MAX_SWITCHES` (2). NO pada bracket yang sudah mustahil tidak pernah dijual. Setelah jual
+(live), strategi itu boleh membeli lagi hari itu — bukan bracket yang baru dijual (mis. jual 30°C, beli 31°C bila lolos).
+
+**Mode bayangan** (`HK_SWITCH_LIVE=false`, default): hanya dicatat & dikabarkan "👻 HK JUAL (bayangan)". Setelah market
+resolve dinilai: menyelamatkan (sisi kita kalah) atau salah langkah (menahan lebih baik), dengan selisih $ — di `/hk` →
+Riwayat → "Posisi terbuka & jual/switch". Aktifkan live di Auto Bot → Pengaturan setelah hasil bayangan bagus.
+
 ## Sisi NO (hk_max_no / hk_min_no)
 
 Bot membeli NO hanya pada bracket yang **mustahil** oleh angka terukur hari ini (max sudah melewati bracket itu, atau

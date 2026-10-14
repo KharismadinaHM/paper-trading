@@ -459,8 +459,10 @@ def evaluate(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optional
     kind = HK_STRATEGIES[strategy]
     dist = analysis[KIND_LABEL[kind]]
     local = now.astimezone(HKT)
-    key = f"{strategy}|{local.date().isoformat()}"
-    tradable = [r for r in dist["brackets"] if r.get("yes_token_id") and r.get("ask") is not None]
+    from app.paper_trading.hk_positions import entry_key
+    key, sold = entry_key(strategy, now)
+    tradable = [r for r in dist["brackets"] if r.get("yes_token_id") and r.get("ask") is not None
+                and r.get("market_id") not in sold]  # bracket yang baru dijual (switch) tidak dibeli lagi
     if not tradable:
         return None
     est_fee = lambda p: settings.AUTOTRADE_FEE_RATE * p * (1 - p)  # noqa: E731
@@ -555,12 +557,13 @@ def evaluate_no(strategy: str, now: datetime, analysis: Dict[str, Any]) -> Optio
     kind = HK_NO_STRATEGIES[strategy]
     dist = analysis[KIND_LABEL[kind]]
     local = now.astimezone(HKT)
-    key = f"{strategy}|{local.date().isoformat()}"
+    from app.paper_trading.hk_positions import entry_key
+    key, sold = entry_key(strategy, now)
     max_prob = float(cfg("HK_NO_MAX_PROB"))
     est_fee = lambda p: settings.AUTOTRADE_FEE_RATE * p * (1 - p)  # noqa: E731
     candidates = []
     for r in dist["brackets"]:
-        if not r.get("yes_token_id") or r.get("bid") is None:
+        if not r.get("yes_token_id") or r.get("bid") is None or r.get("market_id") in sold:
             continue
         impossible = impossible_by_observation(kind, (r["lo"], r["hi"]), dist.get("observed"))
         if not impossible and r["model"] > max_prob:
@@ -624,6 +627,11 @@ def hk_tick(now: Optional[datetime] = None, strategies: Optional[List[str]] = No
     if not analysis:
         return []
     made = []
+    try:  # manajemen posisi dulu (exit / switch), baru keputusan beli
+        from app.paper_trading.hk_positions import manage
+        manage(now, analysis, active)
+    except Exception as err:
+        logger.warning("Manajemen posisi HK gagal: %s", err, exc_info=True)
     bucket = int(now.timestamp() // (SIGNAL_BUCKET_MINUTES * 60))
     for strategy in [*HK_STRATEGIES, *HK_NO_STRATEGIES]:
         try:

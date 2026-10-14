@@ -190,6 +190,12 @@ class Settings(BaseSettings):
     # 0.6 → 0.4 (14 Okt): 3 kalah beruntun saat model jauh lebih yakin dari pasar; pasar benar semua
     AUTOTRADE_HK_MODEL_WEIGHT: float = 0.4     # peluang = pasar + bobot × (model − pasar); dikalibrasi ulang dari data
     AUTOTRADE_HK_MAX_DISAGREE: float = 0.30    # lewati YES bila peluang model − pasar > 30 poin
+    # Manajemen posisi (hk_positions.py): jual bila nilai jual − peluang menahan ≥ HK_EXIT_EDGE; lalu boleh beli bracket lain.
+    AUTOTRADE_HK_SWITCH_ENABLED: bool = True
+    AUTOTRADE_HK_SWITCH_LIVE: bool = False     # false = mode bayangan (hanya dicatat & dinilai)
+    AUTOTRADE_HK_EXIT_EDGE: float = 0.05
+    AUTOTRADE_HK_MAX_SWITCHES: float = 2
+    AUTOTRADE_HK_SWITCH_COOLDOWN_MIN: float = 20
     AUTOTRADE_HK_START_HOUR: float = 9         # jam HKT paling awal bot HK boleh membeli
     # Harga min 15¢: 10 Okt bot membeli bracket 6.7¢ jam 09:04 (model 23% vs pasar 5%) dan kalah — tiket murah jauh
     # sebelum puncak = model berbeda pendapat dengan pasar saat ketidakpastian terbesar.

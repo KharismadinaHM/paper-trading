@@ -390,6 +390,20 @@
                 <tbody id="histRows"><tr><td colspan="8" class="muted">Memuat…</td></tr></tbody></table></div>
         </div>
         <div class="card-x p-4 mt-3">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                <div class="section-title"><i class="bi bi-arrow-left-right me-1"></i>Posisi terbuka &amp; jual/switch</div>
+                <span id="switchMode"></span>
+            </div>
+            <div class="small dim mb-3">Posisi dinilai ulang tiap siklus: jual bila nilai jual (bid terkini − fee) melebihi peluang menahan ≥ ambang.
+                Mode bayangan hanya mencatat "akan jual"; setelah market selesai dinilai apakah jual itu menyelamatkan atau salah langkah.</div>
+            <div class="table-responsive"><table class="table table-dark table-sm mb-3 align-middle">
+                <thead><tr><th>Posisi</th><th class="text-end">Masuk</th><th class="text-end">Nilai jual</th><th class="text-end">Peluang tahan</th>
+                    <th class="text-end">Edge jual</th><th>Status</th></tr></thead>
+                <tbody id="posRows"><tr><td colspan="6" class="muted">Memuat…</td></tr></tbody></table></div>
+            <div class="row g-2 mb-2" id="switchStats"></div>
+            <div class="small" id="switchRecent"></div>
+        </div>
+        <div class="card-x p-4 mt-3">
             <div class="section-title mb-1">Sinyal terakhir per strategi</div>
             <div class="small dim mb-3">Dicek tiap siklus collector, dicatat tiap 30 menit — termasuk yang dilewati dan alasannya (mis. kenapa hk_min belum membeli).</div>
             <div class="row g-3" id="sigBox"><div class="col-12 small muted">Memuat…</div></div>
@@ -1082,6 +1096,38 @@
         if (res.ok) { renderCalibration(await res.json()); loadBot(); }
     }
 
+    // --- POSISI & SWITCH ---
+    async function loadPositions() {
+        try {
+            const d = await (await fetch('/api/hk/positions')).json();
+            document.getElementById('switchMode').innerHTML = !d.enabled ? '<span class="chip">switch nonaktif</span>'
+                : d.live ? '<span class="chip warn">switch LIVE (paper)</span>' : '<span class="chip">👻 mode bayangan</span>';
+            document.getElementById('posRows').innerHTML = (d.positions || []).map(p => {
+                const e = p.eval;
+                const status = !e ? '<span class="dim">market bukan hari ini</span>'
+                    : e.should_exit ? `<span class="${d.live ? 'down' : ''} fw-semibold">${d.live ? 'akan dijual' : '👻 jual (bayangan)'}</span>`
+                    : `<span class="dim" style="font-size: .75rem">${esc(e.reason || '')}</span>`;
+                return `<tr><td>${esc(p.strategy)} · ${esc(p.side)} ${esc(e ? e.bracket : (p.market_name || '').slice(-30))}<div class="dim" style="font-size: .7rem">${p.shares.toFixed(2)} sh</div></td>
+                    <td class="text-end">${(p.entry * 100).toFixed(1)}¢</td>
+                    <td class="text-end">${e && e.sell ? (e.sell.net * 100).toFixed(1) + '¢' : '-'}</td>
+                    <td class="text-end">${e ? Math.round(e.p_hold * 100) + '%' : '-'}</td>
+                    <td class="text-end ${e && e.edge >= d.exit_edge ? 'up fw-semibold' : ''}">${e && e.edge !== null && e.edge !== undefined ? (e.edge > 0 ? '+' : '') + (e.edge * 100).toFixed(1) + '¢' : '-'}</td>
+                    <td>${status}</td></tr>`;
+            }).join('') || '<tr><td colspan="6" class="muted">Tidak ada posisi HK terbuka.</td></tr>';
+            const modes = (d.report || {}).modes || {};
+            const card = (label, m) => `<div class="col-md-6"><div class="tcard"><div class="label">${label}</div>
+                <div class="small mt-1">${m ? `${m.n} sinyal jual · dinilai ${m.resolved}: <span class="up">${m.saved} menyelamatkan</span> · <span class="down">${m.mistakes} salah langkah</span>
+                · bersih <b class="${pnlCls(m.net_usd)}">${money(m.net_usd)}</b>` : '<span class="dim">belum ada</span>'}</div></div></div>`;
+            document.getElementById('switchStats').innerHTML = card('Bayangan (tidak dijual)', modes.shadow) + card('Live (dijual, paper)', modes.live);
+            document.getElementById('switchRecent').innerHTML = ((d.report || {}).recent || []).slice(0, 8).map(r => `<div class="mb-1">
+                <span class="dim mono">${new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                ${r.mode === 'shadow' ? '👻' : '🔁'} ${esc((r.label || '').split(' · ').pop())} · jual ${(r.sell_net * 100).toFixed(1)}¢ vs tahan ${Math.round(r.p_hold * 100)}%
+                ${r.hold_minus_sell === null || r.hold_minus_sell === undefined ? '<span class="dim">· menunggu hasil</span>'
+                  : r.hold_minus_sell < 0 ? `<span class="up">· menyelamatkan ${(-r.hold_minus_sell * 100).toFixed(0)}¢/sh</span>`
+                  : `<span class="down">· salah langkah ${(r.hold_minus_sell * 100).toFixed(0)}¢/sh</span>`}</div>`).join('');
+        } catch (e) { document.getElementById('posRows').innerHTML = '<tr><td colspan="6" class="muted">Gagal memuat posisi.</td></tr>'; }
+    }
+
     // --- SINYAL TERAKHIR & FILTER JENIS ---
     let histKind = store.get('hkHistKind', '');
     function setHistKind(kind) {
@@ -1146,6 +1192,7 @@
     }
     async function loadAll() {
         loadSignals();
+        loadPositions();
         loadForecast();
         loadBot();
         loadCalibration();
