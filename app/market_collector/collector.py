@@ -27,6 +27,7 @@ from app.market_collector.categories import (
     get_category,
 )
 from app.paper_trading.models import (
+    LATEST_ONLY_FIELDS,
     MARKET_DATA_FIELDS,
     MarketLatest,
     MarketResolution,
@@ -130,6 +131,7 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     price_no: Optional[Decimal] = None
     yes_label: Optional[str] = None
     no_label: Optional[str] = None
+    yes_index: Optional[int] = None
 
     for idx, outcome in enumerate(outcomes):
         if idx >= len(prices):
@@ -146,6 +148,7 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if outcome_name in YES_OUTCOME_ALIASES:
             price_yes = price_dec
             yes_label = str(outcome).strip()
+            yes_index = idx
         elif outcome_name in NO_OUTCOME_ALIASES:
             price_no = price_dec
             no_label = str(outcome).strip()
@@ -180,8 +183,56 @@ def parse_market_dict(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "current_price": current_price,
         "outcome_yes_label": yes_label,
         "outcome_no_label": no_label,
+        "volume": _parse_volume(m),
+        "yes_token_id": _parse_token_id(m, yes_index),
+        "resolution_station": parse_resolution_station(m),
         "timestamp": datetime.now(timezone.utc),
     }
+
+
+_STATION_RE = re.compile(r"site=([A-Za-z0-9]{4})\b|/([A-Z]{4})\b")
+
+
+def parse_resolution_station(m: Dict[str, Any]) -> Optional[str]:
+    """
+    Stasiun resolusi market suhu dari deskripsi/resolutionSource: kode ICAO (mis. 'RKSI' dari
+    weather.gov/wrh/timeseries?site=rksi atau URL Wunderground .../RCSS) atau 'HKO'.
+    """
+    text = f"{m.get('resolutionSource') or ''} {m.get('description') or ''}"
+    match = _STATION_RE.search(text)
+    if match:
+        return (match.group(1) or match.group(2)).upper()
+    if "hong kong observatory" in text.lower():
+        return "HKO"
+    return None
+
+
+def _parse_token_id(m: Dict[str, Any], index: Optional[int]) -> Optional[str]:
+    """Token CLOB untuk outcome YES (urutan clobTokenIds sama dengan outcomes)."""
+    raw = m.get("clobTokenIds")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return None
+    if not isinstance(raw, list) or index is None or index >= len(raw):
+        return None
+    return str(raw[index]) or None
+
+
+def _parse_volume(m: Dict[str, Any]) -> Optional[Decimal]:
+    """Volume trading kumulatif market (USD); Gamma mengirim volumeNum (angka) dan volume (string)."""
+    for key in ("volumeNum", "volume"):
+        raw = m.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = Decimal(str(raw))
+        except Exception:
+            continue
+        if value.is_finite() and value >= 0:
+            return value.quantize(Decimal("0.01"))
+    return None
 
 
 def _fetch_json(url: str, headers: Dict[str, str], timeout: int = 15) -> Any:
@@ -670,10 +721,15 @@ def record_market_observations(
             if changed or last_hist is None or m["timestamp"] - last_hist >= heartbeat:
                 history_rows.append(m)
             else:
-                refresh_rows.append({f: m.get(f) for f in MARKET_DATA_FIELDS})
+                refresh_rows.append({f: m.get(f) for f in MARKET_DATA_FIELDS + LATEST_ONLY_FIELDS})
 
         if history_rows:
             save_snapshots(history_rows, session=db)  # market_latest ikut diperbarui oleh listener
+            # Listener hanya membawa kolom histori; kolom khusus market_latest (volume) diisi di sini
+            refresh_rows.extend(
+                {f: m.get(f) for f in MARKET_DATA_FIELDS + LATEST_ONLY_FIELDS}
+                for m in history_rows if any(m.get(f) is not None for f in LATEST_ONLY_FIELDS)
+            )
         if refresh_rows:
             for i in range(0, len(refresh_rows), 500):
                 upsert_market_latest(db.connection(), refresh_rows[i:i + 500], history_written=False)

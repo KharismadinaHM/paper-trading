@@ -2,7 +2,10 @@
 Modul Telegram Notification untuk Paper Trading.
 Menyediakan formatting pesan dan pengiriman ke Telegram Bot API via requests.
 """
+import json
 import os
+import re
+import urllib.request
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Dict, Optional, Union
@@ -11,8 +14,6 @@ try:
     import requests
 except ImportError:
     requests = None
-    import json
-    import urllib.request
 
 
 @dataclass
@@ -168,15 +169,33 @@ except ImportError:
     pass
 
 
+_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+
+def redact_token(text: Any) -> str:
+    """Samarkan token bot di pesan error/log (URL Telegram memuat token: .../bot<token>/sendMessage)."""
+    return _TOKEN_RE.sub("bot<token>", str(text))
+
+
+def _telegram_error(resp) -> str:
+    """Penjelasan dari Telegram (mis. 'Bad Request: chat not found') tanpa URL yang memuat token."""
+    try:
+        description = resp.json().get("description")
+    except Exception:
+        description = None
+    return f"Telegram HTTP {resp.status_code}: {description or 'permintaan ditolak'}"
+
+
 def send_telegram_message(
     text: str,
     bot_token: Optional[str] = None,
     chat_id: Optional[str] = None,
     parse_mode: Optional[str] = None,
     timeout: int = 10,
+    reply_markup: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Mengirim pesan teks ke Telegram Bot API via HTTP POST.
+    Mengirim pesan teks ke Telegram Bot API via HTTP POST (opsional reply_markup untuk tombol inline).
     Jika bot_token atau chat_id tidak disertakan, otomatis membaca dari ENV:
     - TELEGRAM_BOT_TOKEN
     - TELEGRAM_CHAT_ID
@@ -198,15 +217,18 @@ def send_telegram_message(
     }
     if parse_mode:
         payload["parse_mode"] = parse_mode
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
 
     # Gunakan library requests jika ada
     if requests is not None:
         try:
             resp = requests.post(url, json=payload, timeout=timeout)
-            resp.raise_for_status()
+            if not resp.ok:
+                return {"success": False, "error": _telegram_error(resp)}
             return {"success": True, "response": resp.json()}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": redact_token(e)}
 
     # Fallback ke standard library urllib
     try:
@@ -221,7 +243,21 @@ def send_telegram_message(
             res_body = json.loads(response.read().decode("utf-8"))
             return {"success": True, "response": res_body}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": redact_token(e)}
+
+
+def answer_callback_query(callback_id: str, text: str = "", bot_token: Optional[str] = None,
+                          timeout: int = 10) -> Dict[str, Any]:
+    """Konfirmasi penekanan tombol inline (menghentikan spinner di Telegram)."""
+    token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token or requests is None:
+        return {"success": False}
+    try:
+        resp = requests.post(f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+                             json={"callback_query_id": callback_id, "text": text[:190]}, timeout=timeout)
+        return {"success": resp.ok}
+    except Exception as e:
+        return {"success": False, "error": redact_token(e)}
 
 
 def notify_paper_buy(

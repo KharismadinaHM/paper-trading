@@ -19,5 +19,14 @@ fastapi==0.141.1
 uvicorn==0.52.4
 jinja2==3.1.6
 
+# Zona waktu IANA (fallback jika image tidak menyertakan tzdata sistem)
+tzdata==2026.4
+
 # Notifications & HTTP
 requests==2.34.2
+
+# Trading uang asli (dipakai hanya bila LIVE_TRADING=true): SDK resmi Polymarket CLOB V2
+# (py-clob-client 0.34.x lama ditolak server: "invalid order version, please use the latest clob-client")
+py-clob-client-v2==1.2.0
+# Auto-claim (redeem) kemenangan lewat Relayer Polymarket, tanpa gas
+py-builder-relayer-client==0.0.2

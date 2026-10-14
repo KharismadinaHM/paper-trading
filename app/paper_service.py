@@ -40,7 +40,13 @@ from app.paper_trading.settlement_engine import (
     calculate_shares,
     evaluate_risk_and_rules,
 )
-from app.paper_trading.suggestions import filter_market_suggestions, search_markets
+from app.paper_trading.suggestions import search_markets
+from app.paper_trading.weather_peaks import (
+    city_volume_summary,
+    filter_peak_time_suggestions,
+    top_cities_by_volume,
+    upcoming_recommendation_windows,
+)
 
 logger = get_logger("paper_service")
 
@@ -566,6 +572,9 @@ def _format_market_snapshot(
         "current_price": current_price,
         "outcome_yes_label": snapshot.outcome_yes_label or "Yes",
         "outcome_no_label": snapshot.outcome_no_label or "No",
+        "volume": float(snapshot.volume) if getattr(snapshot, "volume", None) is not None else None,
+        "yes_token_id": getattr(snapshot, "yes_token_id", None),
+        "resolution_station": getattr(snapshot, "resolution_station", None),
         "timestamp": snap_ts,
         "is_stale": is_stale,
         "polymarket_url": get_polymarket_url(str(snapshot.market_id), str(snapshot.market_name)),
@@ -613,22 +622,136 @@ def get_market_snapshots(
 
 
 def get_market_suggestions(
-    max_hours_to_resolution: float = 6.0,
-    min_price: float = 0.70,
-    max_price: float = 0.75,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
     now: Optional[datetime] = None,
+    phase: str = "pre",
 ) -> List[Dict[str, Any]]:
     """
-    Mengambil saran market dari data Market Collector yang memenuhi kriteria filter.
+    Rekomendasi per event suhu (kota + highest/lowest + tanggal) yang sedang berada di jendela
+    menjelang jam puncak suhu lokal kotanya. Tanpa filter harga kecuali min/max diberikan.
     """
     raw_markets = get_market_snapshots(now=now, include_resolved=False)
-    return filter_market_suggestions(
-        markets=raw_markets,
-        max_hours_to_resolution=max_hours_to_resolution,
-        min_price=min_price,
-        max_price=max_price,
-        now=now,
-    )
+    events = filter_peak_time_suggestions(markets=raw_markets, min_price=min_price, max_price=max_price, now=now,
+                                          phase=phase)
+    from app.paper_trading.live_market_data import enrich_suggestions
+    return enrich_suggestions(_with_city_volume_rank(events, raw_markets, now))
+
+
+def _with_city_volume_rank(items: List[Dict[str, Any]], raw_markets, now: Optional[datetime]) -> List[Dict[str, Any]]:
+    """city_volume_rank = peringkat kota menurut total volume market suhu (1 = terbesar; None tanpa data)."""
+    ranking = top_cities_by_volume(raw_markets, limit=0, now=now) or []
+    rank = {city: i for i, city in enumerate(ranking, start=1)}
+    for item in items:
+        item["city_volume_rank"] = rank.get(item["city"])
+    return items
+
+
+def get_top_volume_cities(limit: int, now: Optional[datetime] = None) -> Optional[List[str]]:
+    """Kota dengan total volume market suhu open terbesar; None jika data volume belum ada."""
+    return top_cities_by_volume(get_market_snapshots(now=now, include_resolved=False), limit=limit, now=now)
+
+
+def get_city_volume_summary(limit: int = 7, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Kota dengan total volume market suhu open terbesar (dengan rincian tertinggi/terendah)."""
+    summary = city_volume_summary(get_market_snapshots(now=now, include_resolved=False), now=now)
+    return summary[:limit] if limit > 0 else summary
+
+
+def get_city_stations(now: Optional[datetime] = None) -> Dict[str, Dict[str, str]]:
+    """{kota: {station, unit}} dari market suhu open (stasiun resolusi & satuan bracket-nya)."""
+    from collections import Counter
+
+    from app.paper_trading.cities import resolve_city
+    from app.paper_trading.weather_peaks import _open_temperature_markets, bracket_label
+
+    now = now or datetime.now(timezone.utc)
+    stations: Dict[str, Counter] = {}
+    units: Dict[str, Counter] = {}
+    for m, name, parsed in _open_temperature_markets(get_market_snapshots(now=now, include_resolved=False), now):
+        city = resolve_city(parsed.city)
+        if m.get("resolution_station"):
+            stations.setdefault(city, Counter())[m["resolution_station"]] += 1
+        units.setdefault(city, Counter())["F" if "°F" in bracket_label(name) else "C"] += 1
+    return {
+        city: {"station": counter.most_common(1)[0][0], "unit": units[city].most_common(1)[0][0]}
+        for city, counter in stations.items()
+    }
+
+
+def match_city(query: str, cities) -> Optional[str]:
+    """Cocokkan input bebas ('nyc', 'hong kong', 'york') ke nama kota market suhu."""
+    from app.paper_trading.cities import CITY_ALIASES
+
+    q = " ".join(str(query or "").split()).lower()
+    if not q:
+        return None
+    canonical = next((v for k, v in CITY_ALIASES.items() if k.lower() == q), None)
+    for city in cities:
+        if city.lower() == q or city == canonical:
+            return city
+    matches = [c for c in cities if q in c.lower()]
+    return sorted(matches, key=len)[0] if matches else None
+
+
+def search_cities(query: str, cities, rank: Optional[Dict[str, int]] = None) -> List[str]:
+    """
+    Pencarian kota untuk dashboard: nama persis / alias (nyc, hk) → satu kota; selain itu semua kota yang
+    namanya memuat teks pencarian, urut volume market (terbesar dulu) lalu abjad.
+    """
+    exact = match_city(query, cities)
+    q = " ".join(str(query or "").split()).lower()
+    if not q:
+        return []
+    if exact is not None and (exact.lower() == q or q not in exact.lower()):
+        return [exact]  # persis atau alias
+    rank = rank or {}
+    matches = [c for c in cities if q in c.lower()]
+    return sorted(matches, key=lambda c: (rank.get(c, 10_000), c))
+
+
+def get_current_weather(limit: int = 7, city: Optional[str] = None,
+                        now: Optional[datetime] = None) -> Dict[str, Any]:
+    """
+    Cuaca terkini di stasiun resolusi market suhu (NOAA METAR / HKO) untuk kota top volume, atau satu
+    beberapa kota hasil pencarian `city` (nama/alias/sebagian nama, maks `limit`): suhu sekarang, max/min sejak 00:00 lokal, kondisi, tren °/jam, perkiraan
+    & kesimpulan. {"cities": [semua kota berstasiun], "items": [...], "not_found": bool}
+    """
+    from datetime import timedelta
+
+    from app.paper_trading.live_market_data import fetch_metar_observations, station_report
+    from app.paper_trading.weather_peaks import city_timezone
+
+    now = now or datetime.now(timezone.utc)
+    stations = get_city_stations(now=now)
+    result: Dict[str, Any] = {"cities": sorted(stations), "items": [], "not_found": False}
+    ranking = [r["city"] for r in get_city_volume_summary(limit=0, now=now)]
+    rank = {c: i for i, c in enumerate(ranking, start=1)}
+    if city:
+        selected = search_cities(city, stations, rank)[:max(limit, 1)]
+        result["query"] = city
+        if not selected:
+            result["not_found"] = True
+            return result
+    else:
+        selected = [c for c in ranking if c in stations][:limit] if ranking else sorted(stations)[:limit]
+    fetch_metar_observations(stations[c]["station"] for c in selected)  # satu request untuk semua stasiun
+    for c in selected:
+        tz = city_timezone(c)
+        info = stations[c]
+        report = station_report(info["station"], tz, info["unit"], now=now, city=c) if tz else None
+        item = {"city": c, "station": info["station"], "unit": info["unit"], "volume_rank": rank.get(c),
+                "local_time": now.astimezone(tz).strftime("%H:%M") if tz else None, "report": report}
+        if report and report.get("current_at") is not None:
+            item["stale"] = now - report["current_at"] > timedelta(minutes=90)
+        result["items"].append(item)
+    return result
+
+
+def get_recommendation_schedule(now: Optional[datetime] = None, limit: int = 10) -> List[Dict[str, Any]]:
+    """Jadwal jendela rekomendasi berikutnya per kota (untuk ditampilkan saat belum ada yang aktif)."""
+    raw_markets = get_market_snapshots(now=now, include_resolved=False)
+    return _with_city_volume_rank(upcoming_recommendation_windows(raw_markets, now=now, limit=limit), raw_markets, now)
 
 
 def search_market_snapshots(
@@ -777,9 +900,17 @@ def create_paper_order(
     strategy_version: str = "manual",
     db_session: Optional[Session] = None,
     now: Optional[datetime] = None,
+    execution_price: Optional[Decimal] = None,
+    risk_limits: Optional[Dict[str, Decimal]] = None,
+    notify: bool = True,
+    reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Membuat paper order manual dengan proteksi Anti Stale Price.
+    Membuat paper order dengan proteksi Anti Stale Price.
+
+    Auto trader memakai `execution_price` = harga dari order book live (VWAP level ask sesuai ukuran
+    order + biaya taker) sebagai harga eksekusi, dan `risk_limits` (max_position_size,
+    max_market_exposure, max_total_exposure) sebagai pengganti batas order manual.
 
     Urutan proses WAJIB:
     1. Fetch harga real-time terbaru dari Market Collector untuk market_id ini.
@@ -859,13 +990,19 @@ def create_paper_order(
         warning_message = f"{warning_message} | {stale_msg}" if warning_message else stale_msg
         logger.warning(f"Anti-Stale Notice: Market '{market_id}' menggunakan data snapshot stale (ts: {ts_str})")
 
-    # 3. apply_slippage_and_spread menggunakan harga real-time
-    execution_price = apply_slippage_and_spread(
-        historical_mid_price=real_time_price,
-        spread_bps=int(settings.SPREAD_BPS),
-        slippage_bps=int(settings.SLIPPAGE_BPS),
-        is_buy=True,
-    )
+    # 3. apply_slippage_and_spread menggunakan harga real-time (kecuali harga order book diberikan)
+    if execution_price is not None:
+        execution_price = Decimal(str(execution_price))
+        if not Decimal("0") < execution_price < Decimal("1"):
+            raise ValueError(f"Harga eksekusi tidak valid: {execution_price}")
+    else:
+        execution_price = apply_slippage_and_spread(
+            historical_mid_price=real_time_price,
+            spread_bps=int(settings.SPREAD_BPS),
+            slippage_bps=int(settings.SLIPPAGE_BPS),
+            is_buy=True,
+        )
+    limits = risk_limits or {}
 
     market_name = market.get("market_name", market_id)
     order_uuid = uuid.uuid4()
@@ -877,12 +1014,12 @@ def create_paper_order(
             is_approved, rejection_reason = evaluate_risk_and_rules(
                 position_size=position_size,
                 available_balance=Decimal(str(account.current_balance)),
-                max_position_size=Decimal(str(settings.MAX_POSITION_SIZE)),
+                max_position_size=Decimal(str(limits.get("max_position_size", settings.MAX_POSITION_SIZE))),
                 historical_price_available=True,
                 current_market_exposure=_open_exposure(db, account, market_id),
-                max_market_exposure=Decimal(str(settings.MAX_EXPOSURE_PER_MARKET)),
+                max_market_exposure=Decimal(str(limits.get("max_market_exposure", settings.MAX_EXPOSURE_PER_MARKET))),
                 current_total_exposure=_open_exposure(db, account),
-                max_total_exposure=Decimal(str(settings.MAX_TOTAL_EXPOSURE)),
+                max_total_exposure=Decimal(str(limits.get("max_total_exposure", settings.MAX_TOTAL_EXPOSURE))),
             )
             if not is_approved:
                 logger.warning(f"Paper order rejected by risk control: {rejection_reason}")
@@ -965,16 +1102,17 @@ def create_paper_order(
         "warning": warning_message,
         "polymarket_url": get_polymarket_url(market_id, market_name),
     }
-    _notify_async("notify_paper_buy", {
-        "market": market_name,
-        "side": normalized_side,
-        "entry_price": execution_price,
-        "position_size": position_size,
-        "shares": shares,
-        "expected_peak": "-",
-        "reason": f"Manual paper order ({strategy_version})",
-        "polymarket_url": order_data["polymarket_url"],
-    })
+    if notify:
+        _notify_async("notify_paper_buy", {
+            "market": market_name,
+            "side": normalized_side,
+            "entry_price": execution_price,
+            "position_size": position_size,
+            "shares": shares,
+            "expected_peak": "-",
+            "reason": reason or f"Manual paper order ({strategy_version})",
+            "polymarket_url": order_data["polymarket_url"],
+        })
     return order_data
 
 
@@ -1216,6 +1354,6 @@ def settle_resolved_positions(now: Optional[datetime] = None, db: Optional[Sessi
             }
             results.append(result)
             logger.info("Posisi di-settle: %s", result)
-            _notify_async("notify_paper_settled", result)
+            # Tanpa pesan "PAPER TRADE SETTLED" per posisi: hasil dirangkum di laporan per jam grup auto trade
 
     return results

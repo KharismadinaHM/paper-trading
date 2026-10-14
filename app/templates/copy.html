@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="id" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copy Trade</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0b0d; --card: #111316; --card-2: #16191d; --line: #1f2328; --line-2: #2a2f36;
+            --text: #eef0f3; --muted: #8a919b; --dim: #5d646e;
+            --up: #22c55e; --down: #ef4444; --hot: #f97316; --cold: #38bdf8; --accent: #f5f5f5; --live: #f5b524;
+            --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+        a { color: inherit; }
+        .mono { font-family: var(--mono); }
+        .muted, .text-muted-poly { color: var(--muted) !important; }
+        .dim { color: var(--dim) !important; }
+        .up { color: var(--up) !important; }
+        .down { color: var(--down) !important; }
+        .hot { color: var(--hot) !important; }
+        .cold { color: var(--cold) !important; }
+        .wrap { max-width: 1320px; margin: 0 auto; padding: 0 16px; }
+
+        .topbar { border-bottom: 1px solid var(--line); background: rgba(10, 11, 13, .92); position: sticky; top: 0; z-index: 20; backdrop-filter: blur(8px); }
+        .topbar .wrap { display: flex; align-items: center; gap: 28px; height: 56px; }
+        .brand { font-weight: 800; letter-spacing: .06em; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+        .navlinks { display: flex; gap: 22px; font-size: .92rem; }
+        .navlinks a { color: var(--muted); text-decoration: none; }
+        .navlinks a:hover, .navlinks a.active { color: var(--text); }
+
+        .card-x { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+        .tcard { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; height: 100%; }
+        .label { font-family: var(--mono); font-size: .7rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+        .btn-x { background: var(--accent); color: #0a0b0d; border: 0; border-radius: 9px; font-weight: 600; font-size: .9rem; padding: 7px 16px; }
+        .btn-x:hover { background: #fff; }
+        .btn-x:disabled { opacity: .6; }
+        .btn-x.ghost { background: transparent; color: var(--text); border: 1px solid var(--line-2); }
+        .btn-x.ghost:hover { background: var(--card-2); }
+        .btn-x.sm { font-size: .78rem; padding: 4px 10px; border-radius: 7px; }
+        .icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; color: var(--text);
+                    display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+        .icon-btn:hover { background: var(--card-2); color: var(--text); }
+        .chip { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: .68rem; padding: 2px 7px; border-radius: 6px;
+                background: var(--card-2); border: 1px solid var(--line-2); color: var(--muted); }
+        .chip.on { color: var(--up); border-color: rgba(34, 197, 94, .35); }
+        .chip.off { color: var(--down); border-color: rgba(239, 68, 68, .35); }
+        .chip.warn { color: var(--live); border-color: rgba(245, 181, 36, .35); }
+
+        .avatar { width: 58px; height: 58px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem;
+                  background: radial-gradient(circle at 30% 30%, #e0473a, #7f1d1d); box-shadow: 0 0 0 3px var(--card), 0 0 0 5px rgba(239, 68, 68, .45); flex-shrink: 0; }
+        .handle { font-family: var(--mono); font-weight: 700; font-size: 1.35rem; }
+        .big { font-size: 1.5rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; }
+        .huge { font-size: 2.2rem; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; line-height: 1.1; }
+        .kv { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .kv .k { color: var(--muted); font-size: .88rem; }
+        .kv .v { text-align: right; }
+        .kv .s { font-size: .74rem; color: var(--muted); font-family: var(--mono); }
+        .clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+        .tabs { display: flex; gap: 30px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+        .tabs button { border: 0; background: transparent; color: var(--muted); padding: 12px 2px; font-size: 1rem; font-weight: 500; white-space: nowrap;
+                       border-bottom: 2px solid transparent; margin-bottom: -1px; }
+        .tabs button.active { color: var(--text); border-bottom-color: var(--text); }
+        .tab-pane-x { display: none; }
+        .tab-pane-x.active { display: block; }
+        .section-title { font-weight: 600; font-size: 1rem; }
+
+        .table-dark { --bs-table-bg: transparent; --bs-table-border-color: var(--line); }
+        .table thead th { font-family: var(--mono); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted) !important; font-weight: 600; }
+        .table td { font-family: var(--mono); font-size: .82rem; }
+        .table td:first-child { font-family: Inter, sans-serif; }
+        tr.top-row td { background: rgba(255, 255, 255, .04); }
+        .form-control, .form-select { background-color: var(--card-2) !important; border-color: var(--line-2) !important; color: var(--text) !important; }
+        .bar-row { display: grid; grid-template-columns: 48px 1fr 48px 52px; gap: 8px; align-items: center; font-size: .8rem; font-family: var(--mono); }
+        .bar-track { background: var(--card-2); border-radius: 5px; height: 12px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 5px; }
+        .bar-fill.hot { background: var(--hot); }
+        .bar-fill.cold { background: var(--cold); }
+        .bar-row.today { outline: 1px dashed var(--live); outline-offset: 2px; border-radius: 6px; }
+        textarea.insight { font-size: 1.02rem; line-height: 1.5; }
+        .hit { color: var(--hot); font-weight: 600; }
+        .hit-cold { color: var(--cold); font-weight: 600; }
+        .chat-q { color: var(--muted); }
+        .chat-a { white-space: pre-wrap; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+        .pill { font-family: var(--mono); font-size: .66rem; padding: 2px 6px; border-radius: 5px; font-weight: 600; background: var(--card-2); color: var(--muted); border: 1px solid var(--line-2); }
+
+        .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 10px; padding: 3px; gap: 2px; background: var(--card); }
+        .seg button { border: 0; background: transparent; color: var(--muted); font-size: .8rem; font-weight: 600; padding: 4px 11px; border-radius: 7px; }
+        .seg button.active { background: var(--card-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-2); }
+        .seg.sm button { font-size: .72rem; padding: 3px 9px; font-family: var(--mono); }
+        .wx-chip { display: inline-flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: .74rem; padding: 3px 8px;
+                   border-radius: 7px; background: var(--card-2); border: 1px solid var(--line); }
+        .day-row { display: grid; grid-template-columns: 74px 30px 1fr auto; gap: 10px; align-items: center; padding: 8px 10px;
+                   background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; }
+        .temp-bar { position: relative; height: 6px; background: var(--line); border-radius: 3px; }
+        .temp-bar > span { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: linear-gradient(90deg, var(--cold), var(--hot)); }
+        .cal-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 12px; }
+        .cal-metrics .m-k { font-size: .76rem; color: var(--muted); }
+        .cal-metrics .m-v { font-family: var(--mono); font-weight: 600; font-size: 1.02rem; margin-top: 4px; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+        .cal-head { text-align: center; font-family: var(--mono); font-size: .7rem; letter-spacing: .08em; color: var(--dim); padding: 6px 0; }
+        .cal-cell { border-radius: 9px; padding: 8px 9px; min-height: 86px; background: var(--card-2); border: 1px solid transparent; display: flex; flex-direction: column; position: relative; }
+        .cal-cell.has { cursor: pointer; }
+        .cal-cell.has:hover { filter: brightness(1.15); }
+        .cal-cell.pos { background: linear-gradient(180deg, rgba(34, 197, 94, .26), rgba(34, 197, 94, .10)); border-color: rgba(34, 197, 94, .25); }
+        .cal-cell.neg { background: linear-gradient(180deg, rgba(239, 68, 68, .30), rgba(239, 68, 68, .12)); border-color: rgba(239, 68, 68, .28); }
+        .cal-cell.empty { background: transparent; }
+        .cal-cell.selected { outline: 2px solid var(--text); outline-offset: 1px; }
+        .cal-day { position: absolute; top: 6px; right: 8px; font-family: var(--mono); font-size: .7rem; color: var(--dim); }
+        .cal-cell.has .cal-day { color: var(--text); }
+        .cal-pnl { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; margin-top: 4px; }
+        .cal-cell.pos .cal-pnl { color: var(--up); }
+        .cal-cell.neg .cal-pnl { color: var(--down); }
+        .cal-sub { margin-top: auto; font-family: var(--mono); font-size: .64rem; color: var(--muted); }
+        .pill.w { background: rgba(34, 197, 94, .14); color: var(--up); border-color: transparent; }
+        .pill.l { background: rgba(239, 68, 68, .14); color: var(--down); border-color: transparent; }
+        @media (max-width: 768px) {
+            .cal-cell { min-height: 56px; padding: 5px; }
+            .cal-pnl { font-size: .72rem; margin-top: 12px; }
+            .cal-sub { display: none; }
+            .navlinks { display: none; }
+            .tabs { gap: 20px; }
+            .tabs button { font-size: .92rem; }
+            .huge { font-size: 1.8rem; }
+            .bar-row { grid-template-columns: 40px 1fr 40px 44px; }
+        }
+    </style>
+</head>
+<body>
+<nav class="topbar">
+    <div class="wrap">
+        <a class="brand" href="/copy"><i class="bi bi-hexagon-half"></i>AUTOBOT</a>
+        <div class="navlinks">
+            <a href="/">Dashboard</a>
+            <a href="/autobot">Auto Bot</a>
+            <a href="/hk">HK</a>
+            <a href="/copy" class="active">Copy</a>
+        </div>
+        <div class="ms-auto"><button class="btn-x sm" id="switchBtn" onclick="toggleCopy()">-</button></div>
+    </div>
+</nav>
+
+<div class="wrap py-4">
+    <div class="row g-3 mb-4">
+        <div class="col-lg-5">
+            <div class="card-x p-4 h-100">
+                <div class="d-flex gap-3 align-items-start">
+                    <div class="avatar" style="background: radial-gradient(circle at 30% 30%, #8b5cf6, #3b0764); box-shadow: 0 0 0 3px var(--card), 0 0 0 5px rgba(139, 92, 246, .5)">👛</div>
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="handle">Copy Trade</div>
+                        <div class="d-flex gap-1 mt-2 flex-wrap" id="hdrChips"><span class="chip">memuat…</span></div>
+                    </div>
+                </div>
+                <div class="small muted mt-3" id="hdrLimits">-</div>
+                <div class="small dim mt-2">Terpisah dari Auto Bot: saklar, batas risiko, notifikasi, dan statistik sendiri. Paper saja.</div>
+            </div>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <div class="card-x p-4 h-100 d-flex flex-column gap-3" id="todayBox"><div class="small muted">Memuat…</div></div>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <div class="card-x p-4 h-100">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div><div class="muted small">Total PnL copy</div><div class="huge" id="totPnl">-</div>
+                        <div class="small mono muted" id="totSub"></div></div>
+                    <div class="seg sm" id="periodSeg">
+                        <button data-period="1w" onclick="setPeriod('1w')">1W</button>
+                        <button data-period="1m" onclick="setPeriod('1m')">1M</button>
+                        <button data-period="all" onclick="setPeriod('all')">ALL</button>
+                    </div>
+                </div>
+                <div id="spark" class="mt-2" style="height: 70px"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tabs mb-3" id="tabs">
+        <button data-tab="wallets" onclick="setTab('wallets')">Wallet</button>
+        <button data-tab="history" onclick="setTab('history')">Riwayat</button>
+        <button data-tab="calendar" onclick="setTab('calendar')">Kalender</button>
+        <button data-tab="skips" onclick="setTab('skips')">Dilewati</button>
+    </div>
+
+    <div class="tab-pane-x" id="tab-wallets">
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title">Wallet yang dilacak</div>
+                <a class="btn-x ghost sm" href="/#walletTrackedBody">+ Lacak wallet di Dashboard</a>
+            </div>
+            <div class="table-responsive"><table class="table table-dark table-sm mb-0 align-middle">
+                <thead><tr><th>Wallet</th><th>Copy</th><th class="text-end">$/trade</th><th class="text-end" title="Maks kenaikan harga dari harga wallet">Slip ≤ ¢</th>
+                    <th class="text-end">Harga min–max ¢</th><th class="text-end" title="Lewati transaksi wallet yang lebih tua dari ini">Maks telat</th>
+                    <th>Ikut jual</th><th class="text-end">Hasil</th></tr></thead>
+                <tbody id="walletRows"><tr><td colspan="8" class="muted">Memuat…</td></tr></tbody></table></div>
+            <div class="small dim mt-3">Copy aktif = saat wallet membeli, bot membeli outcome yang sama di akun paper memakai harga order book terkini
+                (sekali per wallet + market + outcome). Dilewati bila harga sudah naik melebihi "Slip", di luar rentang harga, order book tipis,
+                transaksi wallet terlalu lama (min. 3 menit), atau batas risiko copy tercapai. Ikut jual = saat wallet menjual, posisi copy kita ikut dijual.
+                Wallet yang di-copy dicek tiap ±15 detik. ⚠️ scalper = wallet yang biasa beli lalu jual lagi dalam hitungan menit (mis. 97¢ → 99¢):
+                ask sudah ia borong sehingga hampir tidak bisa disalin.</div>
+        </div>
+    </div>
+
+    <div class="tab-pane-x" id="tab-history">
+        <div class="card-x p-4">
+            <div class="row g-2 mb-3" id="histStats"></div>
+            <div class="row g-2 mb-3" id="histWallets"></div>
+            <div class="seg mb-2" id="histFilter">
+                <button data-f="" onclick="setHistFilter('')">Semua</button>
+                <button data-f="MENANG" onclick="setHistFilter('MENANG')">Menang</button>
+                <button data-f="KALAH" onclick="setHistFilter('KALAH')">Kalah</button>
+                <button data-f="TERBUKA" onclick="setHistFilter('TERBUKA')">Terbuka</button>
+            </div>
+            <div class="table-responsive" style="max-height: 560px; overflow-y: auto"><table class="table table-dark table-sm mb-0 align-middle">
+                <thead class="sticky-top" style="background: var(--card)"><tr><th>Waktu</th><th>Hasil</th><th>Wallet · market</th>
+                    <th class="text-end">Masuk</th><th class="text-end">Ukuran</th><th class="text-end">PnL</th></tr></thead>
+                <tbody id="histRows"><tr><td colspan="6" class="muted">Memuat…</td></tr></tbody></table></div>
+        </div>
+    </div>
+
+    <div class="tab-pane-x" id="tab-calendar">
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title"><i class="bi bi-calendar3 me-1"></i>Kalender PnL copy</div>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="icon-btn border-0" onclick="shiftCal(-1)" aria-label="Sebelumnya"><i class="bi bi-chevron-left"></i></button>
+                    <span class="fw-semibold" id="calLabel" style="min-width: 140px; text-align: center">-</span>
+                    <button class="icon-btn border-0" onclick="shiftCal(1)" aria-label="Berikutnya"><i class="bi bi-chevron-right"></i></button>
+                </div>
+            </div>
+            <div class="cal-metrics mb-3" id="calSummary"></div>
+            <div id="calGrid"></div>
+            <div id="calTrades" class="mt-3"></div>
+        </div>
+    </div>
+
+    <div class="tab-pane-x" id="tab-skips">
+        <div class="card-x p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="section-title">Copy yang dilewati</div>
+                <div class="seg sm" id="skipHours">
+                    <button data-h="24" onclick="loadSkips(24)">24J</button>
+                    <button data-h="168" onclick="loadSkips(168)">7H</button>
+                </div>
+            </div>
+            <div class="d-flex gap-1 flex-wrap mb-3" id="skipSummary"></div>
+            <div class="table-responsive" style="max-height: 560px; overflow-y: auto"><table class="table table-dark table-sm mb-0 align-middle">
+                <thead class="sticky-top" style="background: var(--card)"><tr><th>Waktu</th><th>Wallet · market</th><th class="text-end">Harga wallet → kini</th><th>Alasan</th></tr></thead>
+                <tbody id="skipRows"><tr><td colspan="4" class="muted">Memuat…</td></tr></tbody></table></div>
+            <div class="small dim mt-2" id="skipNote"></div>
+        </div>
+    </div>
+    <div class="small dim text-center mt-4">Paper trading, bukan saran finansial.</div>
+</div>
+
+<script>
+    const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const pct = v => v === null || v === undefined ? '-' : Math.round(v * 100) + '%';
+    const money = v => (v > 0 ? '+' : v < 0 ? '−' : '') + '$' + Math.abs(v).toFixed(2);
+    const pnlCls = v => v > 0 ? 'up' : v < 0 ? 'down' : '';
+    const pad = n => String(n).padStart(2, '0');
+    const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
+                    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* abaikan */ } } };
+    let data = null, trades = null, histFilter = '', period = store.get('copyPeriod', 'all'), tab = store.get('copyTab', 'wallets');
+
+    function setTab(t) {
+        tab = t; store.set('copyTab', t);
+        document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+        document.querySelectorAll('.tab-pane-x').forEach(p => p.classList.toggle('active', p.id === 'tab-' + t));
+    }
+    function setPeriod(p) { period = p; store.set('copyPeriod', p); loadTrades(); }
+
+    function sparkline(values) {
+        if (!values.length) return '<div class="small dim mono pt-4">belum ada trade selesai</div>';
+        const pts = [0, ...values], w = 300, h = 70, min = Math.min(...pts), max = Math.max(...pts), span = (max - min) || 1;
+        const line = pts.map((v, i) => `${i ? 'L' : 'M'}${(i / (pts.length - 1) * w).toFixed(1)},${(4 + (1 - (v - min) / span) * (h - 8)).toFixed(1)}`).join(' ');
+        const color = pts[pts.length - 1] >= 0 ? 'var(--up)' : 'var(--down)';
+        return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%" height="${h}"><path d="${line}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+    }
+
+    // --- STATUS & WALLET ---
+    async function loadCopy() {
+        try { const res = await fetch('/api/copy'); data = await res.json(); } catch (e) { data = null; }
+        render();
+    }
+    async function toggleCopy() {
+        if (!data) return;
+        const res = await fetch('/api/copy/' + (data.active ? 'stop' : 'start'), { method: 'POST' });
+        if (res.ok) { data = await res.json(); render(); }
+    }
+    function render() {
+        if (!data) return;
+        const on = data.active, t = data.today, l = data.limits;
+        const enabled = (data.wallets || []).filter(w => w.copy.enabled).length;
+        document.getElementById('switchBtn').textContent = on ? 'Stop copy' : 'Start copy';
+        document.getElementById('switchBtn').className = on ? 'btn-x ghost sm' : 'btn-x sm';
+        document.getElementById('hdrChips').innerHTML = (on ? '<span class="chip on">● aktif</span>' : '<span class="chip off">● berhenti</span>')
+            + `<span class="chip">${enabled} wallet di-copy</span><span class="chip">paper</span>`
+            + (data.notify_skips ? '<span class="chip">notif dilewati: on</span>' : '<span class="chip">notif dilewati: ringkasan</span>');
+        document.getElementById('hdrLimits').innerHTML = `Batas: maks $${l.max_daily_usd}/hari · posisi terbuka maks $${l.max_open_usd} · stop rugi $${l.max_daily_loss}/hari`;
+        const row = (k, v, s, cls = '') => `<div class="kv"><div class="k">${k}</div><div class="v"><div class="big ${cls}">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div></div>`;
+        const skips = Object.values(data.skip_summary || {}).reduce((a, b) => a + b, 0);
+        document.getElementById('todayBox').innerHTML = row('Beli hari ini', t.bought, `$${t.spent.toFixed(2)} / ${l.max_daily_usd}`)
+            + row('Terbuka', '$' + t.open_usd.toFixed(2), `maks $${l.max_open_usd}`)
+            + row('PnL hari ini', money(t.realized_pnl), `${skips} dilewati (24 jam)`, pnlCls(t.realized_pnl));
+        renderWallets();
+    }
+    function renderWallets() {
+        const rows = (data && data.wallets) || [];
+        document.getElementById('walletRows').innerHTML = rows.map(w => {
+            const c = w.copy, s = w.stats || {}, a = esc(w.address);
+            const num = (field, v, step, width = 64) => `<input type="number" step="${step}" class="form-control form-control-sm mono text-end" style="width:${width}px; display:inline-block"
+                value="${v}" onchange="saveCopy('${a}', '${field}', this.value)">`;
+            const name = w.name && !/^0x/i.test(w.name) ? esc(w.name) : esc(w.address.slice(0, 6) + '…' + w.address.slice(-4));
+            const res = s.trades ? `${s.trades} copy${s.win_rate !== null && s.win_rate !== undefined ? ` · WR ${pct(s.win_rate)} · <span class="${pnlCls(s.pnl)}">${money(s.pnl)}</span>` : ''}${s.open ? ` · ${s.open} terbuka` : ''}` : '<span class="dim">-</span>';
+            const st = w.style || {};
+            const style = st.scalper ? `<div class="small" style="color: var(--live)" title="Beli lalu jual aset yang sama dalam ≤15 menit">⚠️ scalper: ${Math.round(st.scalp_ratio * 100)}% dijual ≤15 mnt — sulit di-copy</div>`
+                : (st.median_hold_min !== null && st.median_hold_min !== undefined ? `<div class="dim" style="font-size: .7rem">median tahan ${st.median_hold_min >= 60 ? (st.median_hold_min / 60).toFixed(1) + ' jam' : st.median_hold_min + ' mnt'}</div>` : '');
+            return `<tr>
+                <td>${w.follow ? '🔔' : '🔕'} <a href="https://polymarket.com/profile/${a}" target="_blank" rel="noopener noreferrer">${name}</a>${style}</td>
+                <td><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" ${c.enabled ? 'checked' : ''} onchange="saveCopy('${a}', 'enabled', this.checked)"></div></td>
+                <td class="text-end">${num('usd', c.usd, 1)}</td>
+                <td class="text-end">${num('max_slippage', Math.round(c.max_slippage * 100), 1, 56)}</td>
+                <td class="text-end text-nowrap">${num('min_price', Math.round(c.min_price * 100), 1, 52)} – ${num('max_price', Math.round(c.max_price * 100), 1, 52)}</td>
+                <td class="text-end text-nowrap">${num('max_delay_min', c.max_delay_min, 1, 56)} <span class="dim">mnt</span></td>
+                <td><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" ${c.mirror_sell ? 'checked' : ''} onchange="saveCopy('${a}', 'mirror_sell', this.checked)"></div></td>
+                <td class="text-end small">${res}</td></tr>`;
+        }).join('') || '<tr><td colspan="8" class="muted">Belum ada wallet yang dilacak. Lacak dulu di Dashboard → Wallet Tracker.</td></tr>';
+    }
+    async function saveCopy(address, field, value) {
+        const cents = ['max_slippage', 'min_price', 'max_price'];
+        const body = { [field]: typeof value === 'boolean' ? value : (cents.includes(field) ? Number(value) / 100 : Number(value)) };
+        try {
+            const res = await fetch('/api/copy/' + encodeURIComponent(address), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const d = await res.json();
+            if (!res.ok) throw new Error(d.detail || 'Gagal');
+        } catch (e) { alert('Gagal menyimpan: ' + e.message); }
+        loadCopy();
+    }
+
+    // --- RIWAYAT ---
+    function setHistFilter(f) { histFilter = f; document.querySelectorAll('#histFilter button').forEach(b => b.classList.toggle('active', b.dataset.f === f)); renderHistory(); }
+    async function loadTrades() {
+        document.querySelectorAll('#periodSeg button').forEach(b => b.classList.toggle('active', b.dataset.period === period));
+        try { const res = await fetch('/api/copy-trades?period=' + period); trades = await res.json(); } catch (e) { trades = null; }
+        const s = (trades && trades.stats) || {};
+        document.getElementById('totPnl').innerHTML = `<span class="${pnlCls(s.pnl || 0)}">${money(s.pnl || 0)}</span>`;
+        document.getElementById('totSub').innerHTML = `${s.trades || 0} selesai · WR ${pct(s.win_rate)}${s.roi !== null && s.roi !== undefined ? ' · ROI ' + (s.roi * 100).toFixed(1) + '%' : ''}`;
+        document.getElementById('spark').innerHTML = sparkline(((s.curve) || []).map(p => p.pnl));
+        renderHistory();
+    }
+    function renderHistory() {
+        if (!trades) { document.getElementById('histRows').innerHTML = '<tr><td colspan="6" class="muted">Gagal memuat.</td></tr>'; return; }
+        const s = trades.stats || {};
+        const tile = (k, v, cls = '') => `<div class="col-6 col-md-3 col-xl"><div class="tcard"><div class="label">${k}</div><div class="big mt-1 ${cls}" style="font-size: 1.2rem">${v}</div></div></div>`;
+        document.getElementById('histStats').innerHTML = tile('Trade selesai', s.trades || 0) + tile('Menang', `<span class="up">${s.wins || 0}</span>`)
+            + tile('Kalah', `<span class="down">${s.losses || 0}</span>`) + tile('Win rate', pct(s.win_rate)) + tile('PnL', money(s.pnl || 0), pnlCls(s.pnl))
+            + tile('ROI', s.roi === null || s.roi === undefined ? '-' : (s.roi * 100).toFixed(1) + '%', pnlCls(s.roi))
+            + tile('Posisi terbuka', ((s.open || {}).count) || 0);
+        const per = (data && data.wallets || []).filter(w => (w.stats || {}).trades);
+        document.getElementById('histWallets').innerHTML = per.map(w => `<div class="col-md-6 col-xl-4"><div class="tcard d-flex justify-content-between align-items-center">
+            <div><div class="fw-semibold small">👛 ${esc(w.name || w.address.slice(0, 10))}</div><div class="label" style="font-size: .62rem">${w.stats.trades} copy · WR ${pct(w.stats.win_rate)} · ${w.stats.open} terbuka</div></div>
+            <div class="mono fw-semibold ${pnlCls(w.stats.pnl)}">${money(w.stats.pnl)}</div></div></div>`).join('');
+        const pill = { MENANG: '<span class="pill w">WIN</span>', KALAH: '<span class="pill l">LOSS</span>', TERBUKA: '<span class="pill">OPEN</span>', DIJUAL: '<span class="pill">SOLD</span>', BATAL: '<span class="pill">VOID</span>' };
+        const rows = (trades.history || []).filter(r => !histFilter || r.result === histFilter);
+        document.getElementById('histRows').innerHTML = rows.map(r => `<tr>
+            <td class="text-nowrap dim">${new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+            <td>${pill[r.result] || esc(r.result)}</td>
+            <td><div>${esc(r.label || '')}</div>${r.detail ? `<div class="dim" style="font-size: .72rem">${esc(r.detail.split(' · https://')[0])}</div>` : ''}</td>
+            <td class="text-end">${(r.price * 100).toFixed(1)}¢</td><td class="text-end">$${Number(r.size).toFixed(2)}</td>
+            <td class="text-end fw-semibold ${pnlCls(r.pnl || 0)}">${r.pnl === null || r.pnl === undefined ? '-' : money(r.pnl)}</td></tr>`).join('')
+            || '<tr><td colspan="6" class="muted">Belum ada copy trade.</td></tr>';
+    }
+
+    // --- KALENDER ---
+    const nowJkt = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+    const cal = { year: nowJkt.getFullYear(), month: nowJkt.getMonth() + 1, selected: null };
+    function shiftCal(step) { cal.month += step; if (cal.month < 1) { cal.month = 12; cal.year--; } if (cal.month > 12) { cal.month = 1; cal.year++; } cal.selected = null; loadCalendar(); }
+    async function loadCalendar() {
+        document.getElementById('calLabel').textContent = `${MONTHS[cal.month - 1]} ${cal.year}`;
+        try {
+            const res = await fetch(`/api/autotrade/calendar?month=${cal.year}-${pad(cal.month)}&strategy=copy&source=paper`);
+            const d = await res.json(), t = d.totals || {};
+            const m = (k, v, cls = '') => `<div><div class="m-k">${k}</div><div class="m-v ${cls}">${v}</div></div>`;
+            document.getElementById('calSummary').innerHTML = t.trades ? m('PnL bulan ini', money(t.pnl), pnlCls(t.pnl)) + m('Trade', t.trades) + m('Win rate', pct(t.win_rate))
+                + m('ROI', t.roi === null ? '-' : (t.roi * 100).toFixed(1) + '%', pnlCls(t.roi)) + m('Hari hijau / merah', `<span class="up">${t.green}</span> / <span class="down">${t.red}</span>`)
+                : '<div class="small dim">Belum ada copy trade selesai di bulan ini.</div>';
+            const days = d.days || {}, first = new Date(cal.year, cal.month - 1, 1), offset = (first.getDay() + 6) % 7, total = new Date(cal.year, cal.month, 0).getDate();
+            const cells = ['SEN', 'SEL', 'RAB', 'KAM', 'JUM', 'SAB', 'MIN'].map(x => `<div class="cal-head">${x}</div>`);
+            for (let i = 0; i < offset; i++) cells.push('<div class="cal-cell empty"></div>');
+            for (let day = 1; day <= total; day++) {
+                const key = `${cal.year}-${pad(cal.month)}-${pad(day)}`, b = days[key];
+                const cls = ['cal-cell', b ? 'has' : '', b ? (b.pnl > 0 ? 'pos' : b.pnl < 0 ? 'neg' : '') : '', cal.selected === key ? 'selected' : ''].join(' ');
+                cells.push(`<div class="${cls}" ${b ? `onclick="selectCal('${key}')"` : ''}><div class="cal-day">${day}</div>${b ? `<div class="cal-pnl">${money(b.pnl)}</div><div class="cal-sub"><span class="up">${b.wins}W</span> <span class="down">${b.losses}L</span></div>` : ''}</div>`);
+            }
+            const grid = document.getElementById('calGrid'); grid.className = 'cal-grid'; grid.innerHTML = cells.join('');
+        } catch (e) { document.getElementById('calGrid').innerHTML = '<div class="small muted">Gagal memuat kalender.</div>'; }
+    }
+    async function selectCal(key) {
+        cal.selected = key; loadCalendar();
+        const res = await fetch(`/api/autotrade/calendar/trades?date=${key}&strategy=copy&source=paper`);
+        const list = (await res.json()).trades || [];
+        document.getElementById('calTrades').innerHTML = `<div class="tcard"><b>${key}</b><table class="table table-dark table-sm mb-0 mt-2"><tbody>${list.map(t => `<tr>
+            <td>${t.result === 'MENANG' ? '<span class="pill w">WIN</span>' : t.result === 'KALAH' ? '<span class="pill l">LOSS</span>' : `<span class="pill">${esc(t.result)}</span>`}</td>
+            <td>${esc(t.market)} · ${esc(t.outcome || '')}</td><td class="text-end fw-semibold ${pnlCls(t.pnl)}">${money(t.pnl)}</td></tr>`).join('')}</tbody></table></div>`;
+    }
+
+    // --- DILEWATI ---
+    async function loadSkips(hours = 24) {
+        document.querySelectorAll('#skipHours button').forEach(b => b.classList.toggle('active', Number(b.dataset.h) === hours));
+        const res = await fetch('/api/copy-skips?hours=' + hours);
+        const list = (await res.json()).skips || [];
+        const groups = {};
+        list.forEach(s => { groups[s.group] = (groups[s.group] || 0) + 1; });
+        document.getElementById('skipSummary').innerHTML = Object.entries(groups).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span class="chip">${esc(k)} · ${v}</span>`).join('') || '<span class="dim small">Tidak ada.</span>';
+        document.getElementById('skipRows').innerHTML = list.map(s => `<tr>
+            <td class="text-nowrap dim">${new Date(s.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+            <td><div>👛 ${esc(s.wallet_label || '-')}</div><div class="dim" style="font-size: .72rem">${esc((s.label || '').split(' · ').slice(1).join(' · '))}</div></td>
+            <td class="text-end text-nowrap">${s.wallet_price !== null && s.wallet_price !== undefined ? (s.wallet_price * 100).toFixed(1) + '¢' : '-'} → ${(s.price * 100).toFixed(1)}¢</td>
+            <td class="small">${esc(s.reason)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Tidak ada copy yang dilewati.</td></tr>';
+        document.getElementById('skipNote').textContent = (data && data.notify_skips) ? 'Notifikasi per kejadian: aktif (COPY_NOTIFY_SKIPS=true).'
+            : 'Copy yang dilewati tidak dikirim satu per satu ke Telegram (COPY_NOTIFY_SKIPS=false) — ringkasannya ada di sini dan di /copy.';
+    }
+
+    async function loadAll() { await loadCopy(); loadTrades(); loadCalendar(); loadSkips(24); }
+    setTab(document.getElementById('tab-' + tab) ? tab : 'wallets');
+    setHistFilter('');
+    loadAll();
+    setInterval(() => { loadCopy(); loadTrades(); }, 60000);
+</script>
+</body>
+</html>
